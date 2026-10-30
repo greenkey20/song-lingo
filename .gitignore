@@ -1,0 +1,28 @@
+# 비밀값
+.env
+*.key
+
+# 개인 음성·녹음·생성 음원 (공개 저장소에 올리지 않음)
+data/
+results/
+*.wav
+*.m4a
+*.mp3
+*.flac
+*.ogg
+
+# 모델·캐시
+models/
+*.keras
+*.pt
+*.bin
+__pycache__/
+.ipynb_checkpoints/
+.pytest_cache/
+
+# 에디터·OS·캡처
+.vscode/
+.idea/
+.DS_Store
+Screenshot*
+*.log

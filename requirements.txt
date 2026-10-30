@@ -1,0 +1,10 @@
+# 기존 conda 환경 `voice-ai` (Python 3.11)에 이미 설치된 버전 (2026-10-30 확인)
+# 새 패키지는 설치 전에 `pip install --dry-run`으로 numpy가 바뀌지 않는지 확인할 것
+numpy==1.26.4        # TensorFlow 2.16 때문에 고정
+scipy==1.17.1
+pandas==3.0.6
+matplotlib==3.11.2
+faster-whisper==1.2.1
+openai==3.35.1
+python-dotenv==1.2.4
+ipykernel==7.3.0
