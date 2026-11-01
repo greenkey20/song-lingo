@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>spike: 브라우저 녹음 점검</title>
+<style>
+  body { font-family: -apple-system, "Apple SD Gothic Neo", sans-serif; max-width: 640px; margin: 24px auto; padding: 0 16px; color: #0b0b0b; background: #fcfcfb; }
+  button { font-size: 16px; padding: 10px 16px; margin-right: 8px; }
+  select { font-size: 16px; padding: 6px; max-width: 100%; }
+  table { border-collapse: collapse; margin-top: 12px; width: 100%; }
+  td { border-bottom: 1px solid #e4e3df; padding: 6px 4px; vertical-align: top; }
+  td:first-child { color: #52514e; width: 9em; }
+  #status { margin: 12px 0; color: #52514e; }
+  .bad { color: #b00020; }
+</style>
+</head>
+<body>
+<h1>녹음 점검 (spike)</h1>
+<p>문장을 고르고 ⏺ 녹음을 눌러 읽은 뒤 ⏹ 정지를 누르세요. 바로 재생되고, 서버가 인식·채점한 결과가 아래에 나옵니다. (이 화면은 평가가 아니라 점검용입니다.)</p>
+
+<p><select id="sentence"></select></p>
+<p>
+  <button id="start">⏺ 녹음</button>
+  <button id="stop" disabled>⏹ 정지</button>
+</p>
+<p id="status">대기 중</p>
+<audio id="player" controls hidden></audio>
+<table id="result"></table>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let recorder = null, chunks = [], stream = null, startedAt = 0;
+
+function show(rows) {              // 값은 textContent로 넣습니다(문자열을 HTML로 해석하지 않음)
+  const t = $("result"); t.replaceChildren();
+  for (const [k, v, bad] of rows) {
+    const tr = t.insertRow(), a = tr.insertCell(), b = tr.insertCell();
+    a.textContent = k; b.textContent = v; if (bad) b.className = "bad";
+  }
+}
+
+async function loadSentences() {
+  const list = await (await fetch("/api/sentences")).json();
+  for (const s of list) {
+    const o = document.createElement("option");
+    o.value = s.id; o.textContent = `${s.id}. ${s.sentence}`;
+    $("sentence").append(o);
+  }
+}
+
+$("start").onclick = async () => {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    $("status").textContent = `마이크를 쓸 수 없습니다: ${e.name} ${e.message}`; $("status").className = "bad"; return;
+  }
+  $("status").className = "";
+  chunks = [];
+  recorder = new MediaRecorder(stream);          // 형식은 브라우저가 정합니다(recorder.mimeType)
+  recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  recorder.onstop = onStop;
+  recorder.start();
+  startedAt = performance.now();
+  $("start").disabled = true; $("stop").disabled = false;
+  $("status").textContent = `녹음 중… (브라우저 형식: ${recorder.mimeType || "알 수 없음"})`;
+};
+
+$("stop").onclick = () => {
+  recorder.stop();
+  stream.getTracks().forEach((t) => t.stop());   // 마이크 사용 표시를 끕니다
+  $("start").disabled = false; $("stop").disabled = true;
+};
+
+async function onStop() {
+  const type = recorder.mimeType || (chunks[0] && chunks[0].type) || "";
+  const blob = new Blob(chunks, { type });
+  const recSec = ((performance.now() - startedAt) / 1000).toFixed(1);
+  $("player").src = URL.createObjectURL(blob); $("player").hidden = false;   // 바로 재생
+  $("status").textContent = "서버에서 인식 중…";
+  const rows = [["브라우저 형식", type || "(없음)"], ["녹음 길이", `${recSec}초`], ["보낸 크기", `${blob.size}바이트`]];
+  show(rows);
+  const form = new FormData();
+  form.append("sentence_id", $("sentence").value);
+  form.append("audio", blob, "recording");
+  const t0 = performance.now();
+  try {
+    const r = await (await fetch("/api/transcribe", { method: "POST", body: form })).json();
+    const round = ((performance.now() - t0) / 1000).toFixed(2);
+    rows.push(["서버가 받은 형식", r.content_type || "(없음)"], ["서버가 받은 크기", `${r.size}바이트`]);
+    if (r.ok) {
+      rows.push(["인식 성공", "예"], ["정답", r.sentence], ["인식한 문장", r.text],
+        ["오류율(WER)", `${r.wer}  (치환 ${r.S}, 삭제 ${r.D}, 삽입 ${r.I} / 정답 ${r.N}단어)`],
+        ["틀린 부분", r.diff], ["인식 시간", `${r.seconds}초`], ["서버 전체", `${r.total_seconds}초`], ["왕복(화면 기준)", `${round}초`]);
+      $("status").textContent = "완료";
+    } else {
+      rows.push(["인식 성공", "아니오", true], ["오류", r.error, true], ["왕복(화면 기준)", `${round}초`]);
+      $("status").textContent = "서버가 이 형식을 처리하지 못했습니다. 위 오류와 서버 로그를 기록하세요.";
+    }
+  } catch (e) {
+    rows.push(["요청 실패", `${e.name} ${e.message}`, true]); $("status").textContent = "서버에 보내지 못했습니다.";
+  }
+  show(rows);
+}
+
+loadSentences();
+</script>
+</body>
+</html>
