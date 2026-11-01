@@ -122,6 +122,15 @@ def cer(ref, hyp, lang="en", **kw):
     return score(r, h)
 
 
+def evaluate(ref, hyp, lang="en", **kw):
+    """한 문장의 채점 결과를 한 번에 돌려준다: {"wer": wer 결과, "cer": cer 결과, "main": 틀린 부분 표시에 쓸 쪽}.
+
+    main은 일본어처럼 공백으로 단어를 나눌 수 없는 언어면 cer, 그 밖에는 wer이다.
+    (practice.ipynb의 show_result에 있던 판단을 채점 모듈로 옮긴 것.)"""
+    w, c = wer(ref, hyp, lang, **kw), cer(ref, hyp, lang, **kw)
+    return {"wer": w, "cer": c, "main": c if lang == "ja" else w}
+
+
 def format_diff(ops):
     """틀린 부분을 한 줄로 표시: 일치는 그대로, 치환은 [정답→인식], 삭제는 [-정답-], 삽입은 [+인식+]."""
     parts = []
