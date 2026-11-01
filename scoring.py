@@ -7,6 +7,7 @@
 """
 import re
 import unicodedata
+from difflib import SequenceMatcher
 
 
 def normalize(text, lang="en", strip_accents=False):
@@ -44,20 +45,53 @@ def edit_matrix(ref, hyp):
     return d
 
 
+def _similarity(a, b):
+    """두 토큰이 얼마나 비슷한지 0~1. 같으면 1, 글자 하나짜리는 다르면 0, 그 밖에는 difflib 글자 비율(explore↔explor 0.92, the↔explor 0.2)."""
+    if a == b:
+        return 1.0
+    if len(a) == 1 and len(b) == 1:
+        return 0.0
+    return SequenceMatcher(None, a, b).ratio()
+
+
+def _tie_scores(ref, hyp, d):
+    """최소 편집 거리를 만드는 경로들 중에서 '비슷한 토큰끼리 짝지은 정도'의 합이 가장 큰 값을 칸마다 계산한다.
+    g[i][j]는 ref[:i], hyp[:j]를 최소 비용으로 맞추는 경로들의 최대 합이다(일치는 1점, 치환은 비슷한 만큼, 삭제·삽입은 0점)."""
+    n, m = len(ref), len(hyp)
+    g = [[0.0] * (m + 1) for _ in range(n + 1)]
+    for i in range(n + 1):
+        for j in range(m + 1):
+            if i == 0 and j == 0:
+                continue
+            cands = []
+            if i > 0 and j > 0 and d[i][j] == d[i - 1][j - 1] + (ref[i - 1] != hyp[j - 1]):
+                cands.append(g[i - 1][j - 1] + _similarity(ref[i - 1], hyp[j - 1]))
+            if i > 0 and d[i][j] == d[i - 1][j] + 1:
+                cands.append(g[i - 1][j])
+            if j > 0 and d[i][j] == d[i][j - 1] + 1:
+                cands.append(g[i][j - 1])
+            g[i][j] = max(cands)
+    return g
+
+
 def backtrace(ref, hyp, d):
     """편집 거리 표를 거꾸로 따라가 (종류, 정답 토큰, 인식 토큰) 목록을 만든다.
-    종류: 일치 / 치환 / 삭제 / 삽입. 같은 거리의 경로가 여러 개면 일치·치환 → 삭제 → 삽입 순으로 고른다."""
+    종류: 일치 / 치환 / 삭제 / 삽입. 최소 거리를 만드는 경로가 여러 개면 비슷한 토큰끼리 짝지은 경로(_tie_scores)를 고르고,
+    그것도 같으면 일치·치환 → 삭제 → 삽입 순으로 고른다. 경로가 달라져도 오류율(거리)은 같다."""
+    g = _tie_scores(ref, hyp, d)
     i, j = len(ref), len(hyp)
     ops = []
     while i > 0 or j > 0:
-        if i > 0 and j > 0 and ref[i - 1] == hyp[j - 1] and d[i][j] == d[i - 1][j - 1]:
-            ops.append(("일치", ref[i - 1], hyp[j - 1])); i -= 1; j -= 1
-        elif i > 0 and j > 0 and d[i][j] == d[i - 1][j - 1] + 1:
-            ops.append(("치환", ref[i - 1], hyp[j - 1])); i -= 1; j -= 1
-        elif i > 0 and d[i][j] == d[i - 1][j] + 1:
-            ops.append(("삭제", ref[i - 1], None)); i -= 1
-        else:
-            ops.append(("삽입", None, hyp[j - 1])); j -= 1
+        options = []   # (총점, 우선순위, 다음 칸, 기록할 ops) 중 거리가 맞는 것만
+        if i > 0 and j > 0 and d[i][j] == d[i - 1][j - 1] + (ref[i - 1] != hyp[j - 1]):
+            kind = "일치" if ref[i - 1] == hyp[j - 1] else "치환"
+            options.append((g[i - 1][j - 1] + _similarity(ref[i - 1], hyp[j - 1]), 0, (i - 1, j - 1), (kind, ref[i - 1], hyp[j - 1])))
+        if i > 0 and d[i][j] == d[i - 1][j] + 1:
+            options.append((g[i - 1][j], 1, (i - 1, j), ("삭제", ref[i - 1], None)))
+        if j > 0 and d[i][j] == d[i][j - 1] + 1:
+            options.append((g[i][j - 1], 2, (i, j - 1), ("삽입", None, hyp[j - 1])))
+        _, _, (i, j), op = max(options, key=lambda o: (round(o[0], 9), -o[1]))
+        ops.append(op)
     return ops[::-1]
 
 

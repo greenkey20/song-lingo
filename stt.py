@@ -33,3 +33,17 @@ def recognize(path, language="en"):
     segments, _info = load_model().transcribe(str(path), language=language, beam_size=1)
     text = " ".join(seg.text.strip() for seg in segments)   # segments는 제너레이터라 여기서 실제로 인식이 돈다
     return text, time.time() - t0
+
+
+def recognize_words(path, language="en"):
+    """recognize와 같은 설정에 단어별 시간을 더해 (문장, 단어 목록, 걸린 시간)을 돌려준다.
+    단어 목록: [{"word", "start", "end", "prob"}]. vad_filter=True는 앞 무음이 첫 단어 시간에 섞이는 것을 줄이려는 것이며,
+    단어 시간은 모델 내부 정보로 추정한 값이라 대략의 구간으로만 쓴다."""
+    t0 = time.time()
+    segments, _info = load_model().transcribe(str(path), language=language, beam_size=1,
+                                              word_timestamps=True, vad_filter=True)
+    words = []
+    for seg in segments:   # 제너레이터라 여기서 실제로 인식이 돈다
+        words += [{"word": w.word.strip(), "start": w.start, "end": w.end, "prob": w.probability}
+                  for w in seg.words]
+    return " ".join(w["word"] for w in words), words, time.time() - t0

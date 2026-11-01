@@ -83,5 +83,33 @@ class Boundaries(unittest.TestCase):
         self.assertEqual(scoring.format_diff(r["ops"]), "the cat [sat→sit] on [-the-] mat")
 
 
+class TieBreak(unittest.TestCase):
+    """거리가 같은 경로가 여러 개일 때 비슷한 토큰끼리 짝지어 표시한다(오류율은 그대로)."""
+
+    def diff(self, ref, hyp):
+        return scoring.format_diff(scoring.wer(ref, hyp)["ops"])
+
+    def test_similar_words_are_paired(self):
+        self.assertEqual(self.diff("I want to explore the universe", "i want to explor universe"),
+                         "i want to [explore→explor] [-the-] universe")
+        self.assertEqual(self.diff("I want to explore the universe", "I wanna explore the universe"),
+                         "i [want→wanna] [-to-] explore the universe")
+
+    def test_contraction_pairs_with_first_word(self):
+        self.assertEqual(self.diff("We'll sing together", "We are seeing together"),
+                         "[we'll→we] [+are+] [sing→seeing] together")
+
+    def test_rate_and_reconstruction_unchanged(self):
+        rng = random.Random(7)
+        vocab = "a b c the then want wanna to explore explor".split()
+        for _ in range(300):
+            ref = [rng.choice(vocab) for _ in range(rng.randint(1, 7))]
+            hyp = [rng.choice(vocab) for _ in range(rng.randint(0, 7))]
+            r = scoring.score(ref, hyp)
+            self.assertEqual([o[1] for o in r["ops"] if o[1] is not None], ref)
+            self.assertEqual([o[2] for o in r["ops"] if o[2] is not None], hyp)
+            self.assertEqual(r["distance"], scoring.edit_matrix(ref, hyp)[-1][-1])
+
+
 if __name__ == "__main__":
     unittest.main()
