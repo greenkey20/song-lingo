@@ -32,7 +32,7 @@ $PY scripts/scan_outputs.py                   # 커밋 전: 노트북 출력의 
 
 ## Layout (계획서 3장)
 
-`scoring.py`(정규화·WER/CER·역추적·틀린 부분 표시, **구현·테스트 있음**), `theme.py`(그래프 공통 색·스타일, 테스트 없음), `tts.py`(문장 조회·TTS 호출·캐시·호출 횟수 `tts.calls`; `tests/test_modules.py`), `stt.py`(Whisper 로딩·녹음 찾기·인식), 이후 만들 모듈: `quality.py`(녹음 입력 상태 점검), `player.py`(L2 HTML 플레이어), `explain.py`(L2 LLM 뜻·표현), `visualisation.py`(L3), 시연 노트북 `practice.ipynb`, `experiments/`(L3 실험), `sentences.csv`(id, lang, sentence, meaning_ko, source, license). `scoring.py`의 흐름: `normalize` → 토큰화(`wer`는 공백 단위, `cer`는 글자 단위) → `edit_matrix` → `backtrace`(ops: 일치/치환/삭제/삽입) → `score`가 S·D·I·N·rate·ops를 dict로 반환 → `format_diff(ops)`로 표시. 새 채점 로직은 이 `score()` 결과 dict를 재사용한다. 스켈레톤 단계(S0~S6)는 `practice.ipynb` 안에 STFT·Log-Mel 함수(`logmel` 등, 수업 코드 복사)와 화면 출력 함수 `show_result`, 한 문장 연습 흐름 `practice(문장, "read"|"dictation")`이 셀로 들어 있다(TTS·인식·문장 조회는 `tts.py`·`stt.py`를 부른다). 재사용·테스트할 함수부터 `.py`로 분리한다. `data/`(녹음·TTS 캐시)와 `results/`(기록 CSV·그래프)는 **git에서 제외**된다.
+`scoring.py`(정규화·WER/CER·역추적·틀린 부분 표시, **구현·테스트 있음**), `theme.py`(그래프 공통 색·스타일, 테스트 없음), `tts.py`(문장 조회·TTS 호출·캐시·호출 횟수 `tts.calls`; `tests/test_modules.py`), `stt.py`(Whisper 로딩·녹음 찾기·인식, 단어별 시간 `recognize_words`), `align.py`(틀린 부분을 TTS·내 녹음의 시간 구간으로 변환; `tests/test_align.py`), 이후 만들 모듈: `quality.py`(녹음 입력 상태 점검), `player.py`(L2 HTML 플레이어), `explain.py`(L2 LLM 뜻·표현), `visualisation.py`(L3), 시연 노트북 `practice.ipynb`, `experiments/`(L3 실험), `sentences.csv`(id, lang, sentence, meaning_ko, source, license). `scoring.py`의 흐름: `normalize` → 토큰화(`wer`는 공백 단위, `cer`는 글자 단위) → `edit_matrix` → `backtrace`(ops: 일치/치환/삭제/삽입) → `score`가 S·D·I·N·rate·ops를 dict로 반환 → `format_diff(ops)`로 표시. 새 채점 로직은 이 `score()` 결과 dict를 재사용한다. 스켈레톤 단계(S0~S6)는 `practice.ipynb` 안에 STFT·Log-Mel 함수(`logmel` 등, 수업 코드 복사)와 화면 출력 함수 `show_result`, 한 문장 연습 흐름 `practice(문장, "read"|"dictation")`이 셀로 들어 있다(TTS·인식·문장 조회는 `tts.py`·`stt.py`를 부른다). 재사용·테스트할 함수부터 `.py`로 분리한다. `data/`(녹음·TTS 캐시)와 `results/`(기록 CSV·그래프)는 **git에서 제외**된다.
 
 ## Key decisions (자세한 근거는 docs 두 파일)
 
@@ -42,7 +42,7 @@ $PY scripts/scan_outputs.py                   # 커밋 전: 노트북 출력의 
 - **L3 기본안은 (a) 노래 구간 인식 + 음악·음성 분리**(강사님 권유; 분리 없는 낭독 vs 노래 CER 비교가 최소 구성). 막히면 (e) 잡음 견고성. 분리 모델(Demucs)은 `--dry-run` 확인만 했고 CPU 속도는 **미확인**. 실험은 시드를 바꿔 **3회 이상** 반복해 평균·범위를 보고하고, 합성 흰 잡음 결과를 실제 환경으로 일반화하지 않으며, 모든 녹음이 본인 한 명이라는 한계를 명시한다.
 - **지연 시 축소 순서(L2)**: ① LLM 뜻·표현 → ② 재생 속도·±5초(기본 `Audio` 플레이어로 대체) → ③ 오류율 그래프 → ④ 기록 CSV, **받아쓰기는 마지막까지 유지**. L3는 항상 선택.
 - **그래프 색은 초록 계열로 통일**하고 공통 설정은 `theme.py`에 둔다(근거·검증은 검토 문서 8.26): 그림 전에 `theme.apply_style()`, 스펙트로그램·Log-Mel은 `CMAP_SPEC`, 흰 바탕 히트맵은 `CMAP_HEAT`, 시리즈는 `SERIES` 순서대로 **한 그림 최대 4개**(초록 옆에 주황 금지), 모든 쌍이 이웃하는 그림(산점도 등)은 초록+파랑 2개까지. 파형 그래프만 수업과 같은 기본 파랑(`theme.WAVEFORM`)을 직접 지정한다(`apply_style()`가 색 순환을 초록으로 바꾸기 때문). 색을 새로 정하면 `validate_palette.js`(dataviz 스킬)로 검증하고, `magma`·`Greens_r` 같은 라이브러리 기본 cmap을 그림마다 직접 쓰지 않는다.
-- 방향: 이 프로젝트는 **수업(음성 1~7강 + 013) 복습·활용 수단**이다. **새 기능·새 기술 시도는 최소화**(계획서 공유본에는 빠졌지만 사용자의 방향이다).
+- 방향: 이 프로젝트는 **수업(음성 1~7강 + 013) 복습·활용 수단**이기도 하다.
 
 ## Privacy / security (공개 저장소 전제)
 
