@@ -60,10 +60,11 @@ def _decode_with_av(path):
     return x, int(sr), int(channels)
 
 
-def load_audio(path, sr=TARGET_SR):
-    """녹음 파일 → (16 kHz 모노 float32 파형, 원본 sr, 원본 채널 수).
+def load_raw(path):
+    """녹음 파일 → (원본 그대로의 float32 파형 (샘플, 채널), 원본 sr, 원본 채널 수). 모노로 섞거나 sr을 바꾸지 않는다.
 
-    파형 값은 대략 -1~1이다. 길이는 원본 길이 × (16000 / 원본 sr)에 가깝다.
+    quality.py의 클리핑 검사처럼 '원본 샘플'이 필요할 때 쓴다. 리샘플링을 거치면 가장자리에 울림이 생겨
+    (예: 최대 0.95인 소리가 1.0을 넘음) 원본에는 없던 클리핑이 있는 것처럼 보일 수 있기 때문이다.
     PCM16 wav는 scipy로, 그 밖의 형식(webm, mp4, m4a, mp3 …)은 PyAV로 읽는다.
     """
     path = str(path)
@@ -74,9 +75,15 @@ def load_audio(path, sr=TARGET_SR):
             x, orig_sr, channels = _decode_with_av(path)
     else:
         x, orig_sr, channels = _decode_with_av(path)
-
     if x.size == 0:
         raise ValueError("샘플이 없는 파일입니다.")
+    if x.ndim == 1:
+        x = x[:, None]                      # 항상 (샘플, 채널) 모양으로 맞춘다
+    return x, orig_sr, channels
+
+
+def to_16k_mono(x, orig_sr, sr=TARGET_SR):
+    """(샘플, 채널) 또는 (샘플,) 파형 → sr(기본 16 kHz) 모노 float32. 스테레오는 채널 평균, 리샘플링은 resample_poly."""
     if x.ndim > 1:
         x = x.mean(axis=1)                  # 스테레오 → 모노: 채널 평균(수업과 같은 방식)
     if orig_sr != sr:
@@ -84,4 +91,14 @@ def load_audio(path, sr=TARGET_SR):
         # gcd(최대공약수)로 약분해서 44100 → 16000도 (160, 441)처럼 정수 비율로 나타낸다.
         g = gcd(sr, orig_sr)
         x = resample_poly(x, sr // g, orig_sr // g)
-    return x.astype(np.float32), orig_sr, channels
+    return x.astype(np.float32)
+
+
+def load_audio(path, sr=TARGET_SR):
+    """녹음 파일 → (16 kHz 모노 float32 파형, 원본 sr, 원본 채널 수).
+
+    파형 값은 대략 -1~1이다. 길이는 원본 길이 × (16000 / 원본 sr)에 가깝다.
+    load_raw(읽기) + to_16k_mono(모노·리샘플링)를 이어 붙인 것이다.
+    """
+    x, orig_sr, channels = load_raw(path)
+    return to_16k_mono(x, orig_sr, sr), orig_sr, channels
