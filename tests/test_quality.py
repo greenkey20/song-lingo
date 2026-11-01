@@ -1,5 +1,6 @@
 """quality.py 단위 테스트. 실행: python -m unittest tests.test_quality -v
-합성 신호만 쓴다. 경고 기준은 '초안'이라, 기준값을 바꾸면 이 테스트의 숫자도 함께 확인한다."""
+합성 신호만 쓴다. 경고 기준은 2026-11-01에 내 녹음으로 확정한 값이다(근거는 quality.py 맨 위).
+기준값을 바꾸면 이 테스트의 숫자(특히 CalibratedThresholds)도 함께 확인한다."""
 import os
 import sys
 import tempfile
@@ -34,7 +35,7 @@ class Cases(unittest.TestCase):
         self.assertAlmostEqual(r["metrics"]["silent_ratio"], 0.5, delta=0.1)
 
     def test_too_quiet(self):
-        r = quality.analyze(speech_like() * 0.005, SR)       # 0.3 → 0.0015: 최대 진폭 0.05 미만
+        r = quality.analyze(speech_like() * 0.005, SR)       # 0.3 → 0.0015: 최대 진폭 0.02 미만, RMS도 -55 dBFS보다 작음
         self.assertTrue(has(r, "너무 작습니다"))
 
     def test_silence_only_is_too_quiet(self):
@@ -63,6 +64,44 @@ class Cases(unittest.TestCase):
         left, right = np.clip(speech_like() * 6, -1, 1), speech_like()
         r = quality.analyze(np.stack([left, right], axis=1), SR)
         self.assertGreater(r["metrics"]["clip_ratio"], 0)
+
+
+class CalibratedThresholds(unittest.TestCase):
+    """내 녹음으로 확정한 기준(2026-11-01)의 경계. 인식이 잘 되는 소리에는 경고하지 않고, 인식이 안 되는 소리는 잡는다."""
+
+    def test_quiet_but_recognizable_speech_has_no_warning(self):
+        """실험에서 normal.wav를 0.1배(RMS -44 dBFS, 최대 0.07)로 줄여도 인식이 정확했다. 예전 초안 기준은 여기서 경고했다."""
+        r = quality.analyze(speech_like() * 0.1, SR)         # 최대 0.03, RMS 약 -36 dBFS: 새 기준(0.02, -55)을 넘는다
+        self.assertTrue(r["ok"], r["warnings"])
+
+    def test_clipping_threshold_is_one_percent(self):
+        def with_clipped(fraction):
+            x = speech_like()
+            idx = np.linspace(0, len(x) - 1, int(len(x) * fraction)).astype(int)
+            x[idx] = 1.0                                     # 전체 샘플의 fraction만큼을 한계선(1.0)에 둔다
+            return quality.analyze(x, SR)
+        self.assertFalse(has(with_clipped(0.005), "잘렸을 수"))   # 0.5%: 경고하지 않음
+        self.assertTrue(has(with_clipped(0.02), "잘렸을 수"))     # 2%: 경고
+
+    def test_short_speech_in_a_long_enough_recording(self):
+        """short.wav 흉내: 길이는 0.5초를 넘지만 말한 시간은 1초 미만이면 '말한 시간' 경고(대부분 무음 경고와는 별개)."""
+        x = np.concatenate([np.zeros(SR // 4, np.float32), tone(300, 0.6, 0.4), np.zeros(SR // 2, np.float32)])   # 총 1.35초, 소리 0.6초
+        r = quality.analyze(x, SR)
+        self.assertTrue(has(r, "말한 시간이 너무 짧습니다"), r["warnings"])
+        self.assertFalse(has(r, "대부분이 무음"))
+        self.assertLess(r["metrics"]["speech_seconds"], quality.MIN_SPEECH_SECONDS)
+
+    def test_normal_length_speech_passes(self):
+        r = quality.analyze(speech_like(), SR)               # 말한 시간 1.5초
+        self.assertGreaterEqual(r["metrics"]["speech_seconds"], quality.MIN_SPEECH_SECONDS)
+        self.assertFalse(has(r, "말한 시간"))
+
+    def test_mostly_silent_does_not_also_say_speech_is_short(self):
+        """같은 원인에 비슷한 경고를 두 번 하지 않는다."""
+        x = np.concatenate([tone(300, 0.2, 0.5), np.zeros(SR * 5, np.float32)])
+        r = quality.analyze(x, SR)
+        self.assertTrue(has(r, "대부분이 무음"))
+        self.assertFalse(has(r, "말한 시간이 너무 짧습니다"))
 
 
 class Info(unittest.TestCase):

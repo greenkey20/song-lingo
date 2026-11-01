@@ -1,33 +1,62 @@
-"""녹음 입력 상태 점검: 음량 · 무음 · 클리핑만 본다(이슈 #7). 잡음이 있는지는 판정하지 않는다.
+"""녹음 입력 상태 점검: 음량 · 무음 · 클리핑 · 말한 시간만 본다(이슈 #7). 잡음이 있는지는 판정하지 않는다.
 
-점검 항목과 경고 기준은 계획서(20261030) 3장 "녹음 입력 상태 점검 방법" 표를 따른다. **기준값은 초안**이라
-본인 녹음으로 확정한다(아래 상수를 바꾸면 된다). 경고는 '이 녹음은 인식이 잘 안 될 수 있다'는 안내이고
-녹음을 거부하는 것이 아니다. 발음이 좋은지 나쁜지와는 상관이 없다.
+점검 항목은 계획서(20261030) 3장 "녹음 입력 상태 점검 방법" 표를 따르고, 경고 기준값은 2026-11-01에 본인 녹음으로
+확정했다(아래 "기준값 확정 기록"). 경고는 '이 녹음은 인식이 잘 안 될 수 있다'는 안내이고 녹음을 거부하는 것이 아니다.
+발음이 좋은지 나쁜지와는 상관이 없다.
 
-| 점검 | 계산 | 경고 기준(초안) |
-| 빈 파일·길이 | 샘플 수 ÷ sr | 길이가 MIN_SECONDS보다 짧음 |
-| 너무 작음 | 전체 RMS(dBFS), 최대 진폭 | RMS < -40 dBFS 또는 최대 진폭 < 0.05 |
-| 클리핑 | 원본 샘플 중 절댓값 ≥ 0.999 인 비율 | 0.1% 이상 |
+| 점검 | 계산 | 경고 기준 |
+| 빈 파일·길이 | 샘플 수 ÷ sr | 길이가 MIN_SECONDS(0.5초)보다 짧음 |
+| 너무 작음 | 전체 RMS(dBFS), 최대 진폭 | RMS < -55 dBFS 또는 최대 진폭 < 0.02 |
+| 클리핑 | 원본 샘플 중 절댓값 ≥ 0.999 인 비율 | 1% 이상 |
 | 대부분 무음 | STFT 프레임 에너지가 가장 큰 프레임보다 35 dB 이상 낮은 프레임의 비율 | 80% 이상 |
+| 말한 시간 | (1 - 무음 프레임 비율) × 길이 | 1.0초 미만(대부분 무음이 아닐 때) |
 | (참고) 저주파 웅웅거림 | 80 Hz 이하 에너지 비율 | 경고 없이 값만 보여 줌 |
 | (참고) 앞 무음 | 처음으로 소리가 나는 프레임까지의 시간 | 경고 없이 값만 보여 줌 |
 
 수업과의 관계
 - [수업과 같음] RMS, 최대 진폭, STFT 프레임 에너지, dB 변환은 수업(02 WAV 전처리, 03 STFT)의 개념과 같다.
   STFT 계산은 visualisation.stft_power를 그대로 쓴다.
-- [수업에 없음] 클리핑 비율, '가장 큰 프레임 대비 상대 기준' 무음 판정, 점검 결과를 경고 목록으로 돌려주는 구성.
+- [수업에 없음] 클리핑 비율, '가장 큰 프레임 대비 상대 기준' 무음 판정, 말한 시간 계산, 점검 결과를 경고 목록으로 돌려주는 구성.
+
+기준값 확정 기록 (2026-11-01, 이슈 #7)  ── 참고 baseline: 한 사람·한 마이크·조용한 환경에서 같은 1번 문장으로 측정
+- 측정 방법: 온라인 레코더 wav 6개(normal, far=멀리, quiet=작게, loud=크게, short=한마디, silent=침묵)에
+  quality.check_file과 Whisper tiny 인식(WER)을 돌렸다. 또 normal.wav의 소리를 곱셈으로 줄이거나 키워서(키울 때는 ±1로 자름)
+  어디서부터 인식이 나빠지는지 확인했다.
+    파일     RMS(dBFS)  최대   잘림    말한시간  WER
+    normal    -23.9     0.72  0.00%   2.3초    0.000
+    far       -24.5     0.32  0.00%   2.3초    0.000
+    quiet     -31.5     0.45  0.00%   2.5초    0.000
+    loud       -9.5     1.00  0.11%   2.9초    0.000
+    short     -12.9     1.00  0.06%   0.5초    0.833   (인식: 'I')
+    silent    -72.1     0.01  0.00%   (소리 없음)  1.000   (인식 없음)
+- 발견 1: Whisper tiny는 소리 크기에 매우 강했다. normal.wav를 0.003배(RMS -74 dBFS)까지 줄여도, 샘플의 16%가 잘리도록
+  키워도 WER은 0.000이었다. 그래서 예전 초안 기준(-40 dBFS, 0.1%)은 인식이 잘 되는 녹음에도 경고를 냈다.
+- 발견 2: 진짜 놓친 경우는 short.wav였다. 길이는 1.3초로 0.5초를 넘었지만 말한 시간이 0.5초뿐이라 인식이 'I'에서 끊겼다.
+  정상 녹음의 말한 시간은 2.3~2.9초라 1.0초 기준에서 깔끔히 갈린다. 그래서 '말한 시간' 점검을 추가했다.
+- 기준을 이렇게 정한 이유
+    너무 작음  -40 → -55 dBFS, 0.05 → 0.02  인식이 되는 -44 dBFS(최대 0.072)까지는 경고하지 않고,
+                                              소리가 없는 silent.wav(-72 dBFS, 최대 0.01)는 잡는 값.
+    클리핑     0.1% → 1%     0.12%~16% 잘림에서 모두 인식이 정확했다. 인식에는 영향이 없으므로 '눈에 띄게 잘린 정도'만 안내한다.
+                             1%는 사용자가 2026-11-01에 결정했다. 거슬리면 MAX_CLIP_RATIO를 낮추면 된다(0.1%면 0.001).
+                             (클리핑이 무엇인지, 소리 크기를 바꾼 전체 실험표는 검토 문서 8.25절 'quality.py 기준값 확정' 참고)
+    말한 시간  새로 추가, 1.0초
+- 한계: 표본이 작다(한 사람·한 마이크·한 문장·조용한 환경). 시끄러운 환경(잡음)에서의 관계는 시험하지 않았다.
+  소리가 아예 없는 파일은 RMS 기준이 잡지만, 잡음만 있는 파일(-45 dBFS 정도의 방 소리)은 이 점검으로는 걸리지 않는다
+  (그때는 인식 결과가 비어 나오므로 그 단계에서 안내하는 것이 맞다).
+- 다시 확정하는 법: 상황별 녹음을 data/quality_test/에 두고 check_file의 metrics를 표로 찍어 본 뒤, 아래 상수를 바꾼다.
 """
 import numpy as np
 
 import audio
 import visualisation
 
-# ---- 경고 기준 (초안: 본인 녹음으로 확정) --------------------------------------------------------------
-MIN_SECONDS = 0.5            # 이보다 짧으면 경고. [제안값: 계획서에는 '너무 짧음'만 있고 숫자가 없다]
-MIN_RMS_DBFS = -40.0         # 전체 RMS가 이보다 작으면 '너무 작음'
-MIN_PEAK = 0.05              # 최대 진폭이 이보다 작으면 '너무 작음'
+# ---- 경고 기준 (2026-11-01 확정, 근거는 위 "기준값 확정 기록") -----------------------------------------
+MIN_SECONDS = 0.5            # 전체 길이가 이보다 짧으면 경고. [제안값: 계획서에는 '너무 짧음'만 있고 숫자가 없다]
+MIN_SPEECH_SECONDS = 1.0     # 말한 시간(소리 있는 프레임의 합)이 이보다 짧으면 경고(문장 하나는 보통 2초 넘게 걸린다)
+MIN_RMS_DBFS = -55.0         # 전체 RMS가 이보다 작으면 '너무 작음' (소리가 거의 없는 입력)
+MIN_PEAK = 0.02              # 최대 진폭이 이보다 작으면 '너무 작음'
 CLIP_LEVEL = 0.999           # 절댓값이 이 이상이면 한계에 닿은(잘린) 샘플로 센다
-MAX_CLIP_RATIO = 0.001       # 잘린 샘플이 0.1% 이상이면 경고
+MAX_CLIP_RATIO = 0.01        # 잘린 샘플이 1% 이상이면 경고
 SILENCE_BELOW_DB = 35.0      # 가장 큰 프레임보다 이만큼(dB) 이상 낮으면 무음 프레임
 MAX_SILENT_RATIO = 0.80      # 무음 프레임이 80% 이상이면 경고
 LOW_HZ = 80.0                # 이 주파수 이하를 '저주파'로 본다(참고 정보)
@@ -53,7 +82,8 @@ def analyze(raw, orig_sr, sr=audio.TARGET_SR):
 
     seconds = raw.shape[0] / orig_sr if raw.size else 0.0
     metrics["seconds"] = seconds
-    if seconds < MIN_SECONDS:
+    too_short = seconds < MIN_SECONDS
+    if too_short:
         warnings.append(f"녹음이 너무 짧습니다({seconds:.2f}초). {MIN_SECONDS:g}초 이상 녹음하세요.")
     if raw.size == 0:
         return {"ok": False, "metrics": metrics, "warnings": warnings, "info": {}}
@@ -80,6 +110,8 @@ def analyze(raw, orig_sr, sr=audio.TARGET_SR):
         info["low_freq_ratio"] = float(power[hz <= LOW_HZ].sum() / total) if total > 0 else 0.0
     else:
         metrics["silent_ratio"] = 0.0     # 프레임을 만들기엔 너무 짧은 파형(이미 '너무 짧음' 경고가 붙는다)
+    # 말한 시간: 소리가 있는 프레임이 차지하는 시간. 전체 길이가 충분해도 말은 잠깐뿐인 녹음(짧게 한마디)을 잡는다.
+    metrics["speech_seconds"] = (1.0 - metrics["silent_ratio"]) * seconds
 
     if metrics["rms_dbfs"] < MIN_RMS_DBFS or metrics["peak"] < MIN_PEAK:
         warnings.append(f"소리가 너무 작습니다(RMS {metrics['rms_dbfs']:.1f} dBFS, 최대 진폭 {metrics['peak']:.3f}). "
@@ -90,6 +122,9 @@ def analyze(raw, orig_sr, sr=audio.TARGET_SR):
     if metrics["silent_ratio"] >= MAX_SILENT_RATIO:
         warnings.append(f"대부분이 무음입니다(무음 구간 {metrics['silent_ratio'] * 100:.0f}%). "
                         "말하는 부분이 짧거나 소리가 잘 들어가지 않았을 수 있습니다.")
+    elif not too_short and metrics["speech_seconds"] < MIN_SPEECH_SECONDS:
+        # 같은 원인('대부분 무음' 또는 '너무 짧음')으로 이미 경고했으면 비슷한 말을 한 번 더 하지 않는다.
+        warnings.append(f"말한 시간이 너무 짧습니다(약 {metrics['speech_seconds']:.1f}초). 문장 전체를 말했는지 확인하세요.")
     return {"ok": not warnings, "metrics": metrics, "warnings": warnings, "info": info}
 
 
@@ -106,7 +141,7 @@ def format_report(result):
     lines = [head]
     lines += [f"  ⚠ {w}" for w in result["warnings"]]
     if "rms_dbfs" in m:
-        lines.append(f"  (참고) 길이 {m['seconds']:.1f}초, RMS {m['rms_dbfs']:.1f} dBFS, 최대 진폭 {m['peak']:.2f}, "
+        lines.append(f"  (참고) 길이 {m['seconds']:.1f}초(말한 시간 {m['speech_seconds']:.1f}초), RMS {m['rms_dbfs']:.1f} dBFS, 최대 진폭 {m['peak']:.2f}, "
                      f"클리핑 {m['clip_ratio'] * 100:.2f}%, 무음 프레임 {m['silent_ratio'] * 100:.0f}%")
         if info:
             lines.append(f"  (참고) 앞 무음 {info['leading_silence_sec']:.1f}초, "
