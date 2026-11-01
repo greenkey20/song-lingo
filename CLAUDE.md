@@ -7,6 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **song-lingo** — 외국어 노래 문장 연습 도우미 (듣고 따라읽고 받아쓰고 확인하는 음성 학습 프로토타입). ICT 혁신 스퀘어 Voice-AI 부트캠프의 **개인 프로젝트**(2026-10-30 ~ 11-11 평일 9일 × 4h = 36h 개발, **11-12 발표**). 사용자가 TTS 기준 음성을 듣고 → 따라 읽은 녹음을 STT로 인식하거나 받아쓰기를 하고 → 정답과의 **오류율(WER/CER)** 과 틀린 부분을 피드백받는다. 점수는 **발음 점수가 아니라 "문장 인식 일치도"** 다(STT가 틀린 발음을 문맥으로 고쳐 적을 수 있음). 시연 화면은 **Jupyter 노트북(`practice.ipynb`)** 이고, PWA/웹 앱은 범위 밖(후속 확장).
 
 - **결정된 내용: `docs/프로젝트 개발 계획서_20261030.md`** (L1 필수 → L2 확장 → L3 심화 선택, 일정 · 성공 기준 · 축소 규칙 포함). 사용자가 직접 정리해 강사님께 공유하는 문서이므로 **사용자의 글을 임의로 바꾸지 말고**, 고칠 때는 큰 흐름과 문체를 유지하며 필요한 부분만 고친다.
+- **현재 우선 작업(2026-10-31~11-01)**: 종강식 설문(11-01 23:59 마감)의 발표 여부를 정하기 위한 **스켈레톤** 만들기 — `docs/주말_스켈레톤_시연_계획.md`의 S0~S5만 진행한다(그 밖의 기능은 하지 않는다). 끝나면 계획서의 일정(2일차~)으로 복귀한다.
 - **`docs/프로젝트 개발 계획서_20261029.md`는 20261030으로 정리하면서 빠진 내용만 모은 보관본**이다. 특히 **A절의 "1일차에 확인할 항목"(확정되지 않은 항목 10개와 `[확인 필요]` 목록)** 을 1일차에 점검하고, 결과는 검토 문서에 기록한다. 이 파일의 L3 기호는 20261029 기준이라 20261030과 다르다(파일 머리의 주의 참고).
 - **검토·근거·옵션 비교: `docs/프로젝트_안내_및_주제_검토.md`** (절 번호 8.x, 변경 이력은 8.19). 이 사본이 이 저장소에서 앞으로 이어 쓰는 원본이다(학습 저장소의 사본은 10-30 시점의 것).
 - 학습 배경(1~7강 노트북)은 형제 폴더 `../ict_innovation_sq_voice_ai/`(읽기 전용 참고). 특히 `017_sound/lesson07_whisper_minimal.ipynb`(faster-whisper), `013_openai_api/`(TTS/STT 호출 코드), `017_sound/02·03·lesson04`(WAV 전처리, FFT/STFT/Mel).
@@ -31,7 +32,7 @@ $PY scripts/scan_outputs.py                   # 커밋 전: 노트북 출력의 
 
 ## Layout (계획서 3장)
 
-`scoring.py`(정규화·WER/CER·역추적·틀린 부분 표시, **구현·테스트 있음**), 이후 만들 모듈: `tts.py`, `stt.py`, `quality.py`(녹음 입력 상태 점검), `player.py`(L2 HTML 플레이어), `explain.py`(L2 LLM 뜻·표현), `visualisation.py`(L3), 시연 노트북 `practice.ipynb`, `experiments/`(L3 실험), `sentences.csv`(id, lang, sentence, meaning_ko, source, license). `scoring.py`의 흐름: `normalize` → 토큰화(`wer`는 공백 단위, `cer`는 글자 단위) → `edit_matrix` → `backtrace`(ops: 일치/치환/삭제/삽입) → `score`가 S·D·I·N·rate·ops를 dict로 반환 → `format_diff(ops)`로 표시. 새 채점 로직은 이 `score()` 결과 dict를 재사용한다. `sentences.csv`와 `.ipynb`는 아직 헤더/뼈대뿐이다. 먼저 `practice.ipynb`에서 흐름을 연결하고 재사용·테스트할 함수부터 `.py`로 분리한다. `data/`(녹음·TTS 캐시)와 `results/`(기록 CSV·그래프)는 **git에서 제외**된다.
+`scoring.py`(정규화·WER/CER·역추적·틀린 부분 표시, **구현·테스트 있음**), `theme.py`(그래프 공통 색·스타일, 테스트 없음), 이후 만들 모듈: `tts.py`, `stt.py`, `quality.py`(녹음 입력 상태 점검), `player.py`(L2 HTML 플레이어), `explain.py`(L2 LLM 뜻·표현), `visualisation.py`(L3), 시연 노트북 `practice.ipynb`, `experiments/`(L3 실험), `sentences.csv`(id, lang, sentence, meaning_ko, source, license). `scoring.py`의 흐름: `normalize` → 토큰화(`wer`는 공백 단위, `cer`는 글자 단위) → `edit_matrix` → `backtrace`(ops: 일치/치환/삭제/삽입) → `score`가 S·D·I·N·rate·ops를 dict로 반환 → `format_diff(ops)`로 표시. 새 채점 로직은 이 `score()` 결과 dict를 재사용한다. 스켈레톤 단계(S0~S4.5)는 `practice.ipynb` 안에 STFT·Log-Mel 함수(`logmel` 등, 수업 코드 복사)와 TTS 캐시·인식 함수가 셀로 들어 있고 아직 `.py`로 분리하지 않았다. 먼저 `practice.ipynb`에서 흐름을 연결하고 재사용·테스트할 함수부터 `.py`로 분리한다. `data/`(녹음·TTS 캐시)와 `results/`(기록 CSV·그래프)는 **git에서 제외**된다.
 
 ## Key decisions (자세한 근거는 docs 두 파일)
 
@@ -40,6 +41,7 @@ $PY scripts/scan_outputs.py                   # 커밋 전: 노트북 출력의 
 - **녹음 입력 상태 점검(`quality.py`)** 은 음량·무음·클리핑만 본다(잡음 판정이 아님): 너무 작음(RMS < −40 dBFS 또는 최대 진폭 < 0.05), 클리핑(0.999 이상 샘플 ≥ 0.1%), 대부분 무음(STFT 프레임 에너지가 최대 프레임보다 35 dB 이상 낮은 프레임 ≥ 80% — **절대 기준이 아니라 상대 기준**), 참고로 80 Hz 이하 에너지 비율. 기준값은 초안이며 1일차에 본인 녹음으로 확정.
 - **L3 기본안은 (a) 노래 구간 인식 + 음악·음성 분리**(강사님 권유; 분리 없는 낭독 vs 노래 CER 비교가 최소 구성). 막히면 (e) 잡음 견고성. 분리 모델(Demucs)은 `--dry-run` 확인만 했고 CPU 속도는 **미확인**. 실험은 시드를 바꿔 **3회 이상** 반복해 평균·범위를 보고하고, 합성 흰 잡음 결과를 실제 환경으로 일반화하지 않으며, 모든 녹음이 본인 한 명이라는 한계를 명시한다.
 - **지연 시 축소 순서(L2)**: ① LLM 뜻·표현 → ② 재생 속도·±5초(기본 `Audio` 플레이어로 대체) → ③ 오류율 그래프 → ④ 기록 CSV, **받아쓰기는 마지막까지 유지**. L3는 항상 선택.
+- **그래프 색은 초록 계열로 통일**하고 공통 설정은 `theme.py`에 둔다(근거·검증은 검토 문서 8.26): 그림 전에 `theme.apply_style()`, 스펙트로그램·Log-Mel은 `CMAP_SPEC`, 흰 바탕 히트맵은 `CMAP_HEAT`, 시리즈는 `SERIES` 순서대로 **한 그림 최대 4개**(초록 옆에 주황 금지), 모든 쌍이 이웃하는 그림(산점도 등)은 초록+파랑 2개까지. 파형 그래프만 수업과 같은 기본 파랑(`theme.WAVEFORM`)을 직접 지정한다(`apply_style()`가 색 순환을 초록으로 바꾸기 때문). 색을 새로 정하면 `validate_palette.js`(dataviz 스킬)로 검증하고, `magma`·`Greens_r` 같은 라이브러리 기본 cmap을 그림마다 직접 쓰지 않는다.
 - 방향: 이 프로젝트는 **수업(음성 1~7강 + 013) 복습·활용 수단**이다. **새 기능·새 기술 시도는 최소화**(계획서 공유본에는 빠졌지만 사용자의 방향이다).
 
 ## Privacy / security (공개 저장소 전제)
