@@ -1,0 +1,1068 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>편집 거리와 DP 이해하기</title>
+<style>
+:root {
+  --bg:#fcfcfb; --panel:#f4f4f1; --ink:#0b0b0b; --ink2:#52514e; --line:#e4e3df; --muted:#8a8985;
+  --green:#1a9f4c; --green-soft:#e5ffe9; --green-mid:#a9edb6; --green-deep:#00662c;
+  --up:#2a78d6; --left:#6250d6; --diag:#eb6834;
+  --up-soft:#e6effb; --left-soft:#ecebfa; --diag-soft:#fdebe3;
+  --bad:#c23b22; --bad-soft:#fbe9e5; --code-bg:#f0f0ec; --add-bg:#f1faf3;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:#141413; --panel:#1d1d1b; --ink:#f2f2ef; --ink2:#b4b3ae; --line:#34332f; --muted:#8a8985;
+    --green:#40a85e; --green-soft:#12301b; --green-mid:#1d5a31; --green-deep:#9fe4ad;
+    --up:#6ea8ee; --left:#a093f0; --diag:#f09068;
+    --up-soft:#17263b; --left-soft:#221f3d; --diag-soft:#3a2118;
+    --bad:#ef8a76; --bad-soft:#3b1e18; --code-bg:#1f1f1c; --add-bg:#15241a;
+  }
+}
+:root[data-theme="dark"] {
+  --bg:#141413; --panel:#1d1d1b; --ink:#f2f2ef; --ink2:#b4b3ae; --line:#34332f; --muted:#8a8985;
+  --green:#40a85e; --green-soft:#12301b; --green-mid:#1d5a31; --green-deep:#9fe4ad;
+  --up:#6ea8ee; --left:#a093f0; --diag:#f09068;
+  --up-soft:#17263b; --left-soft:#221f3d; --diag-soft:#3a2118;
+  --bad:#ef8a76; --bad-soft:#3b1e18; --code-bg:#1f1f1c; --add-bg:#15241a;
+}
+* { box-sizing:border-box; }
+html { scroll-behavior:smooth; scroll-padding-top:56px; }
+body { margin:0; background:var(--bg); color:var(--ink); line-height:1.75; font-size:16px;
+  font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif; }
+.wrap { max-width:900px; margin:0 auto; padding:0 16px 80px; }
+header.hero { padding:40px 0 8px; }
+header.hero h1 { font-size:2rem; line-height:1.3; margin:0 0 8px; }
+header.hero p { margin:4px 0; color:var(--ink2); }
+nav.toc { position:sticky; top:0; z-index:10; background:var(--bg); border-bottom:1px solid var(--line); margin:0 -16px; padding:8px 16px; overflow-x:auto; white-space:nowrap; }
+nav.toc a { display:inline-block; color:var(--ink2); text-decoration:none; font-size:.85rem; padding:4px 8px; border-radius:6px; }
+nav.toc a:hover { background:var(--panel); color:var(--ink); }
+h2 { font-size:1.45rem; margin:56px 0 12px; padding-top:8px; border-top:2px solid var(--green); }
+h3 { font-size:1.15rem; margin:32px 0 8px; }
+h4 { font-size:1rem; margin:20px 0 6px; }
+p, li { margin:8px 0; }
+code { font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.9em; background:var(--code-bg); padding:1px 5px; border-radius:4px; }
+pre { background:var(--code-bg); padding:12px 14px; border-radius:8px; overflow-x:auto; line-height:1.55; font-size:.88rem; margin:12px 0; }
+pre code { background:none; padding:0; font-size:inherit; }
+table { border-collapse:collapse; margin:12px 0; font-size:.93rem; }
+th, td { border:1px solid var(--line); padding:6px 10px; text-align:left; vertical-align:top; }
+th { background:var(--panel); }
+.scroll { overflow-x:auto; }
+.callout { border-left:4px solid var(--muted); background:var(--panel); padding:8px 14px; border-radius:0 8px 8px 0; margin:14px 0; }
+.callout.key { border-color:var(--green); background:var(--green-soft); }
+.callout.warn { border-color:var(--diag); background:var(--diag-soft); }
+.add { border-left:4px solid var(--green); background:var(--add-bg); padding:8px 14px; border-radius:0 8px 8px 0; margin:14px 0; }
+.add > .label, .tag { display:inline-block; font-size:.72rem; font-weight:700; letter-spacing:.02em; border-radius:999px; padding:1px 8px; margin-right:6px; vertical-align:middle; }
+.add > .label { background:var(--green); color:#fff; }
+.tag.base { background:var(--panel); color:var(--ink2); border:1px solid var(--line); }
+.tag.verified { background:var(--green-soft); color:var(--green-deep); border:1px solid var(--green-mid); }
+.legend span { margin-right:14px; }
+.k { font-family:ui-monospace,Menlo,monospace; }
+/* ── 표(행렬) 그림 ── */
+table.mx { border-collapse:separate; border-spacing:3px; margin:10px 0; }
+table.mx th, table.mx td { border:none; text-align:center; padding:0; }
+table.mx th { background:none; font-weight:600; font-size:.85rem; color:var(--ink2); min-width:48px; padding:2px 4px; }
+table.mx th.idx { font-size:.7rem; font-weight:400; color:var(--muted); }
+table.mx td { position:relative; width:58px; height:56px; padding-top:12px; border-radius:6px; background:var(--panel); border:2px solid transparent; font-weight:700; font-size:1.05rem; }
+table.mx td.c-input { background:var(--bg); border:1px solid var(--line); padding-top:0; }
+table.mx td.c-init { background:var(--green-soft); color:var(--green-deep); }
+table.mx td.c-empty { color:var(--muted); font-weight:400; background:transparent; border:1px dashed var(--line); }
+table.mx td.c-filled { background:var(--panel); }
+table.mx td.c-cur { border-color:var(--ink); background:var(--green-mid); color:var(--ink); }
+table.mx td.c-up { border:2px dashed var(--up); background:var(--up-soft); }
+table.mx td.c-left { border:2px dashed var(--left); background:var(--left-soft); }
+table.mx td.c-diag { border:2px dashed var(--diag); background:var(--diag-soft); }
+table.mx td.c-path { background:var(--green); color:#fff; }
+table.mx td.c-path.c-cur { border-color:var(--ink); }
+table.mx td.c-ok { background:var(--green-soft); border-color:var(--green); }
+table.mx td.c-bad { background:var(--bad-soft); border-color:var(--bad); }
+table.mx td .tg { position:absolute; left:3px; top:1px; font-size:.6rem; font-weight:600; white-space:nowrap; }
+table.mx td .ar { position:absolute; right:3px; bottom:0; font-size:.68rem; font-weight:400; letter-spacing:-1px; opacity:.85; }
+table.mx td input { width:100%; height:100%; border:none; background:transparent; text-align:center; font:inherit; color:inherit; border-radius:6px; }
+table.mx td input:focus { outline:2px solid var(--green); }
+.tok { font-family:ui-monospace,Menlo,monospace; }
+/* ── 조작부 ── */
+.panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; margin:16px 0; }
+.controls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:8px 0; }
+button { font:inherit; font-size:.9rem; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:6px 12px; cursor:pointer; }
+button:hover { border-color:var(--green); }
+button.primary { background:var(--green); color:#fff; border-color:var(--green); }
+button:disabled { opacity:.4; cursor:default; }
+select, input[type=text], input[type=range] { font:inherit; font-size:.9rem; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:5px 8px; }
+input[type=text] { min-width:0; flex:1 1 220px; }
+label { font-size:.9rem; color:var(--ink2); }
+.controls { max-width:100%; }
+.controls label { max-width:100%; }
+select { max-width:100%; min-width:0; }
+.grid2 { display:grid; grid-template-columns:max-content minmax(300px,1fr); gap:20px; }
+@media (max-width:820px) { .grid2 { grid-template-columns:minmax(0,1fr); } }
+.calc td, .calc th { padding:5px 8px; }
+.calc td:first-child, .calc th, .calc td:nth-child(3) { white-space:nowrap; }
+.calc code { font-size:.8rem; }
+.calc tr.win td { background:var(--green-soft); font-weight:700; }
+.calc tr.bad td { color:var(--muted); }
+.chip { display:inline-block; font-family:ui-monospace,Menlo,monospace; font-size:.85rem; border:1px solid var(--line); background:var(--bg); border-radius:6px; padding:1px 7px; margin:2px; }
+.chip.일치 { border-color:var(--green); } .chip.치환 { border-color:var(--diag); } .chip.삭제 { border-color:var(--up); } .chip.삽입 { border-color:var(--left); }
+.status { font-size:.9rem; color:var(--ink2); min-height:1.6em; }
+.flow { display:flex; flex-wrap:wrap; gap:6px; align-items:stretch; margin:14px 0; }
+.flow .box { flex:1 1 130px; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px 10px; font-size:.85rem; }
+.flow .box b { display:block; font-family:ui-monospace,Menlo,monospace; color:var(--green-deep); }
+.flow .arrow { align-self:center; color:var(--muted); }
+.bar { height:14px; background:var(--green); border-radius:3px; min-width:2px; }
+.bar.red { background:var(--diag); }
+details { margin:10px 0; }
+summary { cursor:pointer; font-weight:600; }
+svg text { fill:var(--ink); font-family:inherit; }
+svg .box { fill:var(--panel); stroke:var(--line); stroke-width:1.5; }
+svg .box.cur { fill:var(--green-mid); stroke:var(--ink); stroke-width:2; }
+svg .ar-up { stroke:var(--up); fill:none; stroke-width:2.5; }
+svg .ar-left { stroke:var(--left); fill:none; stroke-width:2.5; }
+svg .ar-diag { stroke:var(--diag); fill:none; stroke-width:2.5; }
+.footnote { font-size:.85rem; color:var(--ink2); }
+.formula { text-align:center; font-family:ui-monospace,Menlo,monospace; font-size:1.05rem; background:var(--panel); border-radius:8px; padding:8px; margin:10px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <h1>편집 거리와 DP 이해하기</h1>
+  <p><code>scoring.py</code>의 <code>edit_matrix()</code> · <code>backtrace()</code>가 푸는 문제를, 표가 채워지는 과정을 눈으로 따라가며 이해하는 학습 자료입니다. (SongLingo 프로젝트 · 2026-11-02)</p>
+  <p class="legend"><span><span class="tag base">기본 설명</span> 외부 검토에서 받은 DP 설명을 바탕으로 한 본문</span> <span><span class="tag verified">실행 확인</span> 코드를 직접 돌려 값을 확인한 것</span></p>
+  <div class="add" style="margin-top:12px"><span class="label">추가</span> 이 초록색 줄이 붙은 상자와 <b>직접 조작하는 그림</b>(6·7·11장)은 기본 설명에 덧붙인 것입니다. 본문의 숫자는 모두 <code>scoring.py</code>를 실행해 확인했습니다.</div>
+</header>
+
+<nav class="toc">
+  <a href="#s1">1 문제</a><a href="#s2">2 d[i][j]</a><a href="#s3">3 초기화</a><a href="#s4">4 점화식</a><a href="#s5">5 손으로 채우기</a>
+  <a href="#s6">6 직접 움직여 보기</a><a href="#s7">7 왜 DP</a><a href="#s8">8 역추적</a><a href="#s9">9 scoring.py 지도</a>
+  <a href="#s10">10 설계 6질문</a><a href="#s11">11 연습</a><a href="#s12">12 함정</a><a href="#s13">13 더 깊이</a><a href="#s14">14 용어·출처</a>
+</nav>
+
+<main>
+
+<!-- ═════════ 0 읽는 법 ═════════ -->
+<h2 id="s0">0. 이 문서를 읽는 법</h2>
+<p>DP(동적 계획법)는 문법이나 라이브러리 사용법과 달리, 문제를 <b>작은 문제로 쪼개고 작은 문제의 답을 어떻게 재사용할지</b> 스스로 설계하는 사고방식입니다. 알고리즘 문제를 직접 풀어 본 경험이 없으면 이 코드가 낯선 것이 당연합니다.</p>
+<div class="callout key"><b>추천 순서</b>: 코드를 먼저 읽지 말고, <b>종이에 표를 만들 수 있는 상태</b>부터 만듭니다. 그다음 코드가 그 표를 어떻게 채우는지 연결합니다.
+  <ol>
+    <li>1~5장을 읽으며 작은 예시(<code>I love you</code> / <code>I like you</code>)의 표를 손으로 따라 합니다.</li>
+    <li>6장에서 칸을 한 개씩 넘기며 "어느 세 칸을 보고 왜 그 값이 됐는지" 확인합니다.</li>
+    <li>11장 <b>연습 모드</b>에서 빈 표를 먼저 채워 보고 채점합니다(예측해 본 뒤 확인하는 것이 가장 효과가 큽니다).</li>
+    <li>8·9장으로 <code>backtrace()</code>와 <code>scoring.py</code> 전체 흐름을 연결합니다.</li>
+  </ol>
+</div>
+<p><b>이 문서를 읽고 나서 스스로 설명할 수 있어야 하는 것 세 가지</b></p>
+<ul>
+  <li>왜 표 <code>d</code>의 크기가 <code>(n+1) × (m+1)</code>인가?</li>
+  <li>왜 <code>d[i][j]</code>는 위쪽·왼쪽·대각선 왼쪽 위 <b>세 칸만</b> 참조하는가?</li>
+  <li>왜 그 세 값 중 <b>최솟값</b>을 고르면 전체 최소 편집 거리가 되는가?</li>
+</ul>
+<p>이해의 기준은 "코드를 다시 쓸 수 있는가"가 아니라 "왜 이런 점화식이 성립하는지 설명할 수 있는가"입니다.</p>
+
+<!-- ═════════ 1 문제 ═════════ -->
+<h2 id="s1">1. 이 함수가 푸는 문제</h2>
+<p><code>edit_matrix()</code>는 <b>두 문장이 얼마나 다른지</b> 계산하기 위한 함수입니다. SongLingo에서 정답 문장과 STT가 인식한 문장을 비교하는 것이 그 용도입니다.</p>
+<table>
+  <tr><th>정답 (Reference)</th><td class="tok">I love you</td></tr>
+  <tr><th>인식 (Hypothesis)</th><td class="tok">I like you</td></tr>
+  <tr><th>차이</th><td><code>love</code> → <code>like</code> 로 바뀜 = 치환 1회</td></tr>
+  <tr><th>최소 편집 거리</th><td><b>1</b></td></tr>
+</table>
+<p>사용할 수 있는 수정은 세 가지이고, 각각 1회로 셉니다.</p>
+<table>
+  <tr><th>연산</th><th>의미</th><th>예시</th></tr>
+  <tr><td>치환 (S, Substitution)</td><td>기존 단어를 다른 단어로 변경</td><td><code>love</code> → <code>like</code></td></tr>
+  <tr><td>삭제 (D, Deletion)</td><td>정답에는 있지만 인식 결과에는 없는 단어</td><td><code>I love you</code> → <code>I you</code></td></tr>
+  <tr><td>삽입 (I, Insertion)</td><td>인식 결과에만 있는 단어</td><td><code>I you</code> → <code>I really you</code></td></tr>
+</table>
+<p>이 세 연산으로 두 문장을 같게 만드는 <b>최소 횟수</b>가 Levenshtein 거리(편집 거리)입니다. WER은 이 횟수를 정답 단어 수로 나눈 값입니다.</p>
+<div class="formula">WER = (S + D + I) / N</div>
+<p>그런데 컴퓨터는 문장을 통째로 비교하지 않고, <b>두 문장의 앞부분부터 조금씩 늘려 가며</b> 가능한 수정 방법 중 최소 횟수를 구합니다. 그 "앞부분"이 DP의 작은 문제입니다.</p>
+
+<!-- ═════════ 2 d[i][j] ═════════ -->
+<h2 id="s2">2. 표의 한 칸이 뜻하는 것: <code>d[i][j]</code></h2>
+<div class="callout key"><code>d[i][j]</code> = <b>정답의 앞 i개</b>를 <b>인식 결과의 앞 j개</b>로 바꾸는 데 드는 최소 수정 횟수</div>
+<p>이 문장을 확실히 이해하면 DP의 절반은 이해한 것입니다. 앞으로 쓰는 데이터는 이렇습니다.</p>
+<pre><code>ref = ["I", "love", "you"]
+hyp = ["I", "like", "you"]</code></pre>
+
+<h3>2-1. 변수와 자료형</h3>
+<div class="scroll"><table>
+  <tr><th>변수</th><th>자료형</th><th>값(예시)</th><th>의미</th></tr>
+  <tr><td><code>ref</code></td><td><code>list[str]</code></td><td><code>["I","love","you"]</code></td><td>정답 단어(토큰) 목록</td></tr>
+  <tr><td><code>hyp</code></td><td><code>list[str]</code></td><td><code>["I","like","you"]</code></td><td>인식된 단어 목록</td></tr>
+  <tr><td><code>n</code></td><td><code>int</code></td><td><code>3</code></td><td>정답 단어 개수 <code>len(ref)</code></td></tr>
+  <tr><td><code>m</code></td><td><code>int</code></td><td><code>3</code></td><td>인식 단어 개수 <code>len(hyp)</code></td></tr>
+  <tr><td><code>d</code></td><td><code>list[list[int]]</code></td><td>(n+1)×(m+1) 정수 표</td><td>각 부분 문제의 최소 편집 거리</td></tr>
+  <tr><td><code>i</code></td><td><code>int</code></td><td>0 ~ n</td><td>지금 보는 <b>정답 앞부분의 길이</b></td></tr>
+  <tr><td><code>j</code></td><td><code>int</code></td><td>0 ~ m</td><td>지금 보는 <b>인식 앞부분의 길이</b></td></tr>
+  <tr><td><code>cost</code></td><td><code>int</code></td><td><code>0</code> 또는 <code>1</code></td><td>마지막 두 단어가 같으면 0(일치), 다르면 1(치환)</td></tr>
+</table></div>
+<div class="callout warn"><b>가장 흔한 오해</b>: <code>i</code>, <code>j</code>는 단어의 <b>인덱스가 아니라 "몇 개까지 보는가"라는 길이</b>입니다. 그래서 길이 <code>i</code>의 마지막 단어는 <code>ref[i-1]</code>입니다.</div>
+<table>
+  <tr><th><code>i</code></th><th>정답의 앞 i개</th><th><code>j</code></th><th>인식의 앞 j개</th></tr>
+  <tr><td>0</td><td><code>[]</code></td><td>0</td><td><code>[]</code></td></tr>
+  <tr><td>1</td><td><code>["I"]</code></td><td>1</td><td><code>["I"]</code></td></tr>
+  <tr><td>2</td><td><code>["I","love"]</code></td><td>2</td><td><code>["I","like"]</code></td></tr>
+  <tr><td>3</td><td><code>["I","love","you"]</code></td><td>3</td><td><code>["I","like","you"]</code></td></tr>
+</table>
+
+<h3>2-2. 왜 2차원 표인가</h3>
+<p>정답 쪽 앞부분 길이(0~3)와 인식 쪽 앞부분 길이(0~3)를 <b>둘 다</b> 기준으로 삼기 때문입니다. 두 길이의 모든 조합이 부분 문제이므로 4 × 4 = 16칸이 필요합니다.</p>
+<div class="scroll"><table class="mx" id="gridNames"></table></div>
+<p>예: <code>d[2][2]</code>는 <code>ref[:2]=["I","love"]</code>를 <code>hyp[:2]=["I","like"]</code>로 바꾸는 최소 횟수이고 값은 1입니다. 즉 <code>d[i][j]</code>는 "표의 한 칸"이 아니라 <b>부분 문제 하나의 정답</b>입니다.</p>
+
+<div class="add"><span class="label">추가</span> <b>Python 용어 정리</b>
+  <ul>
+    <li><b>슬라이스 <code>ref[:2]</code></b>: 앞에서 2개를 잘라 온 새 리스트(<code>["I","love"]</code>). 문서의 "앞 i개"는 <code>ref[:i]</code>입니다.</li>
+    <li><b>부분 문제(subproblem)</b>: 원래 문제와 같은 모양이지만 입력이 더 짧은 문제. 여기서는 <code>(ref[:i], hyp[:j])</code> 한 쌍이 부분 문제 하나입니다.</li>
+    <li><b>토큰(token)</b>: 비교의 단위. WER에서는 단어, CER에서는 글자 하나입니다. 이 함수는 토큰이 문자열이기만 하면 단어든 글자든 똑같이 동작합니다(<code>==</code>로 비교 가능하면 됩니다).</li>
+  </ul>
+</div>
+
+<!-- ═════════ 3 초기화 ═════════ -->
+<h2 id="s3">3. 코드를 한 줄씩: 표 만들기와 초기화</h2>
+<pre><code>def edit_matrix(ref, hyp):
+    n, m = len(ref), len(hyp)
+    d = [[0] * (m + 1) for _ in range(n + 1)]
+    for i in range(n + 1):
+        d[i][0] = i          # 인식 결과가 비어 있으면 정답 i개를 모두 삭제해야 한다
+    for j in range(m + 1):
+        d[0][j] = j          # 정답이 비어 있으면 인식 결과 j개가 모두 삽입이다
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            cost = 0 if ref[i - 1] == hyp[j - 1] else 1
+            d[i][j] = min(d[i - 1][j] + 1,        # 삭제
+                          d[i][j - 1] + 1,        # 삽입
+                          d[i - 1][j - 1] + cost) # 일치 또는 치환
+    return d</code></pre>
+
+<h3>3-1. <code>n, m = len(ref), len(hyp)</code></h3>
+<p>두 값 모두 <code>int</code>입니다. 예시에서는 <code>n = 3</code>, <code>m = 3</code>.</p>
+
+<h3>3-2. <code>d = [[0] * (m + 1) for _ in range(n + 1)]</code></h3>
+<p>안쪽부터 읽습니다. <code>[0] * (m + 1)</code>은 <code>[0, 0, 0, 0]</code>(0이 m+1개). 이 한 줄(행)을 <code>n + 1</code>번 만들어 바깥 리스트에 담습니다. 결과는 4행 4열의 0으로 채운 표이고, 자료형은 <code>list[list[int]]</code>입니다.</p>
+<p><b>왜 <code>+ 1</code>인가?</b> 앞부분의 길이가 <code>0</code>(빈 문장)부터 <code>n</code>(전체)까지이기 때문입니다. 길이 0, 1, 2, 3이면 4가지이므로 단어 수보다 하나 더 필요합니다.</p>
+<div class="callout warn"><b>쓰면 안 되는 형태</b>: <code>d = [[0] * (m + 1)] * (n + 1)</code>
+  <pre><code>bad = [[0] * 3] * 3
+bad[0][0] = 9
+print(bad)    # [[9, 0, 0], [9, 0, 0], [9, 0, 0]]  ← 세 행이 같은 리스트 하나를 가리켜서 한 곳을 바꾸면 전부 바뀐다</code></pre>
+  <span class="tag verified">실행 확인</span> 리스트 컴프리헨션 <code>for _ in range(n + 1)</code>은 행마다 <b>새 리스트</b>를 만들기 때문에 올바른 방법입니다.
+</div>
+
+<h3>3-3. 첫 번째 열: <code>d[i][0] = i</code></h3>
+<p>첫 열은 <code>j = 0</code>, 즉 <b>인식 결과가 빈 문장</b>인 경우입니다. 정답에 단어가 i개 있고 인식이 비어 있으면, i개를 전부 <b>삭제</b>해야 하므로 비용이 i입니다.</p>
+<table>
+  <tr><th>정답</th><th>인식</th><th>필요한 삭제</th></tr>
+  <tr><td><code>[]</code></td><td><code>[]</code></td><td>0</td></tr>
+  <tr><td><code>["I"]</code></td><td><code>[]</code></td><td>1</td></tr>
+  <tr><td><code>["I","love"]</code></td><td><code>[]</code></td><td>2</td></tr>
+  <tr><td><code>["I","love","you"]</code></td><td><code>[]</code></td><td>3</td></tr>
+</table>
+
+<h3>3-4. 첫 번째 행: <code>d[0][j] = j</code></h3>
+<p>이번에는 <b>정답이 빈 문장</b>이고 인식에 단어가 j개 있습니다. 정답이 비어 있으니 인식의 단어 j개는 전부 <b>삽입</b>입니다.</p>
+<table>
+  <tr><th>정답</th><th>인식</th><th>필요한 삽입</th></tr>
+  <tr><td><code>[]</code></td><td><code>[]</code></td><td>0</td></tr>
+  <tr><td><code>[]</code></td><td><code>["I"]</code></td><td>1</td></tr>
+  <tr><td><code>[]</code></td><td><code>["I","like"]</code></td><td>2</td></tr>
+  <tr><td><code>[]</code></td><td><code>["I","like","you"]</code></td><td>3</td></tr>
+</table>
+<p>이 두 가지(<b>첫 열 = 삭제만, 첫 행 = 삽입만</b>)가 DP의 <b>초기값(base case)</b>입니다. 초기화가 끝난 표는 아래와 같습니다. 초록색 칸이 이미 정해진 값이고, 점선 칸은 아직 계산하지 않은 칸입니다.</p>
+<div class="scroll"><table class="mx" id="gridInit"></table></div>
+
+<!-- ═════════ 4 점화식 ═════════ -->
+<h2 id="s4">4. 핵심: 왜 세 값 중 최솟값인가</h2>
+<p>정답의 앞 i개를 인식의 앞 j개로 바꾼다고 합시다. <b>두 쪽의 마지막 단어</b>(<code>ref[i-1]</code>, <code>hyp[j-1]</code>)를 어떻게 처리하느냐가 전부이고, 가능한 경우는 <b>딱 세 가지</b>입니다.</p>
+<div class="scroll">
+<svg viewBox="0 0 560 320" role="img" aria-label="d[i][j]는 왼쪽 위, 위, 왼쪽 세 칸에서 온다" style="width:100%;max-width:560px;display:block;margin:12px auto">
+  <defs>
+    <marker id="hu" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--up)"/></marker>
+    <marker id="hl" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--left)"/></marker>
+    <marker id="hd" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--diag)"/></marker>
+  </defs>
+  <text x="280" y="16" text-anchor="middle" font-size="13" style="fill:var(--ink2)">j (인식 hyp의 앞부분 길이) →</text>
+  <text x="14" y="170" font-size="13" style="fill:var(--ink2)" transform="rotate(-90 14 170)" text-anchor="middle">i (정답 ref의 앞부분 길이) →</text>
+  <rect class="box" x="60" y="40" width="150" height="64" rx="8"/><text x="135" y="68" text-anchor="middle" font-size="15">d[i-1][j-1]</text><text x="135" y="89" text-anchor="middle" font-size="11" style="fill:var(--ink2)">둘 다 마지막 단어 직전까지</text>
+  <rect class="box" x="330" y="40" width="150" height="64" rx="8"/><text x="405" y="68" text-anchor="middle" font-size="15">d[i-1][j]</text><text x="405" y="89" text-anchor="middle" font-size="11" style="fill:var(--ink2)">정답만 한 칸 짧음</text>
+  <rect class="box" x="60" y="210" width="150" height="64" rx="8"/><text x="135" y="238" text-anchor="middle" font-size="15">d[i][j-1]</text><text x="135" y="259" text-anchor="middle" font-size="11" style="fill:var(--ink2)">인식만 한 칸 짧음</text>
+  <rect class="box cur" x="330" y="210" width="150" height="64" rx="8"/><text x="405" y="238" text-anchor="middle" font-size="16" font-weight="700">d[i][j]</text><text x="405" y="259" text-anchor="middle" font-size="11" style="fill:var(--ink2)">지금 구하는 칸</text>
+  <line class="ar-diag" x1="200" y1="104" x2="340" y2="212" marker-end="url(#hd)"/>
+  <text x="236" y="150" text-anchor="end" font-size="13" style="fill:var(--diag)" font-weight="700">↖ 일치/치환</text><text x="236" y="167" text-anchor="end" font-size="12" style="fill:var(--diag)">+ cost (0 또는 1)</text>
+  <line class="ar-up" x1="405" y1="104" x2="405" y2="208" marker-end="url(#hu)"/>
+  <text x="414" y="150" font-size="13" style="fill:var(--up)" font-weight="700">↑ 삭제</text><text x="414" y="167" font-size="12" style="fill:var(--up)">+ 1</text>
+  <line class="ar-left" x1="210" y1="242" x2="326" y2="242" marker-end="url(#hl)"/>
+  <text x="268" y="232" text-anchor="middle" font-size="13" style="fill:var(--left)" font-weight="700">← 삽입 (+ 1)</text>
+</svg></div>
+<table>
+  <tr><th>방향</th><th>무슨 일이 일어났나</th><th>식</th></tr>
+  <tr><td style="color:var(--up)"><b>↑ 위</b> 삭제</td><td>정답의 마지막 단어 <code>ref[i-1]</code>을 지웠다. 그 앞까지(<code>ref[:i-1]</code>)는 <code>hyp[:j]</code>로 이미 맞춰 둔 상태.</td><td><code>d[i-1][j] + 1</code></td></tr>
+  <tr><td style="color:var(--left)"><b>← 왼쪽</b> 삽입</td><td>인식의 마지막 단어 <code>hyp[j-1]</code>이 정답에 없는데 끼어들었다. 그 앞까지는 이미 맞춰 둔 상태.</td><td><code>d[i][j-1] + 1</code></td></tr>
+  <tr><td style="color:var(--diag)"><b>↖ 대각선</b> 일치/치환</td><td>두 마지막 단어를 서로 짝지었다. 같으면 추가 비용 0, 다르면 치환 1. 그 앞까지는 이미 맞춰 둔 상태.</td><td><code>d[i-1][j-1] + cost</code></td></tr>
+</table>
+<p>이 셋 중 가장 적은 횟수를 고르면 됩니다. 그것이 다음 코드입니다.</p>
+<pre><code>d[i][j] = min(d[i - 1][j] + 1,          # ↑ 삭제
+              d[i][j - 1] + 1,          # ← 삽입
+              d[i - 1][j - 1] + cost)   # ↖ 일치 또는 치환</code></pre>
+<p>DP의 사고방식이 여기서 드러납니다. <b>현재 문제의 답을, 이미 구해 둔 더 작은 문제들의 답으로 만듭니다.</b> 그래서 위·왼쪽·대각선 왼쪽 위 칸이 <b>먼저 채워져 있어야</b> 하고, 이것이 이중 <code>for</code>를 "행은 위에서 아래로, 각 행은 왼쪽에서 오른쪽으로" 돌리는 이유입니다.</p>
+
+<div class="add"><span class="label">추가</span> <b>채우는 순서와 의존 관계</b>
+  <p>빨간 숫자가 채우는 순서입니다(<code>i=1..3</code>, <code>j=1..3</code>). 어느 칸이든 그 칸의 <b>위·왼쪽·대각선 왼쪽 위</b>는 항상 더 먼저(또는 초기화로) 채워져 있습니다.</p>
+  <table class="mx" style="margin-left:0">
+    <tr><th class="idx"></th><th>j=1</th><th>j=2</th><th>j=3</th></tr>
+    <tr><th>i=1</th><td class="c-filled">1</td><td class="c-filled">2</td><td class="c-filled">3</td></tr>
+    <tr><th>i=2</th><td class="c-filled">4</td><td class="c-filled">5</td><td class="c-filled">6</td></tr>
+    <tr><th>i=3</th><td class="c-filled">7</td><td class="c-filled">8</td><td class="c-filled">9</td></tr>
+  </table>
+  <p class="footnote">예: 5번 칸 <code>d[2][2]</code>는 1번(대각선), 2번(위), 4번(왼쪽)을 참조합니다. 모두 5보다 먼저 채워졌습니다.</p>
+</div>
+
+<!-- ═════════ 5 손으로 ═════════ -->
+<h2 id="s5">5. 실제 데이터로 표 채우기</h2>
+<p><code>ref = I love you</code>, <code>hyp = I like you</code>로 아홉 칸을 순서대로 채웁니다. 아래 상자는 칸마다 <b>세 후보를 계산</b>한 과정입니다(코드로 만든 것입니다). 먼저 몇 칸은 직접 읽어 보세요.</p>
+<h3>5-1. 첫 칸 <code>d[1][1]</code>: <code>ref[0]="I"</code> vs <code>hyp[0]="I"</code></h3>
+<p>두 단어가 같으므로 <code>cost = 0</code>.</p>
+<table class="calc"><tr><th>방법</th><th>계산</th><th>결과</th></tr>
+<tr><td>↑ 삭제</td><td><code>d[0][1] + 1</code></td><td>2</td></tr><tr><td>← 삽입</td><td><code>d[1][0] + 1</code></td><td>2</td></tr>
+<tr class="win"><td>↖ 일치</td><td><code>d[0][0] + 0</code></td><td>0</td></tr></table>
+<p>최솟값 0 → <code>d[1][1] = 0</code>. 사람 눈에도 <code>I</code>와 <code>I</code>는 같으니 수정이 필요 없습니다.</p>
+
+<h3>5-2. <code>d[1][2]</code>: <code>ref[0]="I"</code> vs <code>hyp[1]="like"</code> (cost = 1)</h3>
+<table class="calc"><tr><th>방법</th><th>계산</th><th>결과</th><th>의미</th></tr>
+<tr><td>↑ 삭제</td><td><code>d[0][2] + 1</code></td><td>3</td><td>정답 <code>I</code>를 삭제</td></tr>
+<tr class="win"><td>← 삽입</td><td><code>d[1][1] + 1</code></td><td>1</td><td>인식에 <code>like</code>가 더 끼어듦</td></tr>
+<tr><td>↖ 치환</td><td><code>d[0][1] + 1</code></td><td>2</td><td><code>I</code>를 <code>like</code>로 치환</td></tr></table>
+<p>→ <code>d[1][2] = 1</code>. 정답 <code>I</code>를 <code>I like</code>로 만들려면 <code>like</code> 하나를 삽입하면 됩니다.</p>
+
+<h3>5-3. <code>d[2][2]</code>를 집중해서 보기 — 이 칸이 핵심입니다</h3>
+<p><code>ref[:2] = ["I","love"]</code>, <code>hyp[:2] = ["I","like"]</code>. 마지막 단어는 <code>love</code> vs <code>like</code>로 다르므로 cost = 1.</p>
+<table class="calc"><tr><th>방법</th><th>이전 칸</th><th>연산 비용</th><th>합</th></tr>
+<tr><td>↑ 삭제</td><td><code>d[1][2] = 1</code></td><td>+1</td><td>2</td></tr>
+<tr><td>← 삽입</td><td><code>d[2][1] = 1</code></td><td>+1</td><td>2</td></tr>
+<tr class="win"><td>↖ 치환</td><td><code>d[1][1] = 0</code></td><td>+1</td><td>1</td></tr></table>
+<p>→ <code>d[2][2] = 1</code>. "<code>I love</code>를 <code>I like</code>로 바꾸는 최소 횟수는 1회(love→like 치환)"라는 뜻입니다. 대각선 칸 <code>d[1][1] = 0</code>이 앞에서 이미 "I = I"로 해결되어 있었기 때문에 가능한 값입니다. 이것이 <b>앞에서 구한 답을 재사용한다</b>는 말의 실체입니다.</p>
+
+<h3>5-4. 9칸 전부 보기와 완성된 표</h3>
+<details><summary>9칸 계산을 모두 펼치기 (코드가 계산한 것)</summary><div id="allCells"></div></details>
+<p>완성된 표입니다(초록 = 초기화, 회색 = 계산한 칸, 오른쪽 아래 칸이 답).</p>
+<div class="scroll"><table class="mx" id="gridFinal"></table></div>
+<p>마지막 칸 <code>d[n][m] = d[3][3] = 1</code>이 전체 편집 거리입니다. <code>score()</code>가 이를 정답 단어 수 3으로 나눕니다.</p>
+<div class="formula">WER = (S + D + I) / N = 1 / 3 ≈ 0.333</div>
+<span class="tag verified">실행 확인</span> <code>scoring.edit_matrix(["I","love","you"], ["I","like","you"])</code> = <code>[[0,1,2,3],[1,0,1,2],[2,1,1,2],[3,2,2,1]]</code>
+
+<!-- ═════════ 6 직접 ═════════ -->
+<h2 id="s6">6. 직접 움직여 보기</h2>
+<p>문장을 고르거나 직접 입력하고, <b>▶ 다음</b>을 눌러 한 칸씩 진행하세요. 칸을 채울 때는 <b>점선으로 표시된 세 이웃 칸</b>(<span style="color:var(--up)">↑ 삭제</span>, <span style="color:var(--left)">← 삽입</span>, <span style="color:var(--diag)">↖ 일치/치환</span>)과 계산표를 보고, 표가 다 채워지면 이어서 <b>역추적</b>이 시작됩니다(8장). 작은 화살표(↖↑←)는 그 칸의 값을 만든 이웃을 뜻하고, 둘 이상 있으면 <b>최적 경로가 여러 개</b>라는 신호입니다.</p>
+<div class="panel" id="stepper">
+  <div class="controls">
+    <label>예시 <select id="stPreset"></select></label>
+    <label>동률일 때 <select id="stMode">
+      <option value="project">프로젝트 규칙 (닮은 단어끼리 짝짓기)</option>
+      <option value="simple">단순 규칙 (일치/치환 → 삭제 → 삽입 순)</option>
+    </select></label>
+  </div>
+  <div class="controls">
+    <label>정답 <input type="text" id="stRef" value="" autocomplete="off"></label>
+    <label>인식 <input type="text" id="stHyp" value="" autocomplete="off"></label>
+  </div>
+  <p class="footnote" style="margin:0 0 6px">입력은 프로젝트 영어 정규화와 같은 규칙(NFC → 소문자 → 구두점 제거, 아포스트로피 유지)을 거쳐 공백으로 나뉩니다. 단어는 각각 10개까지.</p>
+  <div class="controls">
+    <button id="stFirst">⏮ 처음</button><button id="stPrev">◀ 이전</button><button class="primary" id="stNext">다음 ▶</button>
+    <button id="stLast">끝까지 ⏭</button><button id="stPlay">▶ 자동 재생</button>
+    <label><input type="checkbox" id="stArrows" checked> 화살표</label>
+    <label><input type="checkbox" id="stShowG"> g 표(닮음 점수) 보기</label>
+  </div>
+  <div class="status" id="stStatus"></div>
+  <div class="grid2">
+    <div>
+      <div class="scroll"><table class="mx" id="stGrid"></table></div>
+      <div id="stGWrap" style="display:none"><h4 style="margin-top:12px">g 표: 최소 거리 경로들 중 "닮은 단어끼리 짝지은 정도"의 최댓값 (8장)</h4><div class="scroll"><table class="mx" id="stGGrid"></table></div></div>
+    </div>
+    <div id="stInfo"></div>
+  </div>
+  <div id="stOps"></div>
+</div>
+
+<!-- ═════════ 7 왜 DP ═════════ -->
+<h2 id="s7">7. 왜 이것이 Dynamic Programming인가</h2>
+<p>DP는 흔히 "동적 계획법"으로 번역하지만 이름보다 다음 두 가지 성질이 중요합니다.</p>
+<ol>
+  <li><b>최적 부분 구조 (Optimal Substructure)</b>: 전체 문제의 최적해가 작은 부분 문제의 최적해로 구성됩니다. 예: <code>d[2][2]</code>를 만들 때 <code>d[1][1]</code>, <code>d[1][2]</code>, <code>d[2][1]</code>의 이미 구한 최적해를 씁니다.</li>
+  <li><b>중복되는 부분 문제 (Overlapping Subproblems)</b>: 여러 경로가 같은 작은 문제의 답을 필요로 합니다. 표에 한 번 적어 두면 다시 계산하지 않아도 됩니다.</li>
+</ol>
+<p>DP 설계 요소로 요약하면 이렇습니다.</p>
+<table>
+  <tr><th>DP 설계 요소</th><th>이 문제에서의 의미</th></tr>
+  <tr><td>문제 정의</td><td>두 문장을 같게 만드는 최소 편집 횟수</td></tr>
+  <tr><td>상태 (State)</td><td><code>d[i][j]</code></td></tr>
+  <tr><td>상태의 의미</td><td>정답 앞 i개를 인식 앞 j개로 바꾸는 최소 비용</td></tr>
+  <tr><td>초기 상태 (Base case)</td><td><code>d[i][0] = i</code>, <code>d[0][j] = j</code></td></tr>
+  <tr><td>점화식 (Recurrence)</td><td>삭제·삽입·치환/일치 중 최솟값</td></tr>
+  <tr><td>계산 순서</td><td>위쪽과 왼쪽이 먼저 채워지도록 행 우선 순회</td></tr>
+  <tr><td>최종 답</td><td><code>d[n][m]</code></td></tr>
+</table>
+
+<div class="add"><span class="label">추가</span> <b>표가 없으면 얼마나 많이 다시 계산할까</b>
+  <p>표(메모) 없이 같은 점화식을 <b>재귀 호출로만</b> 풀면 같은 <code>(i, j)</code>를 계속 다시 풉니다. 아래는 호출 횟수와 DP 표 칸 수를 비교한 것입니다. 정답·인식 단어 수를 바꿔 보세요.</p>
+  <div class="controls">
+    <label>정답 단어 수 n = <b id="rcNv">6</b> <input type="range" id="rcN" min="1" max="15" value="6"></label>
+    <label style="margin-left:16px">인식 단어 수 m = <b id="rcMv">5</b> <input type="range" id="rcM" min="1" max="15" value="5"></label>
+  </div>
+  <div id="rcOut" class="status"></div>
+  <div class="scroll"><table id="rcTable"><tr><th>n = m</th><th>DP 표 칸 수 (n+1)(m+1)</th><th>재귀 호출 수</th><th>배율</th><th style="min-width:180px">호출 수 (로그 길이)</th></tr></table></div>
+  <p class="footnote">호출 수 = <code>c[i][j] = 1 + c[i-1][j] + c[i][j-1] + c[i-1][j-1]</code> (<code>i</code> 또는 <code>j</code>가 0이면 1)를 표로 센 값입니다. <span class="tag verified">실행 확인</span> 6×5(<code>the cat sat on the mat</code> / <code>the cat sit on mat</code>)는 실제 재귀 실행으로 <b>5,479번 vs 42칸</b>, 3×3(<code>I love you</code> / <code>I like you</code>)은 <b>94번 vs 16칸</b>이었고 이 표의 값과 같습니다.</p>
+</div>
+
+<h3>복잡도와 메모리</h3>
+<p>정답 토큰 수를 N, 인식 토큰 수를 M이라 하면 현재 구현은 표 전체를 보관하므로 시간 <b>O(N × M)</b>, 공간도 <b>O(N × M)</b>입니다. 한 문장 정도의 짧은 입력에서는 충분히 빠릅니다. 매우 긴 문서를 다루면 메모리도 고려해야 하는데, 거리 값만 필요하면 직전 행만 보관하는 방식도 있습니다 <span class="tag base">[일반 지식]</span>. 다만 이 프로젝트는 <b>역추적을 위해 표 전체가 필요</b>하므로 전체 표를 둡니다.</p>
+
+<!-- ═════════ 8 역추적 ═════════ -->
+<h2 id="s8">8. 표를 채우는 것과 "어디가 틀렸는지"를 알아내는 것은 다릅니다</h2>
+<p><code>edit_matrix()</code>는 <b>숫자(최소 횟수)</b>만 계산합니다. 예를 들어 <code>d[3][3] = 1</code>이라는 사실만 알려 주고, 어느 단어가 어떻게 바뀌었는지는 모릅니다. 그 일은 다음 함수가 합니다.</p>
+<ul>
+  <li><code>edit_matrix()</code>: 최소 수정 횟수를 계산한다.</li>
+  <li><code>backtrace()</code>: 완성된 표를 <b>되짚어</b> 수정 방법과 위치를 알아낸다.</li>
+  <li><code>score()</code>: 치환·삭제·삽입 개수를 세고 WER/CER을 계산한다.</li>
+</ul>
+
+<h3>8-1. 역추적은 무엇을 확인하나</h3>
+<p>오른쪽 아래 칸 <code>(n, m)</code>에서 출발해 "이 값이 <b>어느 이웃에서 왔는가</b>"를 확인하며 <code>(0, 0)</code>까지 거슬러 갑니다. 확인 조건은 점화식의 거울상입니다.</p>
+<table>
+  <tr><th>이웃</th><th>이 조건이 참이면 거기서 왔을 수 있다</th><th>기록되는 것</th></tr>
+  <tr><td>↖ 대각선</td><td><code>d[i][j] == d[i-1][j-1] + (ref[i-1] != hyp[j-1])</code></td><td>같으면 "일치", 다르면 "치환"</td></tr>
+  <tr><td>↑ 위</td><td><code>d[i][j] == d[i-1][j] + 1</code></td><td>"삭제" (<code>ref[i-1]</code>)</td></tr>
+  <tr><td>← 왼쪽</td><td><code>d[i][j] == d[i][j-1] + 1</code></td><td>"삽입" (<code>hyp[j-1]</code>)</td></tr>
+</table>
+<p>거꾸로 모으기 때문에 마지막에 <code>ops[::-1]</code>로 뒤집어서 문장 순서로 돌려줍니다. 6장 아래쪽의 <b>역추적 단계</b>에서 각 칸에서 이 세 조건이 참인지 거짓인지 직접 볼 수 있습니다.</p>
+
+<h3>8-2. 조건이 둘 이상 참이면? — 최적 경로가 여러 개</h3>
+<p>같은 최소 거리를 만드는 경로가 여러 개일 수 있습니다. 이때 <b>오류율(거리 ÷ N)은 같지만</b> 어떤 단어를 어떤 단어와 짝지었는지, S·D·I 구성은 달라질 수 있습니다.</p>
+<table>
+  <tr><th>정답 / 인식</th><th>최적 경로 (모두 거리 같음)</th></tr>
+  <tr><td class="tok">a b / b a</td><td><code>[a→b] [b→a]</code> (S=2) · <code>[+b+] a [-b-]</code> (D=1,I=1) · <code>[-a-] b [+a+]</code> (D=1,I=1)</td></tr>
+  <tr><td class="tok">we'll sing together /<br>we are seeing together</td><td>3가지: <code>[+we+] [we'll→are] [sing→seeing] together</code> · <code>[we'll→we] [+are+] [sing→seeing] together</code> · <code>[we'll→we] [sing→are] [+seeing+] together</code> (모두 S=2, I=1, 거리 3)</td></tr>
+</table>
+<span class="tag verified">실행 확인</span>
+<p>둘째 예에서 단순히 <code>if</code> 순서로 고르면 첫 번째 경로가 되어 <code>we'll</code>↔<code>are</code> 같은 <b>서로 닮지 않은 짝</b>이 나옵니다. 사람이 보기에는 <code>we'll</code>↔<code>we</code>, <code>sing</code>↔<code>seeing</code>이 자연스럽습니다. 6장에서 위 예시를 고르고 "동률일 때"를 바꿔 가며 역추적 결과를 비교해 보세요.</p>
+
+<h3>8-3. <code>_tie_scores()</code>와 <code>g</code> 표: 프로젝트가 추가한 규칙</h3>
+<div class="add"><span class="label">추가</span>
+  <p><code>_tie_scores()</code>는 <b>수업과 자습 노트북에 없는 이 프로젝트의 추가 규칙</b>입니다. 최소 거리를 만드는 경로들 중에서 <b>닮은 단어끼리 짝지은 정도의 합</b>이 가장 큰 경로를 고르려고, <code>d</code>와 같은 크기의 표 <code>g</code>를 하나 더 만듭니다.</p>
+  <ul>
+    <li><code>g[i][j]</code> = <code>ref[:i]</code>와 <code>hyp[:j]</code>를 <b>최소 비용으로</b> 맞추는 경로들이 얻을 수 있는 <b>닮음 점수 합의 최댓값</b>. (<code>float</code>, <code>d</code>와 같은 (n+1)×(m+1) 크기)</li>
+    <li>일치 = 1점, 치환 = <code>_similarity(a, b)</code>(0~1: 두 글자열이 닮은 정도), 삭제·삽입 = 0점.</li>
+    <li>점화식 모양은 <code>d</code>와 같지만, <code>min</code> 대신 <b>"d의 최소 조건을 만족하는 후보만" 모아 <code>max</code></b>를 씁니다. 즉 <code>d</code>가 <i>어떤 경로가 허용되는지</i>를 정하고, <code>g</code>는 <i>허용된 경로 중 무엇을 고를지</i>를 정합니다.</li>
+    <li><code>backtrace()</code>는 각 칸에서 후보 중 (점수가 큰 것, 같으면 <code>if</code> 우선순위: 일치/치환 → 삭제 → 삽입)을 고릅니다.</li>
+  </ul>
+  <p>핵심은 <b>이 규칙이 거리를 바꾸지 않는다</b>는 점입니다. 오류율은 그대로이고 표시(그리고 S·D·I 구성)만 사람이 이해하기 쉽게 정리합니다. 그래서 <code>score()</code>의 <code>assert S + D + I == distance</code> 검산이 어느 경로를 골라도 통과합니다.</p>
+  <p class="footnote"><code>_similarity(a, b)</code>: 같으면 1.0, 둘 다 한 글자면 0.0(우연히 비슷해 보이기 쉬워서), 그 밖에는 <code>difflib.SequenceMatcher(None, a, b).ratio()</code> = 2 × (공통 글자 수) ÷ (두 길이의 합). 예: <code>sing</code>↔<code>seeing</code>은 2×4/(4+6) = 0.8.</p>
+</div>
+<span class="tag verified">실행 확인</span> 이 문서의 6장 도구는 위 규칙을 <code>scoring.py</code>와 똑같이 옮겨 구현했고, 여러 문장 쌍에서 <code>scoring.backtrace()</code>의 결과와 같은지 비교했습니다(14장 출처·검증 참고).
+
+<!-- ═════════ 9 scoring 지도 ═════════ -->
+<h2 id="s9">9. <code>scoring.py</code> 전체 지도</h2>
+<div class="flow">
+  <div class="box"><b>normalize</b>str → str<br>소문자·구두점 제거</div><div class="arrow">→</div>
+  <div class="box"><b>.split() / list()</b>str → list[str]<br>단어 또는 글자 토큰</div><div class="arrow">→</div>
+  <div class="box"><b>edit_matrix</b>→ list[list[int]]<br>DP 표 <code>d</code></div><div class="arrow">→</div>
+  <div class="box"><b>_tie_scores</b>→ list[list[float]]<br>동률용 <code>g</code> 표</div><div class="arrow">→</div>
+  <div class="box"><b>backtrace</b>→ list[tuple]<br>ops (일치·치환·삭제·삽입)</div><div class="arrow">→</div>
+  <div class="box"><b>score</b>→ dict<br>S·D·I·N·distance·rate·ops</div>
+</div>
+<div class="scroll"><table>
+  <tr><th>함수</th><th>입력 → 출력 (자료형)</th><th>하는 일</th></tr>
+  <tr><td><code>normalize(text, lang)</code></td><td><code>str → str</code></td><td>NFC, (영·불) 소문자, 구두점 제거(<code>'</code> 유지), 공백 정리. 일본어는 공백도 제거</td></tr>
+  <tr><td><code>edit_matrix(ref, hyp)</code></td><td><code>list[str], list[str] → list[list[int]]</code></td><td>이 문서 2~5장의 DP 표</td></tr>
+  <tr><td><code>_similarity(a, b)</code></td><td><code>str, str → float</code> (0~1)</td><td>두 토큰이 얼마나 닮았는지</td></tr>
+  <tr><td><code>_tie_scores(ref, hyp, d)</code></td><td><code>→ list[list[float]]</code></td><td>동률 경로 중 닮은 짝이 많은 정도 <code>g</code> (8-3)</td></tr>
+  <tr><td><code>backtrace(ref, hyp, d)</code></td><td><code>→ list[tuple[str, str|None, str|None]]</code></td><td>표를 되짚어 <code>("치환","love","like")</code>, <code>("삭제","really",None)</code>, <code>("삽입",None,"x")</code> 목록 생성</td></tr>
+  <tr><td><code>score(ref_tokens, hyp_tokens)</code></td><td><code>→ dict</code></td><td><code>{"S","D","I","N","distance","rate","ops"}</code>. 정답이 비면 <code>ValueError</code>. <code>S+D+I == distance</code> 검산</td></tr>
+  <tr><td><code>wer(ref, hyp, lang)</code> / <code>cer(...)</code></td><td><code>str, str → dict</code></td><td>정규화 후 단어/글자 토큰으로 나누어 <code>score()</code> 호출</td></tr>
+  <tr><td><code>evaluate(ref, hyp, lang)</code></td><td><code>→ {"wer", "cer", "main"}</code></td><td>한 번에 평가. 일본어는 <code>main</code>이 CER</td></tr>
+  <tr><td><code>format_diff(ops)</code></td><td><code>list → str</code></td><td><code>[정답→인식]</code> · <code>[-삭제-]</code> · <code>[+삽입+]</code> 표시</td></tr>
+</table></div>
+<p><code>ops</code>의 한 원소는 <code>(종류, 정답 쪽 토큰, 인식 쪽 토큰)</code> 형태의 3-튜플입니다. 삭제는 인식 쪽이, 삽입은 정답 쪽이 <code>None</code>입니다.</p>
+
+<!-- ═════════ 10 설계 6질문 ═════════ -->
+<h2 id="s10">10. 다른 DP 문제를 만났을 때: 6가지 질문</h2>
+<p>이 코드에서는 삭제·삽입·치환 세 연산을 쓰지만, DP는 문제마다 점화식이 달라집니다. 연산을 외우지 말고 아래 질문을 순서대로 던지는 습관이 남아야 합니다.</p>
+<div class="scroll"><table>
+  <tr><th>#</th><th>질문</th><th>편집 거리에서의 답</th></tr>
+  <tr><td>1</td><td>내가 구하려는 최종 답은 무엇인가?</td><td>두 문장 전체의 최소 수정 횟수 = <code>d[n][m]</code></td></tr>
+  <tr><td>2</td><td>그 답을 작은 문제로 나눈다면 각 문제는 무엇을 뜻하는가?</td><td>"정답 앞 i개 → 인식 앞 j개"의 최소 횟수</td></tr>
+  <tr><td>3</td><td>작은 문제의 답을 저장하는 상태 변수는?</td><td>2차원 표 <code>d[i][j]</code></td></tr>
+  <tr><td>4</td><td>현재 상태를 어떤 이전 상태들로 계산할 수 있는가?</td><td>마지막 토큰의 운명 3가지 → <code>d[i-1][j]</code>, <code>d[i][j-1]</code>, <code>d[i-1][j-1]</code></td></tr>
+  <tr><td>5</td><td>계산을 시작할 초기값은?</td><td>첫 행 <code>d[0][j]=j</code>, 첫 열 <code>d[i][0]=i</code></td></tr>
+  <tr><td>6</td><td>어떤 순서로 계산해야 필요한 이전 상태가 이미 완성돼 있는가?</td><td>행 우선(위→아래, 왼→오른)</td></tr>
+</table></div>
+<div class="add"><span class="label">추가</span> <b>Python 팁: 이 표를 코드로 보는 눈</b>
+  <ul>
+    <li>"상태 = 무엇의 어떤 앞부분인가"를 먼저 한 문장으로 쓰고, 그 문장을 <code>d</code>의 첨자(<code>i</code>, <code>j</code>)에 대응시킵니다.</li>
+    <li>점화식에서 <code>i-1</code>, <code>j-1</code>이 나오면 거의 항상 "마지막 요소를 하나 떼어 낸 더 작은 문제"입니다. 그때 마지막 요소는 <code>ref[i-1]</code>처럼 <b>한 칸 앞 인덱스</b>로 접근한다는 점(표는 +1 크기)을 같이 기억합니다.</li>
+  </ul>
+</div>
+
+<!-- ═════════ 11 연습 ═════════ -->
+<h2 id="s11">11. 연습: 예측하고 확인하기</h2>
+<p>코드가 출력한 결과를 <b>이해하는 것</b>과, 실행하기 전에 결과를 <b>예측하는 것</b>은 다른 수준입니다. 아래 5단계로 진행합니다.</p>
+<table>
+  <tr><th>단계</th><th>할 일</th></tr>
+  <tr><td>1</td><td>기존 데이터 추적: <code>I love you</code> → <code>I like you</code>에서 <code>d[1][1]</code>, <code>d[1][2]</code>, <code>d[2][2]</code> 계산을 직접 확인</td></tr>
+  <tr><td>2</td><td>삽입 이해: 정답 <code>I love you</code>, 인식 <code>I really love you</code> — 삽입이 어느 칸에서 생기는지 찾기</td></tr>
+  <tr><td>3</td><td>삭제 이해: 정답 <code>I really love you</code>, 인식 <code>I love you</code> — 삭제 상황 확인</td></tr>
+  <tr><td>4</td><td>일치와 치환 구분: <code>love</code>와 <code>like</code>를 비교하는 칸의 <code>cost</code>가 얼마인지 확인</td></tr>
+  <tr><td>5</td><td><b>손으로 먼저 계산</b>: 새 문장 두 개를 정해 표를 완성한 뒤 코드 결과와 비교</td></tr>
+</table>
+
+<h3>11-1. 연습 모드 (직접 채워 보고 채점)</h3>
+<p>초기화된 첫 행·열은 채워져 있습니다. 나머지 칸을 채우고 <b>채점</b>을 누르세요. 막히면 <b>힌트</b>가 처음 비었거나 틀린 칸의 세 후보를 보여 줍니다.</p>
+<div class="panel" id="practice">
+  <div class="controls"><label>문제 <select id="prSel"></select></label>
+    <button id="prCheck" class="primary">채점</button><button id="prHint">힌트</button><button id="prReveal">정답 보기</button><button id="prReset">지우기</button></div>
+  <div class="status" id="prStatus"></div>
+  <div class="scroll"><table class="mx" id="prGrid"></table></div>
+  <div id="prHintBox"></div>
+</div>
+
+<h3>11-2. 과정을 출력하는 학습용 함수</h3>
+<p>이 함수는 <code>edit_matrix()</code>와 <b>같은 계산</b>을 하되, 칸마다 세 후보를 모두 출력합니다. 노트북에 붙여 넣어 입력을 바꿔 가며 돌려 보세요.</p>
+<pre><code>def edit_matrix_trace(ref, hyp):
+    """DP 표가 채워지는 모든 과정을 출력하는 학습용 버전 (scoring.edit_matrix와 같은 계산)."""
+    n, m = len(ref), len(hyp)
+    d = [[0] * (m + 1) for _ in range(n + 1)]
+    for i in range(n + 1):
+        d[i][0] = i
+    for j in range(m + 1):
+        d[0][j] = j
+    print("초기 DP 표:")
+    for row in d:
+        print(row)
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            ref_word = ref[i - 1]
+            hyp_word = hyp[j - 1]
+            cost = 0 if ref_word == hyp_word else 1
+            delete_cost = d[i - 1][j] + 1
+            insert_cost = d[i][j - 1] + 1
+            replace_cost = d[i - 1][j - 1] + cost
+            d[i][j] = min(delete_cost, insert_cost, replace_cost)
+            print(f"\n[i={i}, j={j}] ref[{i-1}]={ref_word!r} vs hyp[{j-1}]={hyp_word!r} → cost={cost}")
+            print(f"  삭제  d[{i-1}][{j}]   + 1    = {delete_cost}")
+            print(f"  삽입  d[{i}][{j-1}]   + 1    = {insert_cost}")
+            print(f"  일치/치환 d[{i-1}][{j-1}] + {cost}  = {replace_cost}")
+            print(f"  → d[{i}][{j}] = min({delete_cost}, {insert_cost}, {replace_cost}) = {d[i][j]}")
+    print("\n완성된 DP 표:")
+    for row in d:
+        print(row)
+    return d
+
+edit_matrix_trace("I love you".split(), "I like you".split())</code></pre>
+<details><summary>실제 실행 결과 보기 (<code>I love you</code> / <code>I like you</code>)</summary>
+<pre><code>초기 DP 표:
+[0, 1, 2, 3]
+[1, 0, 0, 0]
+[2, 0, 0, 0]
+[3, 0, 0, 0]
+
+[i=1, j=1] ref[0]='I' vs hyp[0]='I' → cost=0
+  삭제  d[0][1]   + 1    = 2
+  삽입  d[1][0]   + 1    = 2
+  일치/치환 d[0][0] + 0  = 0
+  → d[1][1] = min(2, 2, 0) = 0
+
+[i=1, j=2] ref[0]='I' vs hyp[1]='like' → cost=1
+  삭제  d[0][2]   + 1    = 3
+  삽입  d[1][1]   + 1    = 1
+  일치/치환 d[0][1] + 1  = 2
+  → d[1][2] = min(3, 1, 2) = 1
+
+[i=1, j=3] ref[0]='I' vs hyp[2]='you' → cost=1
+  삭제  d[0][3]   + 1    = 4
+  삽입  d[1][2]   + 1    = 2
+  일치/치환 d[0][2] + 1  = 3
+  → d[1][3] = min(4, 2, 3) = 2
+
+[i=2, j=1] ref[1]='love' vs hyp[0]='I' → cost=1
+  삭제  d[1][1]   + 1    = 1
+  삽입  d[2][0]   + 1    = 3
+  일치/치환 d[1][0] + 1  = 2
+  → d[2][1] = min(1, 3, 2) = 1
+
+[i=2, j=2] ref[1]='love' vs hyp[1]='like' → cost=1
+  삭제  d[1][2]   + 1    = 2
+  삽입  d[2][1]   + 1    = 2
+  일치/치환 d[1][1] + 1  = 1
+  → d[2][2] = min(2, 2, 1) = 1
+
+[i=2, j=3] ref[1]='love' vs hyp[2]='you' → cost=1
+  삭제  d[1][3]   + 1    = 3
+  삽입  d[2][2]   + 1    = 2
+  일치/치환 d[1][2] + 1  = 2
+  → d[2][3] = min(3, 2, 2) = 2
+
+[i=3, j=1] ref[2]='you' vs hyp[0]='I' → cost=1
+  삭제  d[2][1]   + 1    = 2
+  삽입  d[3][0]   + 1    = 4
+  일치/치환 d[2][0] + 1  = 3
+  → d[3][1] = min(2, 4, 3) = 2
+
+[i=3, j=2] ref[2]='you' vs hyp[1]='like' → cost=1
+  삭제  d[2][2]   + 1    = 2
+  삽입  d[3][1]   + 1    = 3
+  일치/치환 d[2][1] + 1  = 2
+  → d[3][2] = min(2, 3, 2) = 2
+
+[i=3, j=3] ref[2]='you' vs hyp[2]='you' → cost=0
+  삭제  d[2][3]   + 1    = 3
+  삽입  d[3][2]   + 1    = 3
+  일치/치환 d[2][2] + 0  = 1
+  → d[3][3] = min(3, 3, 1) = 1
+
+완성된 DP 표:
+[0, 1, 2, 3]
+[1, 0, 1, 2]
+[2, 1, 1, 2]
+[3, 2, 2, 1]</code></pre></details>
+<span class="tag verified">실행 확인</span> 이 함수가 만든 표는 <code>scoring.edit_matrix()</code>의 결과와 같았습니다.
+
+<!-- ═════════ 12 함정 ═════════ -->
+<h2 id="s12">12. 자주 하는 오해와 함정</h2>
+<div class="scroll"><table>
+  <tr><th>오해</th><th>바로잡기</th></tr>
+  <tr><td><code>i</code>, <code>j</code>가 단어 인덱스다</td><td>"몇 개까지 보는가"라는 <b>길이</b>입니다. 단어는 <code>ref[i-1]</code>, <code>hyp[j-1]</code></td></tr>
+  <tr><td>표 크기는 <code>n × m</code>이다</td><td><b><code>(n+1) × (m+1)</code></b>. 길이 0(빈 문장) 행·열이 있어야 초기값을 둘 수 있습니다</td></tr>
+  <tr><td>행이 hyp, 열이 ref다</td><td>이 코드는 <b>행 = 정답(ref), 열 = 인식(hyp)</b>. 위로 가면 ref 단어 삭제, 왼쪽으로 가면 hyp 단어 삽입</td></tr>
+  <tr><td>세 연산을 외워야 DP를 안다</td><td>연산이 아니라 "<b>상태의 정의 → 이전 상태 → 초기값 → 순서</b>"가 DP입니다 (10장)</td></tr>
+  <tr><td><code>[[0]*3]*3</code>도 같은 표다</td><td>행들이 같은 리스트 하나를 공유합니다 (3-2)</td></tr>
+  <tr><td>최소 거리가 같으면 경로도 하나다</td><td>경로는 여러 개일 수 있고, 거리(오류율)는 같아도 S·D·I 구성과 표시가 달라집니다 (8-2)</td></tr>
+  <tr><td>표를 채우면 틀린 위치도 안다</td><td>표는 <b>횟수</b>만 줍니다. 위치는 <code>backtrace()</code>가 되짚어야 알 수 있습니다 (8)</td></tr>
+</table></div>
+
+<!-- ═════════ 13 더 깊이 ═════════ -->
+<h2 id="s13">13. 더 깊이: 왜 세 칸이면 충분한가</h2>
+<p>외부 검토에서 다음에 탐구해 보라고 남긴 질문 세 개에 대한 답을 정리했습니다.</p>
+
+<h3>Q1. <code>d[i][j]</code>가 세 칸만 참조해도 되는 이유 (경로 관점의 증명 스케치)</h3>
+<div class="add"><span class="label">추가</span>
+  <p><b>주장</b>: 모든 <code>(i, j)</code>에서 <code>d[i][j] = min(d[i-1][j]+1, d[i][j-1]+1, d[i-1][j-1]+cost)</code>.</p>
+  <ol>
+    <li>편집을 "정답 줄과 인식 줄을 위아래로 나란히 맞춰 쓴 것"(정렬)으로 보면, 정답 <code>ref[:i]</code>를 인식 <code>hyp[:j]</code>로 바꾸는 <b>어떤 정렬이든 맨 오른쪽 열</b>은 정확히 다음 셋 중 하나입니다. (둘 다 빈칸인 열은 의미가 없으므로 최소 비용 정렬에는 없습니다.)
+      <ul><li>(a) <code>ref[i-1]</code> 위에 빈칸 → <code>ref[i-1]</code>이 <b>삭제</b>된다</li><li>(b) <code>hyp[j-1]</code> 위에 빈칸 → <code>hyp[j-1]</code>이 <b>삽입</b>된다</li><li>(c) <code>ref[i-1]</code>과 <code>hyp[j-1]</code>이 한 열에 함께 → <b>짝지어진다</b> (같으면 일치, 다르면 치환)</li></ul></li>
+    <li>각 경우에 남는 나머지 편집은 각각 <code>(ref[:i-1], hyp[:j])</code>, <code>(ref[:i], hyp[:j-1])</code>, <code>(ref[:i-1], hyp[:j-1])</code>를 바꾸는 <b>더 작은 문제</b>입니다.</li>
+    <li>전체가 최소이려면 남은 부분도 최소여야 합니다. 남은 부분이 최소가 아니라면 더 싼 것으로 바꿔 전체를 더 줄일 수 있기 때문입니다(<b>최적 부분 구조</b>).</li>
+    <li>따라서 최소 비용 = 세 경우의 (작은 문제 최솟값 + 이번 연산 비용) 중 최솟값입니다. 이것이 점화식입니다. 증명은 <code>i + j</code>에 대한 <b>귀납법</b>으로 완성됩니다. (기저: <code>i = 0</code> 또는 <code>j = 0</code>은 초기화 값.)</li>
+  </ol>
+  <p class="footnote">위는 증명의 뼈대(스케치)이며 엄밀한 수학적 증명 전체는 아닙니다 <span class="tag base">[일반 지식]</span>. 자세한 증명은 알고리즘 교재의 Levenshtein 거리 항목을 참고하세요.</p>
+</div>
+
+<h3>Q2. <code>backtrace()</code>는 어떤 조건으로 경로를 복원하나</h3>
+<p>8-1의 표입니다. 각 칸에서 <b>"이 값이 이 이웃의 값에 연산 비용을 더한 값과 같은가"</b>를 확인합니다. 같으면 그 이웃에서 왔을 수 있다는 뜻이고, 그쪽으로 한 칸 이동하면서 연산을 기록합니다. 조건이 하나만 참이면 경로가 하나로 정해지고, 둘 이상이면 8-2·8-3의 동률 처리가 일합니다.</p>
+
+<h3>Q3. LCS·배낭 문제와 비교하면</h3>
+<div class="scroll"><table>
+  <tr><th></th><th>편집 거리</th><th>LCS (최장 공통 부분 수열)</th><th>0/1 배낭</th></tr>
+  <tr><td>상태</td><td><code>d[i][j]</code> = 앞 i개 → 앞 j개 최소 비용</td><td><code>L[i][j]</code> = 앞 i개·앞 j개의 최장 공통 부분 수열 길이</td><td><code>K[i][w]</code> = 앞 i개 물건, 용량 w에서 최대 가치</td></tr>
+  <tr><td>마지막 선택지</td><td>삭제 / 삽입 / 짝짓기</td><td>같으면 대각선 +1, 다르면 위·왼쪽 중 큰 값</td><td>i번째 물건을 넣는다 / 안 넣는다</td></tr>
+  <tr><td>최솟/최댓</td><td>min</td><td>max</td><td>max</td></tr>
+  <tr><td>표 모양</td><td>(n+1)×(m+1)</td><td>(n+1)×(m+1)</td><td>(물건+1)×(용량+1)</td></tr>
+</table></div>
+<p>공통점은 "<b>앞부분 하나를 늘릴 때의 선택지가 유한하고, 그 선택 뒤에 남는 문제가 더 작은 같은 모양의 문제</b>"라는 것입니다. 편집 거리와 LCS는 특히 가깝습니다. 치환을 허용하지 않고 삽입·삭제만 쓰는 거리는 <code>N + M − 2 × LCS</code>입니다 <span class="tag base">[일반 지식]</span>. <span class="tag verified">실행 확인</span> <code>the cat sat on the mat</code> / <code>the cat sit on mat</code>에서 LCS = 4, 삽입·삭제만의 거리 = 6 + 5 − 8 = 3이었고치환을 허용한 편집 거리는 2로 더 작습니다(치환 1번이 삭제 1번 + 삽입 1번을 대신하기 때문).</p>
+
+<!-- ═════════ 14 용어·출처 ═════════ -->
+<h2 id="s14">14. 용어와 출처·검증</h2>
+<h3>용어</h3>
+<div class="scroll"><table>
+  <tr><th>용어</th><th>뜻</th></tr>
+  <tr><td>편집 거리 / Levenshtein distance</td><td>치환·삭제·삽입 각 1회로 세어, 한 열을 다른 열로 바꾸는 최소 횟수</td></tr>
+  <tr><td>동적 계획법 (DP)</td><td>큰 문제를 작은 문제로 나누고, 작은 문제의 답을 표에 저장해 재사용하는 풀이</td></tr>
+  <tr><td>부분 문제 (subproblem)</td><td>원래 문제와 같은 형태이지만 입력이 더 짧은 문제 (<code>ref[:i]</code>, <code>hyp[:j]</code>)</td></tr>
+  <tr><td>상태 (state)</td><td>부분 문제를 구분하는 값의 조합 (여기서는 <code>(i, j)</code>)</td></tr>
+  <tr><td>점화식 (recurrence)</td><td>현재 상태의 답을 이전 상태들의 답으로 표현한 식</td></tr>
+  <tr><td>초기값 (base case)</td><td>더 쪼갤 수 없는 가장 작은 문제의 답 (빈 문장)</td></tr>
+  <tr><td>최적 부분 구조</td><td>전체의 최적해가 부분 문제의 최적해로 이루어짐</td></tr>
+  <tr><td>중복 부분 문제</td><td>같은 부분 문제가 여러 번 필요해짐</td></tr>
+  <tr><td>역추적 (backtracking)</td><td>완성된 표에서 끝 → 처음으로 되짚으며 실제 경로를 복원하는 일 (※ 일반적인 "백트래킹 탐색"과는 다른 의미)</td></tr>
+  <tr><td>최적 경로</td><td>최소 거리를 만드는 (i,j) 이동 경로. 여러 개일 수 있음</td></tr>
+  <tr><td>토큰 (token)</td><td>비교의 단위. WER는 단어, CER는 글자</td></tr>
+  <tr><td>ops</td><td>역추적 결과: <code>(종류, 정답 토큰, 인식 토큰)</code> 3-튜플의 리스트</td></tr>
+</table></div>
+
+<h3>출처와 검증</h3>
+<ul>
+  <li><b>본문 구조·설명</b>: 외부 검토(ChatGPT)가 <code>edit_matrix()</code>를 설명한 내용(문제 정의, 변수·자료형, 초기화, 점화식, 9칸 추적, DP 설계 요소, 5단계 과제, 두 가지 구분, 6질문)을 바탕으로 했습니다. 그 설명에서 중간에 끊겼던 학습용 추적 함수는 완성해서 11-2에 실었습니다.</li>
+  <li><b>추가한 것</b>: 점화식 그림(4장), 채우는 순서 그림, 조작 가능한 표 도구와 역추적 단계(6장), 재귀 호출 수 비교(7장), 최적 경로가 여러 개인 예시와 <code>_tie_scores</code>/<code>g</code> 표 설명(8장), <code>scoring.py</code> 지도(9장), 연습 모드(11장), 증명 스케치와 LCS·배낭 비교(13장).</li>
+  <li><b>실행해서 확인한 값</b>: 표 <code>[[0,1,2,3],[1,0,1,2],[2,1,1,2],[3,2,2,1]]</code>, WER = 1/3, 재귀 호출 94번·5,479번, <code>[[0]*3]*3</code>의 얕은 복사 결과, <code>a b</code> / <code>b a</code>의 최적 경로 3개, <code>we'll sing together</code> 예시의 최적 경로 3개와 프로젝트의 선택, LCS 4. 6장 도구의 JavaScript 구현은 <code>scoring.py</code>(Python)의 결과와 무작위 문장 쌍에서 표·ops가 모두 같음을 비교했습니다.</li>
+  <li><b>[추정]·[미확인]</b>: 13장 Q1은 증명의 뼈대이며 완전한 증명이 아닙니다. 브라우저 화면 배치는 데스크톱 폭과 휴대폰 폭에서 확인했으나 모든 브라우저에서 확인하지는 않았습니다.</li>
+</ul>
+<p class="footnote">관련 파일: <code>scoring.py</code>(코드), <code>tests/test_scoring.py</code>(단위 테스트), <code>docs/WER_CER_이해하기.ipynb</code>(WER·CER 학습 노트북, 2-2·3-2절에 이 문서와 연결된 보완 셀이 있습니다).</p>
+
+</main>
+</div>
+
+<script>
+// ==CORE-START==
+/* scoring.py의 edit_matrix / _similarity / _tie_scores / backtrace를 JavaScript로 옮긴 것 (표시용). */
+function editMatrix(ref, hyp) {
+  const n = ref.length, m = hyp.length;
+  const d = Array.from({length: n + 1}, () => new Array(m + 1).fill(0));
+  for (let i = 0; i <= n; i++) d[i][0] = i;
+  for (let j = 0; j <= m; j++) d[0][j] = j;
+  for (let i = 1; i <= n; i++) for (let j = 1; j <= m; j++) {
+    const cost = ref[i - 1] === hyp[j - 1] ? 0 : 1;
+    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+  }
+  return d;
+}
+/* difflib.SequenceMatcher(None, a, b).ratio() 의 포팅 (junk 없음). 가장 긴 공통 블록을 찾고 양쪽으로 반복. */
+function longestMatch(a, b, alo, ahi, blo, bhi) {
+  let besti = alo, bestj = blo, bestsize = 0, j2len = new Map();
+  for (let i = alo; i < ahi; i++) {
+    const nj = new Map();
+    for (let j = blo; j < bhi; j++) {
+      if (a[i] === b[j]) {
+        const k = (j2len.get(j - 1) || 0) + 1;
+        nj.set(j, k);
+        if (k > bestsize) { besti = i - k + 1; bestj = j - k + 1; bestsize = k; }
+      }
+    }
+    j2len = nj;
+  }
+  return [besti, bestj, bestsize];
+}
+function ratio(sa, sb) {
+  const a = Array.from(sa), b = Array.from(sb), la = a.length, lb = b.length;
+  if (la + lb === 0) return 1.0;
+  let matches = 0;
+  const queue = [[0, la, 0, lb]];
+  while (queue.length) {
+    const [alo, ahi, blo, bhi] = queue.pop();
+    const [i, j, k] = longestMatch(a, b, alo, ahi, blo, bhi);
+    if (k) {
+      matches += k;
+      if (alo < i && blo < j) queue.push([alo, i, blo, j]);
+      if (i + k < ahi && j + k < bhi) queue.push([i + k, ahi, j + k, bhi]);
+    }
+  }
+  return 2 * matches / (la + lb);
+}
+function similarity(a, b) {
+  if (a === b) return 1.0;
+  if (Array.from(a).length === 1 && Array.from(b).length === 1) return 0.0;
+  return ratio(a, b);
+}
+function tieScores(ref, hyp, d) {
+  const n = ref.length, m = hyp.length;
+  const g = Array.from({length: n + 1}, () => new Array(m + 1).fill(0));
+  for (let i = 0; i <= n; i++) for (let j = 0; j <= m; j++) {
+    if (i === 0 && j === 0) continue;
+    const cands = [];
+    if (i > 0 && j > 0 && d[i][j] === d[i - 1][j - 1] + (ref[i - 1] !== hyp[j - 1] ? 1 : 0))
+      cands.push(g[i - 1][j - 1] + similarity(ref[i - 1], hyp[j - 1]));
+    if (i > 0 && d[i][j] === d[i - 1][j] + 1) cands.push(g[i - 1][j]);
+    if (j > 0 && d[i][j] === d[i][j - 1] + 1) cands.push(g[i][j - 1]);
+    g[i][j] = Math.max(...cands);
+  }
+  return g;
+}
+/* 역추적. mode 'project' = scoring.backtrace (g 점수 우선, 같으면 일치/치환→삭제→삽입),
+   mode 'simple' = 점수를 모두 0으로 보는 것과 같음 = 자습 노트북의 if 순서.
+   steps[k] = {i, j, options:[{kind, valid, score, prio, next:[i,j]}], chosen: index} */
+function backtraceSteps(ref, hyp, d, g, mode) {
+  let i = ref.length, j = hyp.length;
+  const steps = [], opsRev = [];
+  while (i > 0 || j > 0) {
+    const options = [];
+    const diagOk = i > 0 && j > 0 && d[i][j] === d[i - 1][j - 1] + (ref[i - 1] !== hyp[j - 1] ? 1 : 0);
+    const delOk = i > 0 && d[i][j] === d[i - 1][j] + 1;
+    const insOk = j > 0 && d[i][j] === d[i][j - 1] + 1;
+    const sim = (i > 0 && j > 0) ? similarity(ref[i - 1], hyp[j - 1]) : 0;
+    options.push({kind: (i > 0 && j > 0 && ref[i - 1] === hyp[j - 1]) ? '일치' : '치환', valid: diagOk, prio: 0, next: [i - 1, j - 1],
+      score: diagOk ? (mode === 'project' ? g[i - 1][j - 1] + sim : 0) : null, sim: diagOk ? sim : null});
+    options.push({kind: '삭제', valid: delOk, prio: 1, next: [i - 1, j], score: delOk ? (mode === 'project' ? g[i - 1][j] : 0) : null});
+    options.push({kind: '삽입', valid: insOk, prio: 2, next: [i, j - 1], score: insOk ? (mode === 'project' ? g[i][j - 1] : 0) : null});
+    let best = -1;
+    options.forEach((o, k) => {
+      if (!o.valid) return;
+      if (best < 0) { best = k; return; }
+      const a = Math.round(o.score * 1e9), b = Math.round(options[best].score * 1e9);
+      if (a > b || (a === b && o.prio < options[best].prio)) best = k;
+    });
+    const o = options[best];
+    const op = o.kind === '삭제' ? ['삭제', ref[i - 1], null] : o.kind === '삽입' ? ['삽입', null, hyp[j - 1]] : [o.kind, ref[i - 1], hyp[j - 1]];
+    steps.push({i, j, options, chosen: best});
+    opsRev.push(op);
+    [i, j] = o.next;
+  }
+  return {steps, ops: opsRev.reverse()};
+}
+function formatDiff(ops) {
+  return ops.map(([k, a, b]) => k === '일치' ? a : k === '치환' ? `[${a}→${b}]` : k === '삭제' ? `[-${a}-]` : `[+${b}+]`).join(' ');
+}
+/* 재귀(메모 없음) 호출 수: c[i][j] = 1 + c[i-1][j] + c[i][j-1] + c[i-1][j-1], i 또는 j가 0이면 1 */
+function naiveCalls(n, m) {
+  const c = Array.from({length: n + 1}, () => new Array(m + 1).fill(1));
+  for (let i = 1; i <= n; i++) for (let j = 1; j <= m; j++) c[i][j] = 1 + c[i - 1][j] + c[i][j - 1] + c[i - 1][j - 1];
+  return c[n][m];
+}
+function normalizeEn(text) {
+  return text.normalize('NFC').replace(/’/g, "'").toLowerCase().replace(/[^\p{L}\p{N}_\s']/gu, '').replace(/\s+/g, ' ').trim();
+}
+function tokens(text) { const t = normalizeEn(text); return t ? t.split(' ') : []; }
+// ==CORE-END==
+
+if (typeof document !== 'undefined') (function () {
+const $ = (s, el) => (el || document).querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+const fmt = x => (Math.round(x * 100) / 100).toString();
+
+/* ── 공통: 표 그리기 ── */
+function drawGrid(table, ref, hyp, cell) {
+  const n = ref.length, m = hyp.length;
+  let h = '<tr><th class="idx"></th><th class="idx"></th>';
+  for (let j = 0; j <= m; j++) h += `<th class="idx">j=${j}</th>`;
+  h += '</tr><tr><th class="idx"></th><th></th><th>∅</th>';
+  for (let j = 0; j < m; j++) h += `<th class="tok">${esc(hyp[j])}</th>`;
+  h += '</tr>';
+  for (let i = 0; i <= n; i++) {
+    h += `<tr><th class="idx">i=${i}</th><th class="tok">${i === 0 ? '∅' : esc(ref[i - 1])}</th>`;
+    for (let j = 0; j <= m; j++) {
+      const c = cell(i, j) || {};
+      h += `<td class="${c.cls || ''}" ${c.title ? `title="${esc(c.title)}"` : ''}>${c.tag ? `<span class="tg">${c.tag}</span>` : ''}${c.html != null ? c.html : esc(c.text == null ? '' : c.text)}${c.arrows ? `<span class="ar">${c.arrows}</span>` : ''}</td>`;
+    }
+    h += '</tr>';
+  }
+  table.innerHTML = h;
+}
+function arrowsFor(ref, hyp, d, i, j) {
+  if (i === 0 || j === 0) return '';
+  let s = '';
+  if (d[i][j] === d[i - 1][j - 1] + (ref[i - 1] !== hyp[j - 1] ? 1 : 0)) s += '↖';
+  if (d[i][j] === d[i - 1][j] + 1) s += '↑';
+  if (d[i][j] === d[i][j - 1] + 1) s += '←';
+  return s;
+}
+function explainCellHTML(ref, hyp, d, i, j) {
+  const rw = ref[i - 1], hw = hyp[j - 1], cost = rw === hw ? 0 : 1;
+  const A = d[i - 1][j] + 1, B = d[i][j - 1] + 1, C = d[i - 1][j - 1] + cost, v = Math.min(A, B, C);
+  const row = (win, arrow, name, formula, val) => `<tr class="${win ? 'win' : ''}"><td>${arrow} ${name}</td><td><code>${formula}</code></td><td>${val}</td></tr>`;
+  return `<p style="margin:4px 0"><b>d[${i}][${j}]</b>: ref[${i - 1}] = <span class="tok">"${esc(rw)}"</span> vs hyp[${j - 1}] = <span class="tok">"${esc(hw)}"</span> → cost = ${cost} (${cost ? '다르므로 치환 1' : '같으므로 일치 0'})</p>` +
+    `<table class="calc"><tr><th>방법</th><th>계산</th><th>결과</th></tr>` +
+    row(A === v, '↑', '삭제', `d[${i - 1}][${j}] + 1 = ${d[i - 1][j]} + 1`, A) +
+    row(B === v, '←', '삽입', `d[${i}][${j - 1}] + 1 = ${d[i][j - 1]} + 1`, B) +
+    row(C === v, '↖', cost ? '치환' : '일치', `d[${i - 1}][${j - 1}] + ${cost} = ${d[i - 1][j - 1]} + ${cost}`, C) +
+    `</table><p style="margin:4px 0">→ <b>d[${i}][${j}] = min(${A}, ${B}, ${C}) = ${v}</b></p>`;
+}
+
+/* ── 정적 그림들 ── */
+(function () {
+  const R = ['I', 'love', 'you'], H = ['I', 'like', 'you'], d = editMatrix(R, H);
+  drawGrid($('#gridNames'), R, H, (i, j) => ({text: `d[${i}][${j}]`, cls: 'c-filled', html: `<span style="font-size:.72rem;font-weight:600">d[${i}][${j}]</span>`}));
+  drawGrid($('#gridInit'), R, H, (i, j) => (i === 0 || j === 0) ? {text: d[i][j], cls: 'c-init'} : {text: '?', cls: 'c-empty'});
+  drawGrid($('#gridFinal'), R, H, (i, j) => ({text: d[i][j], cls: (i === 0 || j === 0) ? 'c-init' : (i === 3 && j === 3 ? 'c-cur' : 'c-filled'), arrows: (i && j) ? arrowsFor(R, H, d, i, j) : ''}));
+  let h = '';
+  for (let i = 1; i <= 3; i++) for (let j = 1; j <= 3; j++) h += explainCellHTML(R, H, d, i, j);
+  $('#allCells').innerHTML = h;
+})();
+
+/* ── 6장: 단계별 도구 ── */
+(function () {
+  const presets = [
+    ['I love you / I like you (본문 예시)', 'I love you', 'I like you'],
+    ['the cat sat on the mat / the cat sit on mat (학습 노트북)', 'the cat sat on the mat', 'the cat sit on mat'],
+    ["We'll sing together / We are seeing together (실제 오인식, 동률 규칙 비교)", "We'll sing together", 'We are seeing together'],
+    ['a b / b a (최적 경로가 여러 개)', 'a b', 'b a'],
+    ['I love you / I really love you (삽입)', 'I love you', 'I really love you'],
+    ['I really love you / I love you (삭제)', 'I really love you', 'I love you'],
+    ['직접 입력', '', '']
+  ];
+  const sel = $('#stPreset');
+  presets.forEach((p, k) => sel.insertAdjacentHTML('beforeend', `<option value="${k}">${esc(p[0])}</option>`));
+  const S = {ref: [], hyp: [], d: null, g: null, tr: null, F: [], pos: 0, timer: null};
+  const el = {ref: $('#stRef'), hyp: $('#stHyp'), mode: $('#stMode'), status: $('#stStatus'), grid: $('#stGrid'), g: $('#stGGrid'), gwrap: $('#stGWrap'),
+    info: $('#stInfo'), ops: $('#stOps'), arrows: $('#stArrows'), showG: $('#stShowG'), prev: $('#stPrev'), next: $('#stNext'), first: $('#stFirst'), last: $('#stLast'), play: $('#stPlay')};
+
+  function compute() {
+    S.ref = tokens(el.ref.value).slice(0, 10);
+    S.hyp = tokens(el.hyp.value).slice(0, 10);
+    if (!S.ref.length) { S.d = null; return; }
+    S.d = editMatrix(S.ref, S.hyp);
+    S.g = tieScores(S.ref, S.hyp, S.d);
+    S.tr = backtraceSteps(S.ref, S.hyp, S.d, S.g, el.mode.value);
+    S.F = [];
+    for (let i = 1; i <= S.ref.length; i++) for (let j = 1; j <= S.hyp.length; j++) S.F.push([i, j]);
+  }
+  const total = () => S.F.length + S.tr.steps.length;
+  function stop() { if (S.timer) { clearInterval(S.timer); S.timer = null; el.play.textContent = '▶ 자동 재생'; } }
+  function render() {
+    if (!S.d) {
+      el.status.textContent = '정답이 비어 있으면 분모 N = 0이라 오류율을 계산할 수 없습니다 (scoring.score는 ValueError).';
+      el.grid.innerHTML = ''; el.info.innerHTML = ''; el.ops.innerHTML = ''; el.gwrap.style.display = 'none';
+      [el.prev, el.next, el.first, el.last, el.play].forEach(b => b.disabled = true);
+      return;
+    }
+    [el.first, el.last, el.play].forEach(b => b.disabled = false);
+    const {ref, hyp, d, g, tr, F} = S, n = ref.length, m = hyp.length, nf = F.length;
+    el.prev.disabled = S.pos === 0; el.next.disabled = S.pos >= total();
+    const fillDone = Math.min(S.pos, nf), t = Math.max(0, S.pos - nf);
+    const filled = new Set(F.slice(0, fillDone).map(c => c.join(',')));
+    const curFill = (S.pos >= 1 && S.pos <= nf) ? F[S.pos - 1] : null;
+    const path = new Set(), pathOps = [];
+    let curTrace = null;
+    if (t > 0 || S.pos > nf) {
+      path.add(`${n},${m}`);
+      for (let k = 0; k < t; k++) { path.add(tr.steps[k].options[tr.steps[k].chosen].next.join(',')); }
+      if (t > 0) curTrace = [tr.steps[t - 1].i, tr.steps[t - 1].j];
+    }
+    const src = {};
+    if (curFill) { const [ci, cj] = curFill; src[`${ci - 1},${cj}`] = ['c-up', '↑ 삭제']; src[`${ci},${cj - 1}`] = ['c-left', '← 삽입']; src[`${ci - 1},${cj - 1}`] = ['c-diag', '↖']; }
+    drawGrid(el.grid, ref, hyp, (i, j) => {
+      const key = `${i},${j}`;
+      if (i === 0 || j === 0) { const c = {text: d[i][j], cls: 'c-init'}; if (src[key]) { c.cls += ' ' + src[key][0]; c.tag = src[key][1]; } if (path.has(key)) c.cls = 'c-path'; if (curTrace && curTrace[0] === i && curTrace[1] === j) c.cls += ' c-cur'; return c; }
+      if (!filled.has(key)) return {text: '·', cls: 'c-empty'};
+      const c = {text: d[i][j], cls: 'c-filled', arrows: el.arrows.checked ? arrowsFor(ref, hyp, d, i, j) : ''};
+      if (src[key]) { c.cls = src[key][0]; c.tag = src[key][1]; }
+      if (curFill && curFill[0] === i && curFill[1] === j) c.cls = 'c-cur';
+      if (path.has(key)) c.cls = 'c-path';
+      if (curTrace && curTrace[0] === i && curTrace[1] === j) c.cls += ' c-cur';
+      return c;
+    });
+    const projectMode = el.mode.value === 'project';
+    el.gwrap.style.display = el.showG.checked ? '' : 'none';
+    if (el.showG.checked) drawGrid(el.g, ref, hyp, (i, j) => ({text: fmt(g[i][j]), cls: (i === 0 || j === 0) ? 'c-init' : 'c-filled'}));
+
+    // 상태 줄과 설명
+    let info = '';
+    if (S.pos === 0) {
+      el.status.textContent = `0 / ${total()}  ·  초기화 완료: 첫 행(삽입만)과 첫 열(삭제만)이 채워져 있습니다. [다음 ▶]을 누르면 d[1][1]부터 채웁니다.`;
+      info = `<p>표 크기는 (n+1) × (m+1) = ${n + 1} × ${m + 1} (n=${n}, m=${m}). 초록 칸은 초기값이고, 점선 칸 <b>·</b>은 아직 계산하지 않았습니다.</p>`;
+    } else if (S.pos <= nf) {
+      const [ci, cj] = curFill;
+      el.status.textContent = `채우기 ${S.pos} / ${nf}  ·  d[${ci}][${cj}] 계산`;
+      info = explainCellHTML(ref, hyp, d, ci, cj);
+      if (S.pos === nf) info += `<p class="callout key">표가 모두 채워졌습니다. 편집 거리 = d[${n}][${m}] = <b>${d[n][m]}</b>. 다음 ▶ 으로 역추적을 시작합니다.</p>`;
+    } else if (t > 0) {
+      const st = tr.steps[t - 1], ch = st.options[st.chosen];
+      el.status.textContent = `역추적 ${t} / ${tr.steps.length}  ·  (${st.i}, ${st.j})에서 "${ch.kind}"를 기록하고 (${ch.next[0]}, ${ch.next[1]})로 이동`;
+      const rw = st.i > 0 ? ref[st.i - 1] : '(없음)', hw = st.j > 0 ? hyp[st.j - 1] : '(없음)';
+      info = `<p style="margin:4px 0">위치 <b>(${st.i}, ${st.j})</b>, d = ${d[st.i][st.j]} · 마지막 정답 단어 = <span class="tok">${st.i > 0 ? '"' + esc(rw) + '"' : esc(rw)}</span>, 마지막 인식 단어 = <span class="tok">${st.j > 0 ? '"' + esc(hw) + '"' : esc(hw)}</span></p>`;
+      info += `<table class="calc"><tr><th>이웃</th><th>"여기서 왔다" 조건</th><th>참?</th>${projectMode ? '<th>점수</th>' : ''}<th>✓</th></tr>`;
+      const cond = [`d[i][j] == d[i-1][j-1] + (다르면 1)`, `d[i][j] == d[i-1][j] + 1`, `d[i][j] == d[i][j-1] + 1`];
+      const arrow = ['↖', '↑', '←'];
+      st.options.forEach((o, k) => {
+        let sc = '';
+        if (projectMode) sc = o.valid ? (k === 0 ? `g ${fmt(g[o.next[0]][o.next[1]])} + 닮음 ${fmt(o.sim)} = <b>${fmt(o.score)}</b>` : `g = <b>${fmt(o.score)}</b>`) : '—';
+        info += `<tr class="${k === st.chosen ? 'win' : (o.valid ? '' : 'bad')}"><td>${arrow[k]} ${o.kind}</td><td><code>${cond[k]}</code></td><td>${o.valid ? '참' : '거짓'}</td>${projectMode ? `<td>${sc}</td>` : ''}<td>${k === st.chosen ? '✓' : ''}</td></tr>`;
+      });
+      info += '</table>';
+      const nvalid = st.options.filter(o => o.valid).length;
+      info += `<p class="footnote" style="margin:4px 0">${nvalid === 1 ? '참인 조건이 하나뿐이라 경로가 정해집니다.' : (projectMode ? '참인 조건이 여럿입니다(동률). 점수가 가장 큰 쪽을 고르고, 점수도 같으면 ↖ → ↑ → ← 순서입니다.' : '참인 조건이 여럿입니다(동률). 단순 규칙이라 ↖ → ↑ → ← 순서로 고릅니다.')}</p>`;
+      if (t === tr.steps.length) info += `<p class="callout key">역추적 끝. 모은 목록을 뒤집어 문장 순서로 돌려줍니다.</p>`;
+    } else {
+      el.status.textContent = `역추적 0 / ${tr.steps.length}  ·  출발: 오른쪽 아래 (${n}, ${m})`;
+      info = `<p>표가 완성되었습니다. 이제 d[${n}][${m}] = ${d[n][m]}에서 시작해 "이 값이 어느 이웃에서 왔는가"를 거슬러 갑니다. 다음 ▶</p>`;
+    }
+    el.info.innerHTML = info;
+
+    // 지금까지 모은 ops와 결과
+    let o = '';
+    if (S.pos > nf) {
+      const done = tr.ops.slice(tr.ops.length - t);   // 끝에서부터 t개 모은 것
+      o += `<h4>지금까지 모은 연산 (끝에서부터 모으므로 거꾸로 쌓입니다)</h4><div>${done.slice().reverse().map(x => `<span class="chip ${x[0]}">${x[0]} ${esc(x[1] == null ? '' : x[1])}${x[0] === '치환' ? '→' + esc(x[2]) : x[0] === '삽입' ? esc(x[2]) : ''}</span>`).join('') || '(없음)'}</div>`;
+      if (t === tr.steps.length) {
+        const cnt = k => tr.ops.filter(x => x[0] === k).length, Sc = cnt('치환'), Dc = cnt('삭제'), Ic = cnt('삽입');
+        o += `<div class="callout key" style="margin-top:10px"><b>결과</b> (${projectMode ? '프로젝트 규칙' : '단순 규칙'}) &nbsp; <code>${esc(formatDiff(tr.ops))}</code><br>S=${Sc} D=${Dc} I=${Ic} N=${n} → 편집 거리 ${Sc + Dc + Ic} = d[${n}][${m}] → 오류율 ${Sc + Dc + Ic}/${n} = <b>${fmt((Sc + Dc + Ic) / n)}</b><br><span class="footnote">${Sc + Dc + Ic === d[n][m] ? '검산 S+D+I == distance 통과' : '검산 실패!'}</span></div>`;
+      }
+    }
+    el.ops.innerHTML = o;
+  }
+  function go(p) { S.pos = Math.max(0, Math.min(total(), p)); render(); }
+  function reset(keepPos) { stop(); compute(); S.pos = (S.d && keepPos) ? Math.min(S.pos, total()) : 0; render(); }
+  el.prev.onclick = () => { stop(); go(S.pos - 1); };
+  el.next.onclick = () => { stop(); go(S.pos + 1); };
+  el.first.onclick = () => { stop(); go(0); };
+  el.last.onclick = () => { stop(); go(total()); };
+  el.play.onclick = () => {
+    if (S.timer) { stop(); return; }
+    if (S.pos >= total()) S.pos = 0;
+    el.play.textContent = '⏸ 멈춤';
+    S.timer = setInterval(() => { if (S.pos >= total()) { stop(); return; } go(S.pos + 1); }, 700);
+  };
+  el.arrows.onchange = () => render();
+  el.showG.onchange = () => render();
+  el.mode.onchange = () => reset(true);
+  sel.onchange = () => { const p = presets[+sel.value]; if (p[1] || p[2]) { el.ref.value = p[1]; el.hyp.value = p[2]; } reset(false); };
+  el.ref.oninput = el.hyp.oninput = () => { sel.value = String(presets.length - 1); reset(false); };
+  el.ref.value = presets[0][1]; el.hyp.value = presets[0][2];
+  reset(false);
+})();
+
+/* ── 7장: 재귀 호출 수 ── */
+(function () {
+  const rn = $('#rcN'), rm = $('#rcM');
+  const f = x => x.toLocaleString('en-US');
+  function upd() {
+    const n = +rn.value, m = +rm.value;
+    $('#rcNv').textContent = n; $('#rcMv').textContent = m;
+    const calls = naiveCalls(n, m), cells = (n + 1) * (m + 1);
+    $('#rcOut').innerHTML = `n=${n}, m=${m}: DP 표 <b>${f(cells)}칸</b> vs 메모 없는 재귀 <b>${f(calls)}번</b> 호출 (약 ${f(Math.round(calls / cells))}배)`;
+  }
+  rn.oninput = rm.oninput = upd; upd();
+  let h = '';
+  const maxLog = Math.log10(naiveCalls(12, 12));
+  for (let k = 2; k <= 12; k += 2) {
+    const c = naiveCalls(k, k), cells = (k + 1) * (k + 1);
+    h += `<tr><td>${k}</td><td>${f(cells)}</td><td>${f(c)}</td><td>${f(Math.round(c / cells))}배</td><td><div class="bar red" style="width:${Math.max(3, 100 * Math.log10(c) / maxLog)}%"></div></td></tr>`;
+  }
+  $('#rcTable').insertAdjacentHTML('beforeend', h);
+})();
+
+/* ── 11장: 연습 모드 ── */
+(function () {
+  const probs = [
+    ['I love you / I like you', 'I love you', 'I like you'],
+    ['I love you / I really love you (삽입)', 'I love you', 'I really love you'],
+    ['I really love you / I love you (삭제)', 'I really love you', 'I love you'],
+    ['a b / b a', 'a b', 'b a'],
+    ['go home now / go to home', 'go home now', 'go to home']
+  ];
+  const sel = $('#prSel');
+  probs.forEach((p, k) => sel.insertAdjacentHTML('beforeend', `<option value="${k}">${esc(p[0])}</option>`));
+  let ref, hyp, d;
+  const grid = $('#prGrid'), status = $('#prStatus'), hbox = $('#prHintBox');
+  function build() {
+    const p = probs[+sel.value]; ref = p[1].split(' '); hyp = p[2].split(' '); d = editMatrix(ref, hyp);
+    drawGrid(grid, ref, hyp, (i, j) => (i === 0 || j === 0) ? {text: d[i][j], cls: 'c-init'} : {html: `<input type="text" inputmode="numeric" maxlength="2" data-i="${i}" data-j="${j}" aria-label="d[${i}][${j}]">`, cls: 'c-input'});
+    status.textContent = `정답 ${ref.length}단어, 인식 ${hyp.length}단어 → 채울 칸 ${ref.length * hyp.length}개. 각 칸은 위·왼쪽·대각선 왼쪽 위를 보고 계산합니다.`;
+    hbox.innerHTML = '';
+  }
+  const inputs = () => Array.from(grid.querySelectorAll('input'));
+  const val = inp => inp.value.trim() === '' ? null : parseInt(inp.value, 10);
+  $('#prCheck').onclick = () => {
+    let ok = 0, bad = 0, empty = 0;
+    inputs().forEach(inp => {
+      const td = inp.parentElement, i = +inp.dataset.i, j = +inp.dataset.j, v = val(inp);
+      td.classList.remove('c-ok', 'c-bad');
+      if (v === null) { empty++; return; }
+      if (v === d[i][j]) { td.classList.add('c-ok'); ok++; } else { td.classList.add('c-bad'); bad++; }
+    });
+    const all = ref.length * hyp.length;
+    status.textContent = bad === 0 && empty === 0 ? `전부 맞았습니다! (${all}/${all}) d[${ref.length}][${hyp.length}] = ${d[ref.length][hyp.length]}` : `맞음 ${ok} · 틀림 ${bad} · 비어 있음 ${empty} (총 ${all}칸)`;
+  };
+  $('#prHint').onclick = () => {
+    const bad = inputs().find(inp => { const v = val(inp); return v === null || v !== d[+inp.dataset.i][+inp.dataset.j]; });
+    if (!bad) { hbox.innerHTML = '<p class="callout key">힌트가 필요한 칸이 없습니다. 모두 맞았어요.</p>'; return; }
+    hbox.innerHTML = '<p class="footnote" style="margin-bottom:0">처음 비었거나 틀린 칸의 계산 (이웃 값은 정답 기준):</p>' + explainCellHTML(ref, hyp, d, +bad.dataset.i, +bad.dataset.j).replace(/ class="win"/g, '').replace(/<b>d\[\d+\]\[\d+\] = min\([^<]*<\/b>/, '<b>최솟값을 직접 골라 보세요</b>');
+    bad.focus();
+  };
+  $('#prReveal').onclick = () => { inputs().forEach(inp => { inp.value = d[+inp.dataset.i][+inp.dataset.j]; inp.parentElement.classList.remove('c-bad'); inp.parentElement.classList.add('c-ok'); }); status.textContent = '정답을 채웠습니다. 6장 도구에서 같은 문제를 입력해 과정을 확인해 보세요.'; hbox.innerHTML = ''; };
+  $('#prReset').onclick = build;
+  sel.onchange = build;
+  build();
+})();
+})();
+</script>
+</body>
+</html>
