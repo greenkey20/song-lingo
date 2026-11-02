@@ -4,20 +4,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**song-lingo** — 외국어 노래 문장 연습 도우미 (듣고 따라읽고 받아쓰고 확인하는 음성 학습 프로토타입). ICT 혁신 스퀘어 Voice-AI 부트캠프의 **개인 프로젝트**(2026-10-30 ~ 11-11 평일 9일 × 4h = 36h 개발, **11-12 발표**). 사용자가 TTS 기준 음성을 듣고 → 따라 읽은 녹음을 STT로 인식하거나 받아쓰기를 하고 → 정답과의 **오류율(WER/CER)** 과 틀린 부분을 피드백받는다. 점수는 **발음 점수가 아니라 "문장 인식 일치도"** 다(STT가 틀린 발음을 문맥으로 고쳐 적을 수 있음). 시연 화면은 **Jupyter 노트북(`practice.ipynb`)** 이다. 웹 UI(PWA/Streamlit/Gradio) 도입 여부는 **결정 전**이며(검토 문서 16.1·16.2; 11-02 면담에서 강사님이 **Streamlit을 권장**, 결정은 4일차), 지금 `spike/`의 FastAPI 서버는 브라우저 녹음을 점검하려고 만든 임시 코드다.
+**song-lingo** — 외국어 노래 문장 연습 도우미 (듣고 따라읽고 받아쓰고 확인하는 음성 학습 프로토타입). ICT 혁신 스퀘어 Voice-AI 부트캠프의 **개인 프로젝트**(2026-10-30 ~ 11-11 평일 9일 × 4h = 36h 개발, **11-12 발표**). 사용자가 TTS 기준 음성을 듣고 → 따라 읽은 녹음을 STT로 인식하거나 받아쓰기를 하고 → 정답과의 **오류율(WER/CER)** 과 틀린 부분을 피드백받는다. 점수는 **발음 점수가 아니라 "문장 인식 일치도"** 다(STT가 틀린 발음을 문맥으로 고쳐 적을 수 있음). 시연 화면은 **Jupyter 노트북(`practice.ipynb`)** 이다. 웹 UI(PWA/Streamlit/Gradio) 도입 여부는 **결정 전**이며(11-02 면담에서 강사님이 Streamlit 권장, 결정은 4일차), `spike/`의 FastAPI 서버는 브라우저 녹음 점검용 임시 코드다.
 
-- **진행 상황(2026-11-01 밤 기준)**: 주말 스켈레톤(S0~S6, 소리 그림 S4.5, 틀린 구간 표시 S4.6)은 끝났고 종강식 설문(오프라인 참석·발표)을 제출했다. 이제 계획서 일정(2일차~)으로 복귀한다(웹 UI 도입 여부는 4일차 결정). README는 매일 쓰지 않고 마일스톤(L1 완료·L2 완료·마지막 정리)마다 갱신한다. 이슈 #1~21은 계획서 항목, #22 이후는 작업 중 추가한 것이다. 남은 L1의 큰 것: 새 문장 7개의 TTS 생성(캐시에 없는 8개, 과금), 정규화 방침 확정(#3), 10문장×3회 검증(#10; 연습 문장 10개는 11-02에 `sentences.csv`에 채움, 설명은 `docs/연습_문장_데이터_설명.md`). 현황은 `docs/작업_일지.md`와 GitHub 이슈를 본다.
-- **결정된 내용: `docs/프로젝트 개발 계획서_20261030.md`** (L1 필수 → L2 확장 → L3 심화 선택, 일정 · 성공 기준 · 축소 규칙 포함). 사용자가 직접 정리해 강사님께 공유하는 문서이므로 **사용자의 글을 임의로 바꾸지 말고**, 고칠 때는 큰 흐름과 문체를 유지하며 필요한 부분만 고친다.
-- **검토·근거·옵션 비교: `docs/프로젝트_안내_및_주제_검토.md`** (절 번호는 주제별 9~16장, 변경 이력은 9.1, 옛 8.9~8.38 번호는 17장 대응표). 이 사본이 이 저장소에서 앞으로 이어 쓰는 원본이다(학습 저장소의 사본은 10-30 시점의 것). 코드 구조·검증·주석에 관한 판단은 9.4, `quality.py` 기준값 근거는 14.3, 보관본 A절 확인 항목 현황·일정 재조정·웹 UI 결정 시점은 10.8, README 갱신 시점은 9.3, 외부 검토(ChatGPT) 반영 판단은 12.2, 연습 문장 10개의 목적·선정은 13.2, 면담 결과는 12.3, 모델 크기 비교는 15.2, TTS·WAV 헤더는 15.1, API 키 확인은 15.3. **새 판단은 8장에 이어 쓰지 않고 주제에 맞는 장(9~16)의 새 절로 넣는다.**
-- **`docs/작업_일지.md`**: 하루 작업 로그, 파일별 역할과 읽는 순서, 이슈 정리, 용어 메모. 사용자가 Notion으로 복사해 면담에 쓴다. `docs/발표_대본_초안_스켈레톤.md`는 3분 발표 대본 초안, `docs/주말_스켈레톤_시연_계획.md`는 끝난 스켈레톤 계획이다.
-- **`docs/프로젝트 개발 계획서_20261029.md`는 20261030으로 정리하면서 빠진 내용만 모은 보관본**이다. 특히 **A절의 "1일차에 확인할 항목"(확정되지 않은 항목 10개와 `[확인 필요]` 목록)** 을 점검하고 결과는 검토 문서에 기록한다. 이 파일의 L3 기호는 20261029 기준이라 20261030과 다르다(파일 머리의 주의 참고).
+**현황(진행 상황·남은 L1·이슈 번호)은 여기에 적지 않는다.** `docs/작업_일지.md`와 GitHub 이슈를 본다. README는 마일스톤(L1 완료·L2 완료·마지막 정리)마다 갱신한다.
+
+| 문서 | 무엇이 있나 |
+|---|---|
+| `docs/프로젝트 개발 계획서_20261030.md` | **결정된 내용**(L1 필수 → L2 확장 → L3 선택, 일정·성공 기준·축소 규칙). 사용자가 직접 정리해 강사님께 공유하는 글이므로 **임의로 바꾸지 말고**, 고칠 때는 큰 흐름과 문체를 유지하며 필요한 부분만 고친다. |
+| `docs/프로젝트_안내_및_주제_검토.md` | 검토·근거·옵션 비교(주제별 9~16장, 변경 이력 9.1, 옛 8.x 번호는 17장 대응표). 이 저장소에서 이어 쓰는 원본. **새 판단은 8장에 잇지 말고 주제에 맞는 장(9~16)의 새 절로 넣는다.** |
+| `docs/작업_일지.md` | 하루 작업 로그, 파일별 역할·읽는 순서, 이슈 정리, 용어 메모(사용자가 Notion으로 복사해 면담에 씀). |
+| `docs/프로젝트 개발 계획서_20261029.md` | 20261030으로 정리하며 빠진 내용의 보관본. A절 "1일차에 확인할 항목"을 점검해 결과는 검토 문서에 기록. L3 기호는 20261030과 다르다. |
+
+검토 문서의 절 안내: 코드 구조·검증·주석 9.4, README 갱신 시점 9.3, `quality.py` 기준값 14.3, 일정 재조정·웹 UI 결정 시점 10.8, 외부 검토 반영 12.2, 면담 결과 12.3, 연습 문장 13.2, TTS·WAV 헤더 15.1, 모델 크기 비교 15.2, API 키 확인 15.3, 웹 UI 16.1·16.2. 그 밖에 `docs/연습_문장_데이터_설명.md`(연습 문장 10개), `docs/발표_대본_초안_스켈레톤.md`(3분 발표 초안), `docs/주말_스켈레톤_시연_계획.md`(끝난 스켈레톤 계획)가 있다.
+
 - 학습 배경(1~7강 노트북)은 형제 폴더 `../ict_innovation_sq_voice_ai/`(읽기 전용 참고). 특히 `017_sound/lesson07_whisper_minimal.ipynb`(faster-whisper), `013_openai_api/`(TTS/STT 호출 코드), `017_sound/02·03·lesson04`(WAV 전처리, FFT/STFT/Mel). WER·CER은 수업이 아니라 자습 노트북(`docs/WER_CER_이해하기.ipynb`) 기준이다.
 
 ## Environment
 
 - **conda 환경 `voice-ai` 하나만 사용**: `/opt/anaconda3/envs/voice-ai/bin/python` (Python 3.11). 다른 환경(`base` 등)은 쓰지 않는다. 노트북 커널도 `voice-ai`(`Python 3.11 (voice-ai)`).
 - `numpy`는 **1.26.4 고정**(TensorFlow 2.16). 새 패키지는 설치 전 **`pip install --dry-run`** 으로 numpy가 바뀌지 않는지 확인한다. 노트북에서는 `%pip` 또는 `!{sys.executable} -m pip`.
-- 설치된 것: faster-whisper 1.2.1(디코더 PyAV `av`를 함께 설치함), openai, python-dotenv, pandas, scipy, matplotlib, 그리고 `spike/`용 fastapi·uvicorn·python-multipart. **없는 것**: `pytest`, `streamlit`, `gradio`, `ipywidgets`, `sounddevice`, `soundfile`, `librosa` (노트북에서 직접 마이크 녹음 불가 → **미리 녹음한 파일 경로를 지정**). 테스트는 표준 라이브러리 `unittest`를 쓴다.
+- 설치된 것: faster-whisper 1.2.1(디코더 PyAV `av`를 함께 설치함), openai, python-dotenv, pandas, scipy, matplotlib, `sounddevice` 0.5.6(마이크 녹음, `recorder.py`·`scripts/record_takes.py`), 그리고 `spike/`용 fastapi·uvicorn·python-multipart. **없는 것**: `pytest`, `streamlit`, `gradio`, `ipywidgets`, `soundfile`, `librosa` (노트북 셀에서는 녹음하지 않고 **미리 녹음한 파일 경로를 지정**; 녹음은 터미널의 `scripts/record_takes.py`로 한다. 마이크 권한이 필요해 Claude는 실행하지 않고 사용자가 직접 실행). 테스트는 표준 라이브러리 `unittest`를 쓴다.
 - 머신: macOS 13.7, Intel i7 4스레드, RAM 16GB, **GPU 없음**(CPU만). Whisper는 `tiny` + `int8`. (별도로 Oracle Cloud ARM 서버 4코어·RAM 23GB에서 `faster-whisper` import까지만 확인했고 배포는 하지 않았다.)
 - **OpenAI API key**는 `.env`의 `OPENAI_API_KEY` (git에 올리지 않음; `.env.example`을 복사해 값을 채운다). 호출 코드는 `load_dotenv()` 후 `OpenAI()`. 노트북 셀 실행은 **실제 과금**되므로 TTS 결과는 캐시(`data/tts_cache/`)해서 재호출을 줄이고 호출 횟수(`tts.calls`)를 기록한다. 직접 입력한 문장은 TTS API로 나가 과금된다.
 - **노트북 커널은 import한 모듈과 `.env`를 다시 읽지 않는다.** `.py`나 `.env`를 고친 뒤에는 커널을 재시작해야 반영된다(키를 바꿨는데 같은 401이 나던 원인이었음).
@@ -33,6 +39,7 @@ $PY -m unittest tests.test_scoring.Boundaries.test_format_diff   # 테스트 하
 $PY scripts/check_notebook.py                 # practice.ipynb 코드 셀을 차례로 실행해 끝까지 되는지 점검(.env 안 읽음 → API 과금 없음, 그림은 results/notebook_check/)
 $PY scripts/scan_outputs.py [노트북 ...]      # 커밋 전: 노트북 출력의 오디오 플레이어·/Users 경로·key 검사
 $PY scripts/check_api_key.py                  # 어떤 OPENAI_API_KEY가 적용되는지(값은 가림). .env를 읽으므로 Claude는 실행하지 않고 사용자가 직접(`! ...`)
+$PY scripts/record_takes.py [--status|--order sentence|--redo ID TAKE]   # 터미널에서 문장을 보며 data/recordings/sNN_takeK.wav로 녹음(스테레오 PCM16). 기본은 없는 건만 1회전씩. 마이크가 필요하므로 사용자가 직접(검토 문서 13.3, 사용법은 연습_문장_데이터_설명.md 5.1)
 $PY -m uvicorn spike.server:app --host 127.0.0.1 --port 8000   # 브라우저 녹음 점검용 임시 서버(내 Mac 안에서만)
 ```
 `tests/test_check_notebook.py`는 스크립트를 실제로 실행해 전체 테스트가 10초 안팎 걸린다. 노트북은 VS Code 또는 `jupyter notebook`에서 연다(커널 `voice-ai`). 빌드/린트 도구는 없다.
@@ -52,13 +59,14 @@ practice.py(위 순서를 이어 부르고 dict 반환) ─▶ report.py(글) / 
 - **`practice.py`는 계산을 하지 않는 얇은 연결 모듈**이다(`prepare`·`read`·`dictation`·`locate_errors`가 dict를 돌려줌). 기능이 자라면(기록 CSV, 그래프 …) 여기에 넣지 말고 별도 모듈로 만든다. 채점 계산은 `scoring.py`(`evaluate`가 WER·CER과 표시용 쪽을 한 번에), 글은 `report.py`(문자열을 돌려줄 뿐 print하지 않음), 그림은 `visualisation.py`(Figure를 돌려줌; `stft_power`·`logmel`·`to_db` 계산도 여기). 새 채점 로직은 `scoring.score()`의 결과 dict를 재사용한다.
 - **노트북은 얇게 둔다**: `run_practice(문장, "read"|"dictation")`와 `show_error_spans`는 `display`·`input`·`plt.show` 같은 Jupyter 전용 처리만 한다. 모듈 `practice`는 노트북에서 `import practice as flow`로 부른다. 재사용·테스트할 함수는 `.py`로 분리한다.
 - `scoring.py`의 흐름: `normalize` → 토큰화(`wer`는 공백 단위, `cer`는 글자 단위) → `edit_matrix` → `backtrace`(ops: 일치/치환/삭제/삽입; 최소 거리 경로가 여러 개면 비슷한 토큰끼리 짝짓는 `_tie_scores`) → `score`가 S·D·I·N·rate·ops를 dict로 반환 → `format_diff(ops)`로 표시.
+- `recorder.py`는 마이크 녹음과 `sNN_takeK.wav` 저장(`Recorder.start()/stop()`, `save_wav`, `take_status`)만 하고 화면을 모른다. 터미널 진행은 `scripts/record_takes.py`, 나중의 웹 화면도 같은 `Recorder`를 부른다. 녹음 파일의 STT 입력용 리샘플링은 faster-whisper가 안에서 하고(`audio.py`는 상태 점검·그림용, 검토 문서 14.6), 영어 채점은 `scoring.normalize(unify=True)` 기본 + `unify=False` 엄격 모드(검토 문서 13.4).
 - 다른 파일: `theme.py`(그래프 공통 색·스타일), `sentences.csv`(id, lang, sentence, meaning_ko, source, license, probe; 10문장, 문장별 의도는 `probe` 열과 `docs/연습_문장_데이터_설명.md`), `spike/`(임시 웹 점검), `scripts/`, `tests/`(모듈마다 `test_*.py`, 합성 신호만 사용). 아직 없는 계획 모듈: `player.py`·`explain.py`(L2), `experiments/`(L3 실험).
 - `data/`(녹음·TTS 캐시·업로드)와 `results/`(기록 CSV·그래프·노트북 점검 그림)는 **git에서 제외**된다.
 
 ## Key decisions (자세한 근거는 docs 두 파일)
 
 - **STT**: 기본 로컬 `faster-whisper tiny` (`device="cpu"`, `compute_type="int8"`, `beam_size=1` — 7강 설정, 결과 보고 때 `stt.settings()`로 설정을 함께 기록), 인식 언어는 `en`으로 고정(시연은 영어 문장만). **모델 크기는 `stt.recognize(model_size=)`로, VAD(말소리 없는 구간 걸러내기)는 `vad_filter=`로 바꿔 비교한다**(기본은 `recognize` 끔·`recognize_words` 켬이라 두 경로 설정이 다르다. `tiny`에서는 결과가 같지만 `small`에서는 달라진 사례가 있어, 기본 모델을 바꿀 때 통일한다)(11-02 면담: 모델을 올려 보기). 기본은 `tiny`(기준선)를 유지하고, `model_compare.compare_models`(모델 크기 비교 실험 도구, `practice.py`와 분리)로 같은 녹음을 여러 크기에 돌려 본 뒤 기본 모델을 정한다(`stt.available_models()`가 `models/`에 내려받아 둔 모델을 자동으로 찾고, 노트북의 `DOWNLOAD_MORE`로 더 내려받음; 검토 문서 15.2; 노트북 S8). 큰 모델은 틀린 발음을 문맥으로 더 고쳐 적을 수 있어 "발음 점수가 아님"에 유의. OpenAI STT는 대체·비교용. **TTS는 OpenAI(`gpt-4o-mini-tts`, voice `alloy`)로 고정.** 6강에서 만든 Keras 모델은 제품 STT로 쓰지 않는다.
-- **채점**: `(S+D+I)/N`. 영어 정규화 = NFC → 소문자 → 구두점 제거(아포스트로피 유지) → 공백 정리. 정답이 비면 오류. **WER은 1을 넘을 수 있으므로 "일치율(1−WER)"로 표시하지 말고** 오류율과 S·D·I 개수로 표시. 틀린 부분은 `difflib` 비교가 아니라 **편집 거리 역추적**으로 구한다(`difflib`은 최소 경로를 보장하지 않음; `difflib`은 동률일 때 단어 유사도 점수에만 쓴다). 일본어는 CER 중심. 축약형·숫자·프랑스어 악센트 방침은 **아직 미확정**(`normalize()`의 인자로 열어 둠, 이슈 #3).
+- **채점**: `(S+D+I)/N`. 영어 정규화 = NFC → 소문자 → 구두점 제거(아포스트로피 유지) → 공백 정리 → **표기 통일**(축약형 펼치기 `we're→we are`, 0~99 숫자 단어→숫자 `twenty→20`; `'s`·`'d` 제외; 양쪽에 같은 규칙; 기본 켬, `normalize(unify=False)`로 엄격 채점; 이슈 #3 확정, 검토 문서 13.4; **점수를 보고할 때는 어느 쪽인지 적는다**). 정답이 비면 오류. **WER은 1을 넘을 수 있으므로 "일치율(1−WER)"로 표시하지 말고** 오류율과 S·D·I 개수로 표시. 틀린 부분은 `difflib` 비교가 아니라 **편집 거리 역추적**으로 구한다(`difflib`은 최소 경로를 보장하지 않음; `difflib`은 동률일 때 단어 유사도 점수에만 쓴다). 일본어는 CER 중심. 프랑스어 악센트 방침은 **아직 미확정**(`normalize(strip_accents=)`로 열어 둠).
 - **녹음 입력 상태 점검(`quality.py`)** 은 음량·무음·클리핑·말한 시간만 본다(잡음 판정이 아님). 기준값은 2026-11-01에 본인 녹음으로 **확정**했다(근거 표는 `quality.py` 맨 위와 검토 문서 14.3): 너무 작음(RMS < −55 dBFS 또는 최대 진폭 < 0.02), 클리핑(**원본** 샘플 0.999 이상 ≥ 1%; 리샘플링 뒤 값으로 재면 울림 때문에 오판), 대부분 무음(STFT 프레임 에너지가 최대 프레임보다 35 dB 이상 낮은 프레임 ≥ 80% — **절대 기준이 아니라 상대 기준**), 말한 시간 < 1.0초, 길이 < 0.5초. 경고가 있어도 인식·채점은 계속한다. Whisper tiny는 소리 크기에 매우 강했다(표본 1명). 잡음 환경은 미시험.
 - **L3 기본안은 (a) 노래 구간 인식 + 음악·음성 분리**(강사님 권유; 분리 없는 낭독 vs 노래 CER 비교가 최소 구성). 막히면 (e) 잡음 견고성. 분리 모델(Demucs)은 `--dry-run` 확인만 했고 CPU 속도는 **미확인**. 실험은 시드를 바꿔 **3회 이상** 반복해 평균·범위를 보고하고, 합성 흰 잡음 결과를 실제 환경으로 일반화하지 않으며, 모든 녹음이 본인 한 명이라는 한계를 명시한다.
 - **지연 시 축소 순서(L2)**: ① LLM 뜻·표현 → ② 재생 속도·±5초(기본 `Audio` 플레이어로 대체) → ③ 오류율 그래프 → ④ 기록 CSV, **받아쓰기는 마지막까지 유지**(받아쓰기는 스켈레톤에서 이미 앞당겨 구현됨). L3는 항상 선택.
