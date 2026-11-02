@@ -1,4 +1,11 @@
-id,lang,sentence,meaning_ko,source,license
-1,en,I want to explore the universe.,나는 우주를 탐험하고 싶어.,직접 작성,직접 작성(본인)
-2,en,I don't know where the road will take me.,그 길이 나를 어디로 데려갈지 모르겠어.,직접 작성,직접 작성(본인)
-3,en,We'll sing together until the morning comes.,아침이 올 때까지 함께 노래할 거야.,직접 작성,직접 작성(본인)
+id,lang,sentence,meaning_ko,source,license,probe
+1,en,I want to explore the universe.,나는 우주를 탐험하고 싶어.,직접 작성,직접 작성(본인),기준 문장. want to 연음
+2,en,I don't know where the road will take me.,그 길이 나를 어디로 데려갈지 모르겠어.,직접 작성,직접 작성(본인),"축약형 don't, 의문사절"
+3,en,We'll sing together until the morning comes.,아침이 올 때까지 함께 노래할 거야.,직접 작성,직접 작성(본인),"축약형 We'll, 연음. 재녹음해도 we are seeing으로 인식된 사례"
+4,en,Can you hear the train from here?,여기서 기차 소리가 들리니?,"AI 보조 작성, 사용자 검토","AI 초안 후 사용자 검토. 문장 전체를 큰따옴표로 묶은 구글 검색에서 일치하는 노래 가사를 찾지 못함(사용자 확인 2026-11-02, 전수 보증은 아님)","동음 hear/here(STT의 문맥 철자 선택), 의문문"
+5,en,Turn right at the light and walk along the lake.,신호등에서 오른쪽으로 돌아 호수를 따라 걸어.,"AI 보조 작성, 사용자 검토","AI 초안 후 사용자 검토. 문장 전체를 큰따옴표로 묶은 구글 검색에서 일치하는 노래 가사를 찾지 못함(사용자 확인 2026-11-02, 전수 보증은 아님)","right/light, along/lake (L·R 구분)"
+6,en,I can't stop thinking about that summer.,그 여름이 자꾸 생각나.,"AI 보조 작성, 사용자 검토","AI 초안 후 사용자 검토. 문장 전체를 큰따옴표로 묶은 구글 검색에서 일치하는 노래 가사를 찾지 못함(사용자 확인 2026-11-02, 전수 보증은 아님)","축약형 can't(cannot 변형), th·ng 발음"
+7,en,We're going to count twenty stars above the quiet valley.,우리는 고요한 계곡 위의 별 스무 개를 셀 거야.,"AI 보조 작성, 사용자 검토","AI 초안 후 사용자 검토. 문장 전체를 큰따옴표로 묶은 구글 검색에서 일치하는 노래 가사를 찾지 못함(사용자 확인 2026-11-02, 전수 보증은 아님)","축약형 We're + going to(gonna 변형) + 숫자 twenty(20 변형). 정규화 시험용, 오류 원인이 겹칠 수 있음"
+8,en,"After the rain, the empty streets began to shine under the lamps.",비가 그친 뒤 텅 빈 거리가 가로등 아래서 빛나기 시작했어.,"AI 보조 작성, 사용자 검토","AI 초안 후 사용자 검토. 문장 전체를 큰따옴표로 묶은 구글 검색에서 일치하는 노래 가사를 찾지 못함(사용자 확인 2026-11-02, 전수 보증은 아님)","쉼표, 가장 긴 문장(12단어), streets 자음 연속"
+9,en,Close your eyes and listen.,눈을 감고 들어 봐.,"AI 보조 작성, 사용자 검토","AI 초안 후 사용자 검토. 문장 전체를 큰따옴표로 묶은 구글 검색에서 일치하는 노래 가사를 찾지 못함(사용자 확인 2026-11-02, 전수 보증은 아님)","가장 짧은 문장(5단어, 한 단어 오류가 WER 0.2)"
+10,en,Perhaps the next chapter will surprise us!,어쩌면 다음 장이 우리를 놀라게 할지도 몰라!,"AI 보조 작성, 사용자 검토","AI 초안 후 사용자 검토. 문장 전체를 큰따옴표로 묶은 구글 검색에서 일치하는 노래 가사를 찾지 못함(사용자 확인 2026-11-02, 전수 보증은 아님)",느낌표 정규화
