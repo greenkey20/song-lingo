@@ -19,7 +19,8 @@ REF = "We'll sing together until the morning comes."
 class Blocks(unittest.TestCase):
     def test_runs_of_errors_become_one_block(self):
         ops = scoring.wer(REF, "We are seeing together until the morning comes.")["ops"]
-        self.assertEqual(align.error_blocks(ops), [{"ref": (0, 2), "hyp": (0, 3)}])
+        # 축약형을 펼치므로 we'll → we will, 틀린 칸은 will·sing ↔ are·seeing 둘이다(we는 일치).
+        self.assertEqual(align.error_blocks(ops), [{"ref": (1, 3), "hyp": (1, 3)}])
 
     def test_no_error_no_block(self):
         self.assertEqual(align.error_blocks(scoring.wer("a b", "a b")["ops"]), [])
@@ -36,10 +37,11 @@ class Locate(unittest.TestCase):
         r = align.locate_errors(REF, MINE, TTS)
         self.assertEqual(len(r["blocks"]), 1)
         b = r["blocks"][0]
+        # "We'll"은 we·will 두 토큰이 같은 단어 시간(0.0~0.66)을 나눠 쓴다. 인식 쪽은 일치한 "We"(0.9~1.59)가 빠져 are·seeing만 남는다.
         self.assertEqual(b["tts_span"], (0.0, 0.84))
-        self.assertEqual(b["hyp_span"], (0.9, 1.97))
-        self.assertEqual(b["ref_words"], ["we'll", "sing"])
-        self.assertEqual(b["hyp_words"], ["we", "are", "seeing"])
+        self.assertEqual(b["hyp_span"], (1.59, 1.97))
+        self.assertEqual(b["ref_words"], ["will", "sing"])
+        self.assertEqual(b["hyp_words"], ["are", "seeing"])
 
     def test_deleted_word_is_a_point_in_my_recording(self):
         mine = words([("We'll", 0.0, 0.6), ("together", 0.6, 1.2)])

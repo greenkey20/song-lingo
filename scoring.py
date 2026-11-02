@@ -8,7 +8,7 @@
 한눈에 보는 흐름: normalize → (토큰으로 나눔) → edit_matrix → backtrace → score → wer / cer → format_diff
 - 오류율 = (치환 S + 삭제 D + 삽입 I) / 정답 토큰 수 N. 삽입이 많으면 1을 넘을 수 있다.
 - 화면에는 "일치율(1 - WER)"이 아니라 오류율과 S·D·I 개수를 보여 줄 것(1을 넘을 수 있어서).
-- 정규화 규칙은 tests/test_scoring.py의 예시가 함께 정의한다.
+- 정규화 규칙은 tests/test_scoring.py의 예시가 함께 정의한다. 축약형·숫자 처리 방침(#3)은 검토 문서 13.4.
 - 이 파일은 글자(문자열)만 다룬다. 소리·API는 없다. 소리와 이어 붙이는 일은 practice.py가 한다.
 """
 import re
@@ -16,18 +16,61 @@ import unicodedata
 from difflib import SequenceMatcher   # [수업에 없음] 표준 라이브러리: 두 문자열이 얼마나 비슷한지(0~1) 계산
 
 
-def normalize(text, lang="en", strip_accents=False):
+# ---- 영어 표기 통일 규칙 (이슈 #3, 방침 C: 기본은 통일해서 채점하고, unify=False로 엄격 채점도 가능) ----
+# 왜: Whisper는 "We're"를 "We are"로, "twenty"를 "20"으로 적기도 한다. 소리는 같고 표기만 다른 것을 오류로 세면
+# 점수가 "문장 인식 일치도"를 덜 잘 나타낸다. 정답과 인식 결과 **양쪽에 같은 규칙**을 적용하므로 한쪽만 유리해지지 않는다.
+# 바꾸지 않는 것: 's (is/has/소유격 구분 불가), 'd (would/had 구분 불가), 그 밖의 철자 차이.
+_IRREGULAR = {"can't": "can not", "cannot": "can not", "won't": "will not", "shan't": "shall not",
+              "gonna": "going to", "wanna": "want to", "gotta": "got to"}
+_SUFFIX = (("n't", " not"), ("'re", " are"), ("'ll", " will"), ("'ve", " have"), ("'m", " am"))   # don't → do not, we're → we are …
+_UNITS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve",
+          "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"]
+_TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90}
+_NUMBER_WORDS = {w: str(i) for i, w in enumerate(_UNITS)} | {w: str(n) for w, n in _TENS.items()}   # 0~19, 20·30·…·90
+# "twenty-one" 처럼 하이픈으로 이어진 21~99는 구두점 제거(하이픈 삭제 → "twentyone") 전에 숫자로 바꿔야 한다.
+_COMPOUND = re.compile(r"\b(" + "|".join(_TENS) + r")-(one|two|three|four|five|six|seven|eight|nine)\b")
+
+
+def _unify_en(text):
+    """소문자 영어 문장(구두점 제거 전)에서 하이픈 숫자(twenty-one → 21)를 바꾼다. 나머지는 _unify_tokens가 한다."""
+    return _COMPOUND.sub(lambda m: str(_TENS[m.group(1)] + _UNITS.index(m.group(2))), text)
+
+
+def _unify_tokens(tokens):
+    """단어 목록에서 축약형을 펼치고(we're → we are) 0~99의 숫자 단어를 숫자로 바꾼다(twenty → 20). 숫자는 그대로 둔다.
+
+    '단어마다' 바꾸므로 한 단어가 둘이 될 수는 있어도(we're → we, are) 단어 사이를 합치지는 않는다.
+    그래서 "twenty one"(띄어쓰기)은 20·1이 된다. 정답과 인식 결과가 다르게 적으면 오류로 센다(알려진 한계)."""
+    out = []
+    for t in tokens:
+        if t in _IRREGULAR:
+            out += _IRREGULAR[t].split()
+            continue
+        for suffix, expansion in _SUFFIX:
+            if t.endswith(suffix) and len(t) > len(suffix):
+                out += (t[:-len(suffix)] + expansion).split()
+                break
+        else:
+            out.append(_NUMBER_WORDS.get(t, t))
+    return out
+
+
+def normalize(text, lang="en", strip_accents=False, unify=True):
     """비교 전에 문장 형식을 같은 규칙으로 맞춘다. (자습 노트북 `normalize_en`을 일본어·프랑스어까지 넓힌 것)
 
     공통: 유니코드 NFC → (영어·프랑스어는 소문자화) → 구두점 제거(아포스트로피는 유지) → 공백 정리
     일본어(ja): 공백이 없는 언어라 구두점과 공백을 모두 제거
     strip_accents: 프랑스어 악센트를 지울지 (기본 False, 방침은 1일차에 결정)
+    unify: 영어(en)만. True(기본)면 축약형을 펼치고(we're → we are, don't → do not, can't/cannot → can not, gonna → going to)
+           0~99의 숫자 단어를 숫자로 바꾼다(twenty → 20, twenty-one → 21). False면 이 통일 없이 엄격하게 비교한다.
     """
     # NFC: 같은 글자를 만드는 여러 유니코드 표현(예: é 한 글자 vs e + 악센트 기호)을 한 가지로 맞춘다.
     # ’(둥근 아포스트로피)를 '(곧은 것)로 바꾸는 이유: 같은 문장인데 기호만 달라서 틀린 것으로 세지 않으려는 것.
     text = unicodedata.normalize("NFC", text).replace("’", "'")
     if lang in ("en", "fr"):
         text = text.lower()
+    if lang == "en" and unify:
+        text = _unify_en(text)
     if strip_accents:
         # NFD는 é를 e + 악센트 기호로 쪼갠다. 악센트 기호의 범주가 "Mn"(결합 기호)이라 그것만 빼면 악센트가 지워진다.
         text = "".join(c for c in unicodedata.normalize("NFD", text)
@@ -37,7 +80,10 @@ def normalize(text, lang="en", strip_accents=False):
     text = re.sub(r"[^\w\s']", "", text)
     if lang == "ja":
         return re.sub(r"\s+", "", text)
-    return re.sub(r"\s+", " ", text).strip()   # 연속 공백을 하나로, 앞뒤 공백은 제거
+    text = re.sub(r"\s+", " ", text).strip()   # 연속 공백을 하나로, 앞뒤 공백은 제거
+    if lang == "en" and unify:
+        text = " ".join(_unify_tokens(text.split()))
+    return text
 
 
 def edit_matrix(ref, hyp):

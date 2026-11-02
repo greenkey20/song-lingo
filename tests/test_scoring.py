@@ -83,21 +83,72 @@ class Boundaries(unittest.TestCase):
         self.assertEqual(scoring.format_diff(r["ops"]), "the cat [sat→sit] on [-the-] mat")
 
 
+class Unify(unittest.TestCase):
+    """영어 표기 통일 규칙(이슈 #3, 검토 문서 13.4): 정답과 인식 결과 양쪽에 같은 규칙을 적용한다."""
+
+    def test_contractions_expand(self):
+        n = scoring.normalize
+        self.assertEqual(n("We're, I'm, they've, you'll."), "we are i am they have you will")
+        self.assertEqual(n("Don't isn't wouldn't"), "do not is not would not")
+        self.assertEqual(n("I can't, he cannot, they won't"), "i can not he can not they will not")
+        self.assertEqual(n("I'm gonna wanna gotta"), "i am going to want to got to")
+
+    def test_ambiguous_contractions_are_kept(self):
+        # 's는 is/has/소유격, 'd는 would/had라서 펼치지 않는다.
+        self.assertEqual(scoring.normalize("It's Tom's; he'd go"), "it's tom's he'd go")
+
+    def test_number_words_become_digits(self):
+        n = scoring.normalize
+        self.assertEqual(n("zero one nineteen twenty forty ninety"), "0 1 19 20 40 90")
+        self.assertEqual(n("Twenty-one and ninety-nine"), "21 and 99")     # 하이픈 숫자는 구두점 제거 전에 처리
+        self.assertEqual(n("20 stars"), "20 stars")                        # 이미 숫자면 그대로
+
+    def test_spaced_compound_is_a_known_limit(self):
+        self.assertEqual(scoring.normalize("twenty one"), "20 1")          # 단어 사이는 합치지 않는다(알려진 한계)
+
+    def test_unify_false_is_strict(self):
+        n = lambda t: scoring.normalize(t, unify=False)
+        self.assertEqual(n("We're twenty"), "we're twenty")
+        self.assertEqual(n("twenty-one"), "twentyone")                     # 예전 동작 그대로
+
+    def test_other_languages_untouched(self):
+        self.assertEqual(scoring.normalize("L'amour n'est pas", "fr"), "l'amour n'est pas")
+        self.assertEqual(scoring.normalize("you're", "ja"), "you're")
+
+    def test_sentence_7_example(self):
+        # 11-03 녹음 30건에서 문장 7이 3번 모두 이렇게 인식됐다(검토 문서 13.4).
+        ref, hyp = "We're going to count twenty stars above the quiet valley.", "We are going to count 20 stars above the quiet valley."
+        self.assertEqual(scoring.wer(ref, hyp)["rate"], 0.0)
+        strict = scoring.wer(ref, hyp, unify=False)
+        self.assertEqual((strict["S"], strict["D"], strict["I"], strict["N"]), (2, 0, 1, 10))   # we're→we, +are, twenty→20 = 0.3
+        self.assertAlmostEqual(strict["rate"], 0.3)
+
+    def test_same_rule_on_both_sides_never_hurts_identical_text(self):
+        for t in ["I can't stop", "twenty-one stars", "It's Tom's", "Gonna go"]:
+            self.assertEqual(scoring.wer(t, t)["rate"], 0.0)
+
+
 class TieBreak(unittest.TestCase):
     """거리가 같은 경로가 여러 개일 때 비슷한 토큰끼리 짝지어 표시한다(오류율은 그대로)."""
 
-    def diff(self, ref, hyp):
-        return scoring.format_diff(scoring.wer(ref, hyp)["ops"])
+    def diff(self, ref, hyp, **kw):
+        return scoring.format_diff(scoring.wer(ref, hyp, **kw)["ops"])
 
     def test_similar_words_are_paired(self):
         self.assertEqual(self.diff("I want to explore the universe", "i want to explor universe"),
                          "i want to [explore→explor] [-the-] universe")
-        self.assertEqual(self.diff("I want to explore the universe", "I wanna explore the universe"),
+        # 짝짓기 규칙 자체는 표기 통일(#3)과 무관하므로 unify=False(엄격)로 확인한다.
+        self.assertEqual(self.diff("I want to explore the universe", "I wanna explore the universe", unify=False),
                          "i [want→wanna] [-to-] explore the universe")
 
     def test_contraction_pairs_with_first_word(self):
-        self.assertEqual(self.diff("We'll sing together", "We are seeing together"),
+        self.assertEqual(self.diff("We'll sing together", "We are seeing together", unify=False),
                          "[we'll→we] [+are+] [sing→seeing] together")
+
+    def test_unified_contraction_is_two_substitutions(self):
+        # 같은 예시를 기본 규칙(축약형 펼침)으로 보면 we'll → we will이 되어 we는 일치로 남는다.
+        self.assertEqual(self.diff("We'll sing together", "We are seeing together"),
+                         "we [will→are] [sing→seeing] together")
 
     def test_rate_and_reconstruction_unchanged(self):
         rng = random.Random(7)
