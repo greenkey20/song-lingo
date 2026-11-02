@@ -9,3 +9,4 @@ av==18.1.0           # faster-whisper 1.2.1이 av 19.x에서 오류(open() 옵�
 openai==3.35.1
 python-dotenv==1.2.4
 ipykernel==7.3.0
+sounddevice==0.5.6   # 마이크 녹음(recorder.py). pip 휠에 PortAudio 포함
