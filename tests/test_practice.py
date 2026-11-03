@@ -145,7 +145,9 @@ class Header(unittest.TestCase):
 
     def test_custom_sentence_warning_and_tts_status(self):
         prep = dict(self.PREP, id="직접 입력", tts_new=True)
-        self.assertIn("상업 노래의 가사는 넣지 않습니다", report.header(prep, "dictation"))
+        head = report.header(prep, "dictation")
+        self.assertIn("TTS API로 전송되고 과금됩니다", head)
+        self.assertNotIn("가사는 넣지 않습니다", head)       # 11-04: 가사를 TTS로 보내는 것을 허용(규칙 폐지)
         self.assertIn("새로 만듦(API 1회)", report.tts_status(prep))
         self.assertIn("캐시 사용(API 0회)", report.tts_status(self.PREP))
 

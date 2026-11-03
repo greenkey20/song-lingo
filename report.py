@@ -23,7 +23,7 @@ def header(prep, mode):
     """연습을 시작할 때 보여 줄 안내. 따라 읽기는 문장과 뜻을 먼저, 받아쓰기는 문장을 숨긴다(들은 뒤에 공개)."""
     lines = [f"=== 문장 {prep['id']} · {MODE_NAME[mode]} ==="]
     if prep["id"] == "직접 입력":
-        lines.append("※ 직접 쓴 문장만 입력하세요. 상업 노래의 가사는 넣지 않습니다(TTS API로 전송됩니다).")
+        lines.append("※ 입력한 문장은 TTS API로 전송되고 과금됩니다(만든 음성은 data/tts_cache/에 저장해 다시 씁니다).")
     if mode == "read":
         lines.append(f"문장: {prep['text']}")
         if prep["meaning_ko"]:
