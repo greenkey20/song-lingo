@@ -1,0 +1,12 @@
+# 웹 앱(Streamlit) 전용 환경의 패키지(이슈 #36). 노트북·개발용 `voice-ai`(TensorFlow 2.16과 protobuf 충돌) 와 분리한 환경이다.
+# 만들기(프로젝트 폴더 **밖**에, 개발환경 이슈노트 #21): python -m venv ~/venvs/song-lingo-app && ~/venvs/song-lingo-app/bin/python -m pip install -r app/requirements.txt
+# 앱 코드가 import하는 것만 둔다(노트북용 ipykernel·sounddevice·pandas 직접 사용·tensorflow 제외).
+streamlit==1.66.1
+pyarrow==21.0.0       # streamlit의 표(st.table·st.dataframe)가 씀. 22 이상(특히 26)은 NumPy 2.0 이상을 요구해 numpy 1.26.4와 충돌('pyarrow requires NumPy 2.0'), pip check로는 안 잡힘 → 개발환경 이슈노트 #21
+numpy==1.26.4        # voice-ai와 같은 버전으로 맞춰 결과를 비교할 수 있게 함
+scipy==1.17.1
+matplotlib==3.11.2
+faster-whisper==1.2.1
+av==18.1.0           # faster-whisper 1.2.1이 av 19.x에서 오류(open() 옵션 metadata_errors) → 고정 (검토 문서 16.3)
+openai==3.35.1
+python-dotenv==1.2.4
