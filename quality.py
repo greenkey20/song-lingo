@@ -129,7 +129,7 @@ def analyze(raw, orig_sr, sr=audio.TARGET_SR):
 
 
 def check_file(path, sr=audio.TARGET_SR):
-    """녹음 파일 경로 → analyze 결과. wav·webm·m4a 등 audio.load_raw가 읽는 형식이면 된다."""
+    """녹음 파일 경로(또는 bytes·BytesIO 같은 파일 객체) → analyze 결과. wav·webm·m4a 등 audio.load_raw가 읽는 형식이면 된다."""
     raw, orig_sr, _channels = audio.load_raw(path)
     return analyze(raw, orig_sr, sr)
 

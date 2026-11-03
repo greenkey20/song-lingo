@@ -1,5 +1,6 @@
 """audio.py 단위 테스트. 실행: python -m unittest tests.test_audio -v
 합성 신호(사인파)만 쓴다: 개인 녹음 파일은 저장소에 없으므로 테스트가 만들어 낸 임시 파일을 쓴다."""
+import io
 import os
 import sys
 import tempfile
@@ -105,6 +106,82 @@ class CompressedInput(unittest.TestCase):
             f.write(b"this is not audio")
         with self.assertRaises(Exception):
             audio.load_audio(path)
+
+
+class BytesInput(unittest.TestCase):
+    """웹 화면의 업로드·브라우저 녹음은 파일이 아니라 bytes로 들어온다(이슈 #37). 경로로 읽은 것과 같은 결과여야 한다."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.wav = os.path.join(self.tmp.name, "a.wav")
+        write_wav(self.wav, sine(1, 48000), 48000)
+        with open(self.wav, "rb") as f:
+            self.wav_bytes = f.read()
+
+    def same(self, got, want):
+        np.testing.assert_array_equal(got[0], want[0])
+        self.assertEqual(got[1:], want[1:])
+
+    def test_wav_bytes_equal_path(self):
+        self.same(audio.load_raw(self.wav_bytes), audio.load_raw(self.wav))
+
+    def test_bytearray_memoryview_and_bytesio(self):
+        want = audio.load_raw(self.wav)
+        for src in (bytearray(self.wav_bytes), memoryview(self.wav_bytes), io.BytesIO(self.wav_bytes)):
+            self.same(audio.load_raw(src), want)
+
+    def test_upload_like_object_already_read_is_read_from_start(self):
+        class Upload(io.BytesIO):          # Streamlit 업로드 객체처럼 .read()/.getvalue()가 되는 파일 객체
+            pass
+        up = Upload(self.wav_bytes)
+        up.read()                          # 위젯이 먼저 읽어 읽는 위치가 끝에 가 있는 경우
+        self.same(audio.load_raw(up), audio.load_raw(self.wav))
+        self.assertEqual(up.tell(), len(self.wav_bytes))   # 원본 객체의 읽는 위치는 건드리지 않는다
+
+    def test_object_with_only_read_and_seek(self):
+        class ReadOnly:
+            def __init__(self, data): self._b = io.BytesIO(data)
+            def read(self, *a): return self._b.read(*a)
+            def seek(self, *a): return self._b.seek(*a)
+        r = ReadOnly(self.wav_bytes); r.read()
+        self.same(audio.load_raw(r), audio.load_raw(self.wav))
+
+    def test_float_wav_bytes_falls_back_to_pyav(self):
+        # PCM16이 아닌 wav(float32)는 scipy 경로가 거절하고 PyAV가 읽는다. 경로와 bytes가 같은 결과여야 한다.
+        path = os.path.join(self.tmp.name, "f.wav")
+        wavfile.write(path, 16000, sine(1, 16000))
+        with open(path, "rb") as f:
+            data = f.read()
+        self.same(audio.load_raw(data), audio.load_raw(path))
+        np.testing.assert_allclose(audio.load_audio(data)[0], sine(1, 16000), atol=1e-4)
+
+    def test_opus_and_aac_bytes_equal_path(self):
+        for name, codec, rate in (("a.webm", "libopus", 48000), ("a.m4a", "aac", 44100)):
+            path = os.path.join(self.tmp.name, name)
+            encode_with_av(path, sine(2, 48000), 48000, codec, rate)
+            with open(path, "rb") as f:
+                data = f.read()
+            self.same(audio.load_raw(data), audio.load_raw(path))
+
+    def test_not_audio_bytes_and_empty_bytes_raise(self):
+        with self.assertRaises(Exception):
+            audio.load_audio(b"this is not audio")
+        with self.assertRaises(Exception):
+            audio.load_audio(b"")
+
+    def test_unsupported_type_raises_type_error(self):
+        for bad in (None, 123, 1.5, ["a.wav"]):
+            with self.assertRaises(TypeError):
+                audio.load_audio(bad)
+
+    def test_decode_gives_raw_and_16k_mono_once(self):
+        d = audio.decode(self.wav_bytes)
+        want_x, want_sr, want_ch = audio.load_audio(self.wav)
+        self.assertEqual((d["orig_sr"], d["channels"]), (want_sr, want_ch))
+        np.testing.assert_array_equal(d["mono16k"], want_x)
+        self.assertEqual(d["raw"].shape, (48000, 1))      # 원본 파형은 (샘플, 채널), 원본 sr 그대로
+        self.assertEqual(d["mono16k"].dtype, np.float32)
 
 
 if __name__ == "__main__":

@@ -16,6 +16,10 @@ practice.ipynb의 셀에서 옮겼습니다. 기본 설정은 7강과 같은 tin
 import time
 from pathlib import Path
 
+import numpy as np
+
+import audio   # audio.as_source: 경로·bytes·파일 객체를 한 가지 형태로 맞춘다(이슈 #37)
+
 MODEL_SIZE = "tiny"                    # 기본 모델 크기: 가장 작은 다국어 모델(수업과 같음). 빠르지만 정확도는 낮을 수 있다
 MODEL_SIZES = ("tiny", "base", "small")   # 크기 비교의 기본 후보(작은 것부터). medium 이상은 내려받는 파일이 훨씬 커서 필요할 때만 쓴다
 MODEL_ORDER = ("tiny", "tiny.en", "base", "base.en", "small", "small.en", "medium", "medium.en",
@@ -85,8 +89,32 @@ def find_recording(sid, take=1, rec_dir=REC_DIR):
     return found[0] if found else None
 
 
+def transcribe_input(audio_in):
+    """인식할 소리를 faster-whisper의 `transcribe`가 받는 형태로 맞춘다(이슈 #37, 웹 화면의 업로드·브라우저 녹음용).
+
+    받는 것(첫 인자 이름은 호출 호환을 위해 `path`로 남겨 두었다)
+    - 파일 경로(str·Path): `str`로 바꿔 그대로 넘긴다(지금까지와 같음).
+    - bytes·bytearray·io.BytesIO·업로드 객체: 메모리의 파일이므로 BytesIO로 감싸 넘긴다(faster-whisper가 PyAV로 디코딩).
+    - **16 kHz 모노 numpy 배열**(`audio.load_audio`·`audio.decode(...)["mono16k"]`의 결과): 이미 디코딩된 파형이라 그대로 넘긴다.
+      **주의(11-04 확인)**: 우리 `audio.py`가 만든 배열은 faster-whisper가 경로에서 직접 만든 배열과 파형이 조금 다르다(최대 차이 0.033,
+      평균 0.0017). 말소리 30건은 인식문이 모두 같았지만 노래 구간(원곡, tiny, 탐욕 디코딩)은 14개 중 10개가 달랐다. 경로·bytes·
+      `faster_whisper.audio.decode_audio`의 배열은 14/14로 같다. 그래서 **결과를 경로 입력과 맞춰야 하면 배열 대신 경로나 bytes를 넘긴다.**
+      faster-whisper는 배열이 몇 Hz인지 알 수 없고 16 kHz 모노로 **믿고** 쓴다. 그래서 1차원이 아니면 여기서 막고(스테레오·44.1 kHz를
+      그대로 넣으면 소리가 빠르게/이상하게 읽혀 엉뚱한 결과가 나온다), float32가 아니면 float32로 바꾼다.
+    [수업에 없음] numpy 배열 입력: 7강은 파일 경로만 넘겼다. 같은 소리를 상태 점검·그림·인식에 쓸 때 한 번만 디코딩하려고 쓴다."""
+    if isinstance(audio_in, np.ndarray):
+        if audio_in.ndim != 1:
+            raise ValueError(f"배열은 16 kHz 모노(1차원)여야 합니다(받은 모양: {audio_in.shape}). "
+                             "audio.load_audio나 audio.decode(...)['mono16k']로 변환해서 넣으세요.")
+        if audio_in.size == 0:
+            raise ValueError("소리 배열이 비어 있습니다.")
+        return audio_in.astype(np.float32, copy=False)
+    return audio.as_source(audio_in)     # 경로 문자열 또는 처음부터 읽을 수 있는 BytesIO(그 밖의 타입은 TypeError)
+
+
 def recognize(path, language="en", model_size=None, vad_filter=False, temperature=None):
-    """녹음 파일 하나를 인식해 (문장, 걸린 시간)을 돌려준다. model_size를 안 주면 기본 크기(tiny).
+    """녹음 하나를 인식해 (문장, 걸린 시간)을 돌려준다. model_size를 안 주면 기본 크기(tiny).
+    path: 파일 경로, bytes·BytesIO(웹 업로드·브라우저 녹음), 또는 16 kHz 모노 numpy 배열(transcribe_input 참고).
     그 크기를 처음 쓰면 모델 읽기 시간이 걸린 시간에 섞인다(미리 load_model로 읽어 두면 섞이지 않음).
 
     vad_filter: [수업에 없음] True면 VAD(말소리 없는 구간을 걸러내는 처리)를 켠 채 인식한다. 기본 False는 7강과 같은 설정이다.
@@ -100,7 +128,7 @@ def recognize(path, language="en", model_size=None, vad_filter=False, temperatur
     말소리(연습 문장)에서는 폴백이 거의 안 걸려 둘이 거의 같다. 보고할 때는 이 값을 함께 적는다."""
     t0 = time.time()
     extra = {} if temperature is None else {"temperature": temperature}   # 안 주면 transcribe에 넘기지 않아 기본 동작이 그대로다
-    segments, _info = load_model(model_size).transcribe(str(path), language=language, beam_size=BEAM_SIZE,
+    segments, _info = load_model(model_size).transcribe(transcribe_input(path), language=language, beam_size=BEAM_SIZE,
                                                         vad_filter=vad_filter, **extra)   # beam_size=1: 후보를 하나만 탐색해 빠르게(수업과 같음)
     # 수업은 list(segments)로 한 번에 모았다. 여기서는 구간 문장을 이어 붙여 하나의 문장으로 만든다.
     text = " ".join(seg.text.strip() for seg in segments)   # segments는 제너레이터라 여기서 실제로 인식이 돈다
@@ -116,10 +144,11 @@ def recognize_words(path, language="en", model_size=None, vad_filter=True, tempe
     [수업에 없음] word_timestamps=True: 단어마다 시작·끝 시간(초)과 확률을 함께 돌려준다.
     [수업에 없음] vad_filter=True: VAD(음성 구간 검출)로 말소리가 없는 구간을 걸러낸 뒤 인식한다.
     그렇게 하지 않으면 앞의 긴 무음이 첫 단어의 시간에 섞인다(실제로 첫 단어가 0.00초로 나오는 것을 확인했다).
-    temperature: recognize와 같다(None이면 기본 동작, 0.0이면 폴백 없이 재현 가능)."""
+    temperature: recognize와 같다(None이면 기본 동작, 0.0이면 폴백 없이 재현 가능).
+    path: recognize와 같다(경로, bytes·BytesIO, 16 kHz 모노 배열)."""
     t0 = time.time()
     extra = {} if temperature is None else {"temperature": temperature}
-    segments, _info = load_model(model_size).transcribe(str(path), language=language, beam_size=BEAM_SIZE,
+    segments, _info = load_model(model_size).transcribe(transcribe_input(path), language=language, beam_size=BEAM_SIZE,
                                                         word_timestamps=True, vad_filter=vad_filter, **extra)
     words = []
     for seg in segments:   # 제너레이터라 여기서 실제로 인식이 돈다

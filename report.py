@@ -10,6 +10,9 @@
 - prep: practice.prepare의 결과. 키: id, text(정답 문장), meaning_ko(뜻), tts_new(이번에 API를 불렀는가) …
 - res : practice.read / practice.dictation의 결과. 키: mode, error, hyp(인식 또는 내가 적은 글), score, quality, recording …
 """
+import os
+from pathlib import Path
+
 import quality
 import scoring
 
@@ -41,7 +44,9 @@ def result(prep, res):
         return res["error"]      # 오류(녹음 없음, 빈 입력 등)면 그 안내 문구만 보여 준다
     lines = []
     if res["mode"] == "read":
-        lines.append(f"내 녹음: {res['recording'].name} ({res['seconds']:.1f}초)")
+        rec = res["recording"]
+        name = Path(rec).name if isinstance(rec, (str, os.PathLike)) else "업로드·브라우저 녹음"   # bytes·파일 객체에는 파일 이름이 없다
+        lines.append(f"내 녹음: {name} ({res['seconds']:.1f}초)")
         lines.append(quality.format_report(res["quality"]))
         label = "인식(Whisper tiny)"
     else:
