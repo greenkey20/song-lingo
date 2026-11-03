@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**song-lingo** — 외국어 노래 문장 연습 도우미 (듣고 따라읽고 받아쓰고 확인하는 음성 학습 프로토타입). ICT 혁신 스퀘어 Voice-AI 부트캠프의 **개인 프로젝트**(2026-10-30 ~ 11-11 평일 9일 × 4h = 36h 개발, **11-12 발표**). 사용자가 TTS 기준 음성을 듣고 → 따라 읽은 녹음을 STT로 인식하거나 받아쓰기를 하고 → 정답과의 **오류율(WER/CER)** 과 틀린 부분을 피드백받는다. 점수는 **발음 점수가 아니라 "문장 인식 일치도"** 다(STT가 틀린 발음을 문맥으로 고쳐 적을 수 있음). 시연 화면은 **Jupyter 노트북(`practice.ipynb`)** 이다. 웹 UI(PWA/Streamlit/Gradio) 도입 여부는 **결정 전**이며(11-02 면담에서 강사님이 Streamlit 권장, 결정은 4일차), `spike/`의 FastAPI 서버는 브라우저 녹음 점검용 임시 코드다.
+**song-lingo** — 외국어 노래 문장 연습 도우미 (듣고 따라읽고 받아쓰고 확인하는 음성 학습 프로토타입). ICT 혁신 스퀘어 Voice-AI 부트캠프의 **개인 프로젝트**(2026-10-30 ~ 11-11 평일 9일 × 4h = 36h 개발, **11-12 발표**). 사용자가 TTS 기준 음성을 듣고 → 따라 읽은 녹음을 STT로 인식하거나 받아쓰기를 하고 → 정답과의 **오류율(WER/CER)** 과 틀린 부분을 피드백받는다. 점수는 **발음 점수가 아니라 "문장 인식 일치도"** 다(STT가 틀린 발음을 문맥으로 고쳐 적을 수 있음). 시연 화면은 **Jupyter 노트북(`practice.ipynb`)** 이다. 웹 UI는 **Streamlit + GitHub 배포로 하기로 했다**(11-02 면담 권장, 11-04 사용자 결정; **구현 전**, 검토 문서 16.4), `spike/`의 FastAPI 서버는 브라우저 녹음 점검용 임시 코드다.
 
 **현황(진행 상황·남은 L1·이슈 번호)은 여기에 적지 않는다.** `docs/작업_일지.md`와 GitHub 이슈를 본다. README는 마일스톤(L1 완료·L2 완료·마지막 정리)마다 갱신한다.
 
@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `docs/작업_일지.md` | 하루 작업 로그, 파일별 역할·읽는 순서, 이슈 정리, 용어 메모(사용자가 Notion으로 복사해 면담에 씀). |
 | `docs/프로젝트 개발 계획서_20261029.md` | 20261030으로 정리하며 빠진 내용의 보관본. A절 "1일차에 확인할 항목"을 점검해 결과는 검토 문서에 기록. L3 기호는 20261030과 다르다. |
 
-검토 문서의 절 안내: 코드 구조·검증·주석 9.4, README 갱신 시점 9.3, `quality.py` 기준값 14.3, 일정 재조정·웹 UI 결정 시점 10.8, 외부 검토 반영 12.2, 면담 결과 12.3, 연습 문장 13.2, TTS·WAV 헤더 15.1, 모델 크기 비교 15.2, API 키 확인 15.3, Demucs(음원 분리) 기술 검토 15.4, 노래 비교 실험 13.5, 웹 UI 16.1·16.2. 그 밖에 `docs/연습_문장_데이터_설명.md`(연습 문장 10개), `docs/발표_대본_초안_스켈레톤.md`(3분 발표 초안), `docs/주말_스켈레톤_시연_계획.md`(끝난 스켈레톤 계획), `docs/개발환경_이슈노트.md`(환경·git 문제와 해결책 — 새 문제가 생기면 번호를 이어 추가), `docs/노래_구간_비교_실험_절차.md`(곡 구간 분리·정답·비교 실험을 따라 하는 순서와 결과 기록, 이슈 #18)가 있다.
+검토 문서의 절 안내: 코드 구조·검증·주석 9.4, README 갱신 시점 9.3, `quality.py` 기준값 14.3, 일정 재조정·웹 UI 결정 시점 10.8, 외부 검토 반영 12.2, 면담 결과 12.3, 연습 문장 13.2, TTS·WAV 헤더 15.1, 모델 크기 비교 15.2, API 키 확인 15.3, 웹 UI 결정·`audio.py` 활용 16.4, Demucs(음원 분리) 기술 검토 15.4, 노래 비교 실험 13.5, 웹 UI 16.1·16.2. 그 밖에 `docs/연습_문장_데이터_설명.md`(연습 문장 10개), `docs/발표_대본_초안_스켈레톤.md`(3분 발표 초안), `docs/주말_스켈레톤_시연_계획.md`(끝난 스켈레톤 계획), `docs/개발환경_이슈노트.md`(환경·git 문제와 해결책 — 새 문제가 생기면 번호를 이어 추가), `docs/노래_구간_비교_실험_절차.md`(곡 구간 분리·정답·비교 실험을 따라 하는 순서와 결과 기록, 이슈 #18)가 있다.
 
 - 학습 배경(1~7강 노트북)은 형제 폴더 `../ict_innovation_sq_voice_ai/`(읽기 전용 참고). 특히 `017_sound/lesson07_whisper_minimal.ipynb`(faster-whisper), `013_openai_api/`(TTS/STT 호출 코드), `017_sound/02·03·lesson04`(WAV 전처리, FFT/STFT/Mel). WER·CER은 수업이 아니라 자습 노트북(`docs/WER_CER_이해하기.ipynb`) 기준이다.
 
@@ -23,7 +23,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **conda 환경 `voice-ai` 하나만 사용**: `/opt/anaconda3/envs/voice-ai/bin/python` (Python 3.11). 다른 환경(`base` 등)은 쓰지 않는다. 노트북 커널도 `voice-ai`(`Python 3.11 (voice-ai)`).
 - `numpy`는 **1.26.4 고정**(TensorFlow 2.16). 새 패키지는 설치 전 **`pip install --dry-run`** 으로 numpy가 바뀌지 않는지 확인한다. 노트북에서는 `%pip` 또는 `!{sys.executable} -m pip`.
-- 설치된 것: faster-whisper 1.2.1(디코더 PyAV `av`를 함께 설치함), openai, python-dotenv, pandas, scipy, matplotlib, `sounddevice` 0.5.6(마이크 녹음, `recorder.py`·`scripts/record_takes.py`), `demucs` 4.1.0(보컬 분리, `separate.py`; torch 2.2.2 CPU), 그리고 `spike/`용 fastapi·uvicorn·python-multipart. **없는 것**: `pytest`, `streamlit`, `gradio`, `ipywidgets`, `soundfile`, `librosa` (노트북 셀에서는 녹음하지 않고 **미리 녹음한 파일 경로를 지정**; 녹음은 터미널의 `scripts/record_takes.py`로 한다. 마이크 권한이 필요해 Claude는 실행하지 않고 사용자가 직접 실행). 테스트는 표준 라이브러리 `unittest`를 쓴다.
+- 설치된 것: faster-whisper 1.2.1(디코더 PyAV `av`를 함께 설치함), openai, python-dotenv, pandas, scipy, matplotlib, `sounddevice` 0.5.6(마이크 녹음, `recorder.py`·`scripts/record_takes.py`), `demucs` 4.1.0(보컬 분리, `separate.py`; torch 2.2.2 CPU), 그리고 `spike/`용 fastapi·uvicorn·python-multipart. **없는 것**: `pytest`, `streamlit`(**`voice-ai`에 설치 금지**: protobuf가 TensorFlow 2.16과 충돌, 앱은 별도 환경에서; 검토 문서 16.4), `gradio`, `ipywidgets`, `soundfile`, `librosa` (노트북 셀에서는 녹음하지 않고 **미리 녹음한 파일 경로를 지정**; 녹음은 터미널의 `scripts/record_takes.py`로 한다. 마이크 권한이 필요해 Claude는 실행하지 않고 사용자가 직접 실행). 테스트는 표준 라이브러리 `unittest`를 쓴다.
 - 머신: macOS 13.7, Intel i7 4스레드, RAM 16GB, **GPU 없음**(CPU만). Whisper는 `tiny` + `int8`. (별도로 Oracle Cloud ARM 서버 4코어·RAM 23GB에서 `faster-whisper` import까지만 확인했고 배포는 하지 않았다.)
 - **OpenAI API key**는 `.env`의 `OPENAI_API_KEY` (git에 올리지 않음; `.env.example`을 복사해 값을 채운다). 호출 코드는 `load_dotenv()` 후 `OpenAI()`. 노트북 셀 실행은 **실제 과금**되므로 TTS 결과는 캐시(`data/tts_cache/`)해서 재호출을 줄이고 호출 횟수(`tts.calls`)를 기록한다. 직접 입력한 문장은 TTS API로 나가 과금된다.
 - **노트북 커널은 import한 모듈과 `.env`를 다시 읽지 않는다.** `.py`나 `.env`를 고친 뒤에는 커널을 재시작해야 반영된다(키를 바꿨는데 같은 401이 나던 원인이었음).
