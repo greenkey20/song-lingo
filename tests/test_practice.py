@@ -1,5 +1,6 @@
 """practice.py·report.py 단위 테스트. 실행: python -m unittest tests.test_practice -v
 OpenAI API와 Whisper를 부르지 않고, tts·stt를 가짜 함수로 바꿔서 '순서와 결과 모양'만 확인한다."""
+import io
 import os
 import sys
 import tempfile
@@ -11,6 +12,7 @@ import numpy as np
 from scipy.io import wavfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import audio  # noqa: E402
 import practice  # noqa: E402
 import report  # noqa: E402
 import scoring  # noqa: E402
@@ -88,6 +90,33 @@ class Flow(unittest.TestCase):
         self.assertFalse(res["quality"]["ok"])                   # 경고는 안내일 뿐
         self.assertIsNotNone(res["score"])                       # 인식과 채점은 그대로 진행
         self.assertIn("너무 작습니다", report.result(prep, res))
+
+    def test_read_accepts_bytes_and_passes_original_to_stt(self):
+        """웹 화면의 업로드·브라우저 녹음(bytes)도 받는다(이슈 #37). 인식에는 변환한 배열이 아니라 원본 bytes(BytesIO)를 그대로 넘긴다."""
+        rec = self.dir / "up.wav"
+        write_tone(rec)
+        data = rec.read_bytes()
+        with self.fake_tts(new=False):
+            prep = practice.prepare(1, SENTENCES)
+        with mock.patch("stt.recognize", return_value=("I want explore the universe.", 1.2)) as rec_mock, \
+                mock.patch("audio.load_raw", wraps=audio.load_raw) as raw_mock:
+            res = practice.read(prep, data)
+        raw_mock.assert_called_once()                              # 우리 쪽 디코딩은 상태 점검용으로 한 번
+        heard = rec_mock.call_args.args[0]
+        self.assertIsInstance(heard, io.BytesIO)                   # 변환한 배열이 아니라 원본 그대로(경로 입력과 같은 결과를 보장)
+        self.assertEqual(heard.getvalue(), data)
+        self.assertTrue(res["quality"]["ok"])
+        self.assertEqual((res["score"]["wer"]["S"], res["score"]["wer"]["D"]), (0, 1))
+        self.assertIn("내 녹음: 업로드·브라우저 녹음", report.result(prep, res))   # 파일 이름이 없는 입력
+
+    def test_read_with_path_still_uses_the_path(self):
+        rec = self.dir / "p.wav"
+        write_tone(rec)
+        with self.fake_tts(new=False):
+            prep = practice.prepare(1, SENTENCES)
+        with mock.patch("stt.recognize", return_value=("hello", 1.0)) as rec_mock:
+            practice.read(prep, rec)
+        self.assertEqual(rec_mock.call_args.args[0], rec)          # 경로 입력은 지금까지와 같다(파일 그대로 전달)
 
     def test_read_without_recording_returns_error(self):
         with self.fake_tts(new=False):

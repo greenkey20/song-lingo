@@ -20,6 +20,7 @@
 [수업에 없음] 이 파일의 '순서를 이어 붙이고 결과를 dict로 돌려주는' 구성은 직접 설계했다. 수업의 코드는
 각 모듈 안(tts: 013, stt: 7강, scoring: 보충 학습)에 들어 있다.
 """
+import os
 from pathlib import Path
 
 import numpy as np
@@ -56,7 +57,11 @@ def read(prep, recording=None, take=1):
     """따라 읽기: 녹음 상태 점검 → 인식 → 채점. 돌려주는 dict:
     {"mode", "error", "recording", "quality", "hyp", "seconds", "score"}
 
-    recording: 녹음 파일 경로. 안 주면 문장 번호로 data/recordings/sNN_take{take}.*를 찾는다(직접 쓴 문장은 번호가 없어 지정 필요).
+    recording: 녹음 파일 경로, 또는 bytes·파일 객체(웹 화면의 업로드·브라우저 녹음, 이슈 #37). 안 주면 문장 번호로
+    data/recordings/sNN_take{take}.*를 찾는다(직접 쓴 문장은 번호가 없어 지정 필요).
+    인식에는 입력을 **그대로**(경로·bytes) 넘긴다. 우리가 16 kHz로 바꾼 배열을 넣으면 faster-whisper가 직접 바꾼 것과 파형이 조금 달라
+    노래에서는 인식문이 달라질 수 있어서(14구간 중 10구간, 말소리 30건은 모두 같음, 검토 문서 16.4) 경로 입력과 같은 결과가 나오도록 했다.
+    상태 점검은 bytes·파일 객체를 `audio.load_raw`로 한 번 읽어 원본 샘플로 한다.
     quality는 quality.analyze의 결과(경고는 안내일 뿐 인식은 그대로 진행한다), score는 scoring.evaluate의 결과.
     """
     res = {"mode": "read", "error": prep["error"], "recording": None, "quality": None,
@@ -64,13 +69,20 @@ def read(prep, recording=None, take=1):
     if res["error"]:
         return res
     rec = recording if recording is not None else (stt.find_recording(prep["id"], take) if prep["id"].isdigit() else None)
-    if rec is None or not Path(rec).exists():
+    is_path = isinstance(rec, (str, os.PathLike))
+    if rec is None or (is_path and not Path(rec).exists()):
         res["error"] = ('따라 읽은 녹음이 없습니다. recording="파일 경로"로 지정하거나 '
                         'data/recordings/sNN_take1.wav로 두세요.')
         return res
     res["recording"] = rec
-    res["quality"] = quality.check_file(rec)
-    res["hyp"], res["seconds"] = stt.recognize(rec, prep["lang"])
+    if is_path:
+        res["quality"] = quality.check_file(rec)
+        res["hyp"], res["seconds"] = stt.recognize(rec, prep["lang"])
+    else:
+        src = audio.as_source(rec)                                       # bytes·파일 객체 → 처음부터 읽을 수 있는 BytesIO 복사본
+        raw, orig_sr, _channels = audio.load_raw(src)                    # 클리핑은 원본 샘플로 재야 하므로 raw
+        res["quality"] = quality.analyze(raw, orig_sr)
+        res["hyp"], res["seconds"] = stt.recognize(src, prep["lang"])    # 변환한 배열이 아니라 원본 bytes를 그대로 넘긴다
     res["score"] = scoring.evaluate(prep["text"], res["hyp"], prep["lang"])
     return res
 
