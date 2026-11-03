@@ -6,7 +6,7 @@
 
 - 계획: [`docs/프로젝트 개발 계획서_20261030.md`](docs/프로젝트%20개발%20계획서_20261030.md)
 - 검토와 근거: [`docs/프로젝트_안내_및_주제_검토.md`](docs/프로젝트_안내_및_주제_검토.md)
-- WER/CER 학습 노트: [`docs/WER_CER_이해하기.ipynb`](docs/WER_CER_이해하기.ipynb)
+- WER/CER 학습 노트: [`experiments/WER, CER/WER_CER_이해하기.ipynb`](experiments/WER,%20CER/WER_CER_이해하기.ipynb)
 
 ## 실행
 

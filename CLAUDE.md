@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-**song-lingo** — 외국어 노래 문장 연습 도우미 (듣고 따라읽고 받아쓰고 확인하는 음성 학습 프로토타입). ICT 혁신 스퀘어 Voice-AI 부트캠프의 **개인 프로젝트**(2026-10-30 ~ 11-11 평일 9일 × 4h = 36h 개발, **11-12 발표**). 사용자가 TTS 기준 음성을 듣고 → 따라 읽은 녹음을 STT로 인식하거나 받아쓰기를 하고 → 정답과의 **오류율(WER/CER)** 과 틀린 부분을 피드백받는다. 점수는 **발음 점수가 아니라 "문장 인식 일치도"** 다(STT가 틀린 발음을 문맥으로 고쳐 적을 수 있음). 시연 화면은 **Jupyter 노트북(`practice.ipynb`)** 이다. 웹 UI는 **Streamlit + GitHub 배포로 하기로 했다**(11-02 면담 권장, 11-04 사용자 결정; **구현 전**, 검토 문서 16.4), `spike/`의 FastAPI 서버는 브라우저 녹음 점검용 임시 코드다.
+**song-lingo** — 외국어 노래 문장 연습 도우미 (듣고 따라읽고 받아쓰고 확인하는 음성 학습 프로토타입). ICT 혁신 스퀘어 Voice-AI 부트캠프의 **개인 프로젝트**(2026-10-30 ~ 11-11 평일 9일 × 4h = 36h 개발, **11-12 발표**). 사용자가 TTS 기준 음성을 듣고 → 따라 읽은 녹음을 STT로 인식하거나 받아쓰기를 하고 → 정답과의 **오류율(WER/CER)** 과 틀린 부분을 피드백받는다. 점수는 **발음 점수가 아니라 "문장 인식 일치도"** 다(STT가 틀린 발음을 문맥으로 고쳐 적을 수 있음). 시연 화면은 **Jupyter 노트북(`experiments/practice.ipynb`)** 이다. 웹 UI는 **Streamlit + GitHub 배포로 하기로 했다**(11-02 면담 권장, 11-04 사용자 결정; **구현 전**, 검토 문서 16.4), `spike/`의 FastAPI 서버는 브라우저 녹음 점검용 임시 코드다.
 
 **현황(진행 상황·남은 L1·이슈 번호)은 여기에 적지 않는다.** `docs/작업_일지.md`와 GitHub 이슈를 본다. README는 마일스톤(L1 완료·L2 완료·마지막 정리)마다 갱신한다.
 
@@ -17,7 +17,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 검토 문서의 절 안내: 코드 구조·검증·주석 9.4, README 갱신 시점 9.3, `quality.py` 기준값 14.3, 일정 재조정·웹 UI 결정 시점 10.8, 외부 검토 반영 12.2, 면담 결과 12.3, 연습 문장 13.2, TTS·WAV 헤더 15.1, 모델 크기 비교 15.2, API 키 확인 15.3, 웹 UI 결정·`audio.py` 활용 16.4, Demucs(음원 분리) 기술 검토 15.4, 노래 비교 실험 13.5, 웹 UI 16.1·16.2. 그 밖에 `experiments/WER, CER/연습_문장_데이터_설명.md`(연습 문장 10개), `experiments/skeleton/발표_대본_초안_스켈레톤.md`(3분 발표 초안), `experiments/skeleton/주말_스켈레톤_시연_계획.md`(끝난 스켈레톤 계획), `docs/개발환경_이슈노트.md`(환경·git 문제와 해결책 — 새 문제가 생기면 번호를 이어 추가), `experiments/song vocals/노래_구간_비교_실험_절차.md`(곡 구간 분리·정답·비교 실험을 따라 하는 순서와 결과 기록, 이슈 #18)가 있다.
 
-- 학습 배경(1~7강 노트북)은 형제 폴더 `../ict_innovation_sq_voice_ai/`(읽기 전용 참고). 특히 `017_sound/lesson07_whisper_minimal.ipynb`(faster-whisper), `013_openai_api/`(TTS/STT 호출 코드), `017_sound/02·03·lesson04`(WAV 전처리, FFT/STFT/Mel). WER·CER은 수업이 아니라 자습 노트북(`docs/WER_CER_이해하기.ipynb`) 기준이다.
+- 학습 배경(1~7강 노트북)은 형제 폴더 `../ict_innovation_sq_voice_ai/`(읽기 전용 참고). 특히 `017_sound/lesson07_whisper_minimal.ipynb`(faster-whisper), `013_openai_api/`(TTS/STT 호출 코드), `017_sound/02·03·lesson04`(WAV 전처리, FFT/STFT/Mel). WER·CER은 수업이 아니라 자습 노트북(`experiments/WER, CER/WER_CER_이해하기.ipynb`) 기준이다.
 
 ## Environment
 
@@ -36,7 +36,7 @@ PY=/opt/anaconda3/envs/voice-ai/bin/python    # 아래 명령은 모두 프로�
 $PY -m unittest discover -s tests -v          # 전체 단위 테스트
 $PY -m unittest tests.test_quality            # 파일 하나
 $PY -m unittest tests.test_scoring.Boundaries.test_format_diff   # 테스트 하나
-$PY scripts/check_notebook.py                 # practice.ipynb 코드 셀을 차례로 실행해 끝까지 되는지 점검(.env 안 읽음 → API 과금 없음, 그림은 results/notebook_check/)
+$PY scripts/check_notebook.py                 # experiments/practice.ipynb 코드 셀을 차례로 실행해 끝까지 되는지 점검(.env 안 읽음 → API 과금 없음, 그림은 results/notebook_check/)
 $PY scripts/scan_outputs.py [노트북 ...]      # 커밋 전: 노트북 출력의 오디오 플레이어·/Users 경로·key 검사
 $PY scripts/check_api_key.py                  # 어떤 OPENAI_API_KEY가 적용되는지(값은 가림). .env를 읽으므로 Claude는 실행하지 않고 사용자가 직접(`! ...`)
 $PY scripts/record_takes.py [--status|--order sentence|--redo ID TAKE]   # 터미널에서 문장을 보며 data/recordings/sNN_takeK.wav로 녹음(스테레오 PCM16). 기본은 없는 건만 1회전씩. 마이크가 필요하므로 사용자가 직접(검토 문서 13.3, 사용법은 experiments/WER, CER/연습_문장_데이터_설명.md 5.1)
@@ -63,7 +63,7 @@ practice.py(위 순서를 이어 부르고 dict 반환) ─▶ report.py(글) / 
 - `scoring.py`의 흐름: `normalize` → 토큰화(`wer`는 공백 단위, `cer`는 글자 단위) → `edit_matrix` → `backtrace`(ops: 일치/치환/삭제/삽입; 최소 거리 경로가 여러 개면 비슷한 토큰끼리 짝짓는 `_tie_scores`) → `score`가 S·D·I·N·rate·ops를 dict로 반환 → `format_diff(ops)`로 표시.
 - `recorder.py`는 마이크 녹음과 `sNN_takeK.wav` 저장(`Recorder.start()/stop()`, `save_wav`, `take_status`)만 하고 화면을 모른다. 터미널 진행은 `scripts/record_takes.py`, 나중의 웹 화면도 같은 `Recorder`를 부른다. 녹음 파일의 STT 입력용 리샘플링은 faster-whisper가 안에서 하고(`audio.py`는 상태 점검·그림용, 검토 문서 14.6), 영어 채점은 `scoring.normalize(unify=True)` 기본 + `unify=False` 엄격 모드(검토 문서 13.4).
 - `separate.py`는 내 곡의 구간 디코딩(`audio.load_raw` 재사용), 자르기(`cut_clip`)와 Demucs 보컬 분리(`separate_clip`)를 따로 부를 수 있게 하고(`process_clip`은 둘을 잇는 편의 함수), 저장만 한다(이슈 #18; `demucs`는 `sphn` 빌드 실패로 `pip install --no-deps`로 설치, 개발환경 이슈노트 #14). 이 흐름의 다음 단계(#31 연습 문장 만들기, #32 보컬 구간을 기준 음성으로)는 아직 없다. 곡·결과는 `data/songs`, `data/song_work`(git 제외)에만 둔다.
-- 다른 파일: `theme.py`(그래프 공통 색·스타일), `sentences.csv`(id, lang, sentence, meaning_ko, source, license, probe; 10문장, 문장별 의도는 `probe` 열과 `experiments/WER, CER/연습_문장_데이터_설명.md`), `spike/`(임시 웹 점검), `scripts/`, `tests/`(모듈마다 `test_*.py`, 합성 신호만 사용). `clip_compare.py`(구간별 정답과 비교하는 노래 인식 실험 도구: 원곡/보컬 × 모델 크기 × VAD × temperature × 반복, `scripts/compare_clips.py`가 부름, `practice.py`와 분리), `experiments/`(실험 노트북: 지금은 `song_vocal_separation.ipynb`, 실험 절차·기록은 `experiments/song vocals/노래_구간_비교_실험_절차.md` — 실험 상세는 검토 문서가 아니라 여기 12절). 아직 없는 계획 모듈: `player.py`·`explain.py`(L2), 앱 코드(`app/`, 이슈 #36·#37).
+- 다른 파일: `theme.py`(그래프 공통 색·스타일), `sentences.csv`(id, lang, sentence, meaning_ko, source, license, probe; 10문장, 문장별 의도는 `probe` 열과 `experiments/WER, CER/연습_문장_데이터_설명.md`), `spike/`(임시 웹 점검), `scripts/`, `tests/`(모듈마다 `test_*.py`, 합성 신호만 사용). `clip_compare.py`(구간별 정답과 비교하는 노래 인식 실험 도구: 원곡/보컬 × 모델 크기 × VAD × temperature × 반복, `scripts/compare_clips.py`가 부름, `practice.py`와 분리), `experiments/`(**작업 과정·실험은 모두 여기**, 주제별 하위 폴더: `practice.ipynb`(시연 화면)·`song vocals/`·`WER, CER/`·`skeleton/`; `docs/`에는 프로젝트 전체 문서만 둔다. 노트북은 위로 올라가며 루트(`practice.py` 등)를 찾아 `chdir`·`sys.path`를 맞추는 셀로 시작한다. 실험 노트북: 지금은 `song vocals/song_vocal_separation.ipynb`, 실험 절차·기록은 `experiments/song vocals/노래_구간_비교_실험_절차.md` — 실험 상세는 검토 문서가 아니라 여기 12절). 아직 없는 계획 모듈: `player.py`·`explain.py`(L2), 앱 코드(`app/`, 이슈 #36·#37).
 - `data/`(녹음·TTS 캐시·업로드)와 `results/`(기록 CSV·그래프·노트북 점검 그림)는 **git에서 제외**된다.
 
 ## Key decisions (자세한 근거는 docs 두 파일)
@@ -80,7 +80,7 @@ practice.py(위 순서를 이어 부르고 dict 반환) ─▶ report.py(글) / 
 
 - `.env`, API key, **사용자 본인 목소리(녹음)**, 강사님 목소리, 강사 제공 WAV, 모델 파일, 화면 캡처(다른 수강생 이름·얼굴)는 **절대 커밋하지 않는다**. **사용자 실명은 어떤 파일명·내용에도 쓰지 않는다.**
 - **상업 노래의 가사·음원**(내 보유곡, `data/songs`)은 **저장소·이슈·PR·문서에 올리지 않는다**(결과는 곡 번호와 숫자로만 적고 가사를 옮겨 적지 않는다). 가사를 **외부 API(OpenAI TTS·LLM)로 보내지 않는다**. 11-03 조정(검토 문서 13.5): ① 내 컴퓨터에서 로컬로 처리하는 **개인 학습 도구**(Demucs 분리 + 로컬 Whisper)는 허용 ② **발표 시연에서 곡 1개를 로컬 재생**하는 것은 허용(저장소·슬라이드에는 음원 없음) ③ **Claude가 사용자의 허락 아래 인식된 가사 텍스트를 읽고 분석**(오류 분류·CER 계산·코드 확인)하는 것은 허용하되, 문서·이슈·PR·채팅 답변에 가사를 옮겨 적지 않는다. 연습 문장 기본은 여전히 직접 쓴 예문 또는 이용이 확인된 공개 문장이다. 계획서의 합성 반주 실험(L3-(a)의 직접 부른 노래+허용 반주)을 할 때는 이용 조건을 기록한다.
-- **노트북 출력**에는 `<audio>` 플레이어(base64 음원), `/Users/…` 경로, key가 박힐 수 있다. 커밋 전에 출력을 지우고 `scripts/scan_outputs.py`로 확인한다. 로컬 원본(출력 있음)은 그대로 두고 **출력을 지운 정리본을 커밋**한다: 정리본을 임시 파일에 만들어 스캔한 뒤 `git hash-object -w` → `git update-index --cacheinfo 100644,<hash>,practice.ipynb`로 인덱스에 넣는다(그래서 `git status`에 `M practice.ipynb`가 계속 남는 것은 정상).
+- **노트북 출력**에는 `<audio>` 플레이어(base64 음원), `/Users/…` 경로, key가 박힐 수 있다. 커밋 전에 출력을 지우고 `scripts/scan_outputs.py`로 확인한다. 로컬 원본(출력 있음)은 그대로 두고 **출력을 지운 정리본을 커밋**한다: 정리본을 임시 파일에 만들어 스캔한 뒤 `git hash-object -w` → `git update-index --cacheinfo 100644,<hash>,experiments/practice.ipynb`로 인덱스에 넣는다(그래서 `git status`에 `M practice.ipynb`가 계속 남는 것은 정상).
 - `git add -A`, `git add .` 금지 — 파일을 하나씩 추가하고 `git status`로 확인한다. 최종 점검 체크리스트는 계획서 6장 9일차 항목.
 - `spike/` 서버는 `127.0.0.1`에서만 열고, 업로드 녹음은 git 제외 폴더 `data/uploads/`에 두며, `.env`·TTS·LLM을 쓰지 않는다. 인터넷에 배포하면 공개 주소에서 누구나 TTS를 불러 과금되므로 접근 제한(비밀번호)이 필요하다.
 
