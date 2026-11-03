@@ -3,7 +3,7 @@
 사용 (프로젝트 루트에서):
     python scripts/check_notebook.py [노트북 경로] [--answer "받아쓰기 입력"] [--out 그림 저장 폴더]
                                      [--with-env] [--verbose]
-기본값: 노트북은 practice.ipynb, 그림은 results/notebook_check/ (git에서 제외되는 폴더)에 PNG로 저장.
+기본값: 노트북은 experiments/practice.ipynb, 그림은 results/notebook_check/ (git에서 제외되는 폴더)에 PNG로 저장.
 끝까지 되면 종료 코드 0, 어느 셀에서 실패하면 그 셀 번호와 오류를 보여 주고 1.
 
 왜 필요한가
@@ -111,7 +111,7 @@ def run(nb_path, answer, out_dir, with_env, verbose):
 
 def main(argv):
     ap = argparse.ArgumentParser(description="노트북의 코드 셀을 차례로 실행해 점검합니다.")
-    ap.add_argument("notebook", nargs="?", default="practice.ipynb", help="점검할 노트북 (기본 practice.ipynb)")
+    ap.add_argument("notebook", nargs="?", default="experiments/practice.ipynb", help="점검할 노트북 (기본 experiments/practice.ipynb)")
     ap.add_argument("--answer", default="I want to explor univers", help="input()에 대신 줄 글(받아쓰기 셀용)")
     ap.add_argument("--out", default="results/notebook_check", help="그림을 저장할 폴더 (git 제외 폴더)")
     ap.add_argument("--with-env", action="store_true", help=".env를 읽는다(캐시에 없으면 TTS API 호출·과금)")
