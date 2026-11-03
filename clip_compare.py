@@ -65,7 +65,7 @@ def temp_label(t):
 
 
 def compare(clip_ids, sizes=("tiny", "base"), vads=(False,), work_dir=WORK_DIR, recognize=None, language="en",
-            temperatures=(None,), repeats=1):
+            temperatures=(None,), repeats=1, sources=SOURCES, progress=None):
     """구간 × 소리(mix/vocals) × 모델 크기 × VAD × temperature 조건을 모두 인식·채점해 (metrics, texts) DataFrame 두 개를 돌려준다.
 
     metrics 열: clip, source, size, vad, temp, run, S, D, I, N, WER, CER, sec  (가사 없음)
@@ -76,19 +76,27 @@ def compare(clip_ids, sizes=("tiny", "base"), vads=(False,), work_dir=WORK_DIR, 
       0.0은 폴백 없이 재현 가능(검토 문서 13.5). 예: (0.0,) 또는 (0.0, None).
     repeats: 같은 조건 전체를 몇 번 되풀이할지(열 run = 1, 2, …). 기본 설정(None)의 흔들림 범위를 보려면 3 이상으로 한다.
       0.0은 항상 같은 결과이므로 되풀이해도 값이 같다(확인용으로만 의미 있음).
+    progress: 진행을 알리는 함수(선택). 조건 하나(반복·temperature·크기·VAD)의 모든 구간 인식이 끝날 때마다
+      progress(문자열 한 줄)을 부른다. 오래 걸리는 실행이 멈춘 것처럼 보이지 않게 하려는 것(개발환경 이슈노트 #17).
+    sources: 인식할 소리. 기본은 ("mix", "vocals") 둘 다. 모델 크기 시험처럼 보컬만 필요하면 ("vocals",)로 줘서 시간을 절반으로 줄인다.
     크기를 처음 쓰면 모델 읽기 시간이 sec에 섞이므로, 크기가 바깥 반복이 되게 했다(같은 모델을 이어서 쓴다).
     recognize에는 temperature가 None이 아닐 때만 인자로 넘겨서, 기존 인식 함수(예: 테스트의 가짜 함수)와도 호환된다.
     """
     recognize = recognize or stt.recognize
+    bad = [x for x in sources if x not in SOURCES]
+    if bad or not sources:
+        raise ValueError(f"sources는 {SOURCES}의 부분집합이어야 합니다(받은 값 {tuple(sources)}).")
     refs = {cid: load_truth(cid, work_dir) for cid in clip_ids}
     mrows, trows = [], []
+    total = repeats * len(temperatures) * len(sizes) * len(vads) * len(clip_ids) * len(sources)   # 전체 인식 횟수(진행 표시용)
     for run in range(1, repeats + 1):
         for temp in temperatures:
             extra = {} if temp is None else {"temperature": temp}
             for size in sizes:
                 for vad in vads:
+                    group_start = len(mrows)
                     for cid in clip_ids:
-                        for src in SOURCES:
+                        for src in sources:
                             path = Path(work_dir) / f"{cid}_{src}.wav"
                             hyp, sec = recognize(path, language=language, model_size=size, vad_filter=vad, **extra)
                             w = scoring.wer(refs[cid], hyp, lang=language)
@@ -97,6 +105,10 @@ def compare(clip_ids, sizes=("tiny", "base"), vads=(False,), work_dir=WORK_DIR, 
                             mrows.append({**key, "S": w["S"], "D": w["D"], "I": w["I"], "N": w["N"],
                                           "WER": w["rate"], "CER": c["rate"], "sec": round(sec, 1)})
                             trows.append({**key, "ref": refs[cid], "hyp": hyp})
+                    if progress:
+                        done = mrows[group_start:]
+                        progress(f"[{len(mrows)}/{total}] 반복 {run} {temp_label(temp)} {size} VAD{'켬' if vad else '끔'} 완료 "
+                                 f"(인식 {len(done)}번, 평균 {sum(r['sec'] for r in done) / len(done):.1f}초)")
     return pd.DataFrame(mrows), pd.DataFrame(trows)
 
 

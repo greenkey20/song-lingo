@@ -11,6 +11,7 @@
     python scripts/compare_clips.py --temperature 0.0 default         # 두 설정을 나란히 (default = faster-whisper 기본 폴백)
     python scripts/compare_clips.py --temperature default --repeats 3 # 기본 설정을 3회 되풀이해 흔들림 범위(micro_min~max)를 봄
     python scripts/compare_clips.py --ids c01 c02
+    python scripts/compare_clips.py --sizes medium --sources vocals --vad off --out-dir results/song_compare/size_test   # 보컬만, 다른 폴더에 저장
 
 저장(results/song_compare/, git 제외): metrics.csv(점수표, 가사 없음), texts.csv(인식된 문장 — 가사이므로 화면에 안 찍고
 문서·이슈에 옮기지 않는다). 화면에는 점수 숫자만 나온다.
@@ -25,7 +26,6 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import clip_compare  # noqa: E402
 
-OUT_DIR = Path("results/song_compare")
 
 
 def main(argv=None):
@@ -36,6 +36,9 @@ def main(argv=None):
     ap.add_argument("--temperature", nargs="+", default=["default"], metavar="T",
                     help="인식 temperature 목록: 숫자(예: 0.0) 또는 default(faster-whisper 기본 폴백, 실행마다 달라질 수 있음). 기본 default")
     ap.add_argument("--repeats", type=int, default=1, help="같은 조건 전체를 되풀이할 횟수(기본 1). default 설정의 흔들림을 보려면 3 이상")
+    ap.add_argument("--sources", nargs="+", choices=list(clip_compare.SOURCES), default=list(clip_compare.SOURCES),
+                    help="인식할 소리(기본 mix vocals 둘 다). 보컬만 보려면 --sources vocals")
+    ap.add_argument("--out-dir", default="results/song_compare", help="결과 저장 폴더(기본 results/song_compare, git 제외). 이전 결과를 덮어쓰지 않으려면 다른 폴더를 준다")
     ap.add_argument("--work-dir", default=clip_compare.WORK_DIR)
     a = ap.parse_args(argv)
 
@@ -55,11 +58,13 @@ def main(argv=None):
         ap.error("--temperature는 숫자(예: 0.0) 또는 default여야 합니다.")
     if a.repeats < 1:
         ap.error("--repeats는 1 이상이어야 합니다.")
-    n_runs = len(ids) * 2 * len(a.sizes) * len(vads) * len(temps) * a.repeats
-    print(f"구간 {len(ids)}개 × 소리 2 × 크기 {len(a.sizes)} × VAD {len(vads)} × temperature {len(temps)} × 반복 {a.repeats}"
+    n_runs = len(ids) * len(a.sources) * len(a.sizes) * len(vads) * len(temps) * a.repeats
+    print(f"구간 {len(ids)}개 × 소리 {len(a.sources)} × 크기 {len(a.sizes)} × VAD {len(vads)} × temperature {len(temps)} × 반복 {a.repeats}"
           f" = {n_runs}번 인식 (로컬, 과금 없음)")
 
-    metrics, texts = clip_compare.compare(ids, a.sizes, vads, a.work_dir, temperatures=temps, repeats=a.repeats)
+    metrics, texts = clip_compare.compare(ids, a.sizes, vads, a.work_dir, temperatures=temps, repeats=a.repeats, sources=tuple(a.sources),
+                                           progress=lambda msg: print(msg, flush=True))
+    OUT_DIR = Path(a.out_dir)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     metrics.to_csv(OUT_DIR / "metrics.csv", index=False)
     texts.to_csv(OUT_DIR / "texts.csv", index=False)

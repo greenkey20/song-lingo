@@ -112,6 +112,31 @@ class TemperatureAndRepeats(unittest.TestCase):
             self.assertAlmostEqual(row["micro_WER"], 0.25 / 3)                    # 세 번 중 한 번만 1/4 틀림
 
 
+class Sources(unittest.TestCase):
+    def test_sources_subset_halves_runs_and_validates(self):
+        with tempfile.TemporaryDirectory() as d:
+            make_clip(d, "c01")
+            m, t = clip_compare.compare(["c01"], sizes=("tiny",), work_dir=d, recognize=fake_recognize, sources=("vocals",))
+            self.assertEqual(set(m["source"]), {"vocals"})
+            self.assertEqual(len(m), 1)
+            with self.assertRaises(ValueError):
+                clip_compare.compare(["c01"], work_dir=d, recognize=fake_recognize, sources=("music",))
+            with self.assertRaises(ValueError):
+                clip_compare.compare(["c01"], work_dir=d, recognize=fake_recognize, sources=())
+
+
+class Progress(unittest.TestCase):
+    def test_progress_called_once_per_condition_group(self):
+        msgs = []
+        with tempfile.TemporaryDirectory() as d:
+            make_clip(d, "c01"); make_clip(d, "c02")
+            clip_compare.compare(["c01", "c02"], sizes=("tiny", "base"), vads=(False, True), work_dir=d,
+                                 recognize=fake_recognize, sources=("vocals",), progress=msgs.append)
+        self.assertEqual(len(msgs), 4)                         # 크기 2 × VAD 2 조건
+        self.assertTrue(msgs[-1].startswith("[8/8]"))          # 구간 2 × 소리 1 × 4조건 = 8번
+        self.assertIn("tiny VAD끔", msgs[0])
+
+
 class Stt(unittest.TestCase):
     """stt.recognize가 temperature를 transcribe에 올바르게 넘기는지(모델 없이 가짜 모델로)."""
 
