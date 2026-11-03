@@ -85,22 +85,29 @@ def find_recording(sid, take=1, rec_dir=REC_DIR):
     return found[0] if found else None
 
 
-def recognize(path, language="en", model_size=None, vad_filter=False):
+def recognize(path, language="en", model_size=None, vad_filter=False, temperature=None):
     """녹음 파일 하나를 인식해 (문장, 걸린 시간)을 돌려준다. model_size를 안 주면 기본 크기(tiny).
     그 크기를 처음 쓰면 모델 읽기 시간이 걸린 시간에 섞인다(미리 load_model로 읽어 두면 섞이지 않음).
 
     vad_filter: [수업에 없음] True면 VAD(말소리 없는 구간을 걸러내는 처리)를 켠 채 인식한다. 기본 False는 7강과 같은 설정이다.
     같은 녹음도 큰 모델에서는 VAD 켬/끔에 따라 결과가 달라질 수 있다(검토 문서 15.2: small의 3번 문장 0.429 → 0.286).
-    recognize_words는 기본이 True라서, 두 함수를 같은 설정으로 맞추려면 같은 값을 넘긴다."""
+    recognize_words는 기본이 True라서, 두 함수를 같은 설정으로 맞추려면 같은 값을 넘긴다.
+
+    temperature: [수업에 없음] None(기본)이면 faster-whisper의 기본 동작을 그대로 쓴다. 그 기본은 온도 폴백이다:
+    [0.0, 0.2, …, 1.0]을 차례로 시도하다가 결과가 나쁘면(평균 로그확률 < -1.0, 압축률 > 2.4) **온도를 올려 무작위 샘플링으로 다시** 해서,
+    노래처럼 어려운 소리에서는 같은 입력도 실행마다 결과가 달라질 수 있다(검토 문서 13.5: 같은 16개 파일 2회 인식에서 4개가 달랐음).
+    0.0을 주면 폴백 없이 항상 같은 방식(탐욕적 선택)으로 인식해 **결과가 재현된다**(같은 조건에서 16개 모두 같았음).
+    말소리(연습 문장)에서는 폴백이 거의 안 걸려 둘이 거의 같다. 보고할 때는 이 값을 함께 적는다."""
     t0 = time.time()
+    extra = {} if temperature is None else {"temperature": temperature}   # 안 주면 transcribe에 넘기지 않아 기본 동작이 그대로다
     segments, _info = load_model(model_size).transcribe(str(path), language=language, beam_size=BEAM_SIZE,
-                                                        vad_filter=vad_filter)   # beam_size=1: 후보를 하나만 탐색해 빠르게(수업과 같음)
+                                                        vad_filter=vad_filter, **extra)   # beam_size=1: 후보를 하나만 탐색해 빠르게(수업과 같음)
     # 수업은 list(segments)로 한 번에 모았다. 여기서는 구간 문장을 이어 붙여 하나의 문장으로 만든다.
     text = " ".join(seg.text.strip() for seg in segments)   # segments는 제너레이터라 여기서 실제로 인식이 돈다
     return text, time.time() - t0
 
 
-def recognize_words(path, language="en", model_size=None, vad_filter=True):
+def recognize_words(path, language="en", model_size=None, vad_filter=True, temperature=None):
     """recognize와 같은 설정에 단어별 시간을 더해 (문장, 단어 목록, 걸린 시간)을 돌려준다.
     단어 목록: [{"word", "start", "end", "prob"}]. 기본 vad_filter=True는 앞 무음이 첫 단어 시간에 섞이는 것을 줄이려는 것이며,
     단어 시간은 모델 내부 정보로 추정한 값이라 대략의 구간으로만 쓴다. recognize(기본 VAD 끔)와 설정을 맞추려면
@@ -108,10 +115,12 @@ def recognize_words(path, language="en", model_size=None, vad_filter=True):
 
     [수업에 없음] word_timestamps=True: 단어마다 시작·끝 시간(초)과 확률을 함께 돌려준다.
     [수업에 없음] vad_filter=True: VAD(음성 구간 검출)로 말소리가 없는 구간을 걸러낸 뒤 인식한다.
-    그렇게 하지 않으면 앞의 긴 무음이 첫 단어의 시간에 섞인다(실제로 첫 단어가 0.00초로 나오는 것을 확인했다)."""
+    그렇게 하지 않으면 앞의 긴 무음이 첫 단어의 시간에 섞인다(실제로 첫 단어가 0.00초로 나오는 것을 확인했다).
+    temperature: recognize와 같다(None이면 기본 동작, 0.0이면 폴백 없이 재현 가능)."""
     t0 = time.time()
+    extra = {} if temperature is None else {"temperature": temperature}
     segments, _info = load_model(model_size).transcribe(str(path), language=language, beam_size=BEAM_SIZE,
-                                                        word_timestamps=True, vad_filter=vad_filter)
+                                                        word_timestamps=True, vad_filter=vad_filter, **extra)
     words = []
     for seg in segments:   # 제너레이터라 여기서 실제로 인식이 돈다
         words += [{"word": w.word.strip(), "start": w.start, "end": w.end, "prob": w.probability}
