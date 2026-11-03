@@ -32,7 +32,13 @@ def main(argv):
             n = len(pat.findall(text))         # findall: 패턴에 맞는 모든 곳의 목록 → 개수
             if n:
                 bad += 1
-                print(f"[문제] {f.relative_to(root) if f.is_absolute() else f}: {name} {n}건")
+                shown = f
+                if f.is_absolute():
+                    try:
+                        shown = f.relative_to(root)
+                    except ValueError:        # 프로젝트 밖의 파일(예: 임시 폴더의 정리본)이면 그대로 보여 준다
+                        shown = f
+                print(f"[문제] {shown}: {name} {n}건")
     print("깨끗합니다." if not bad else f"총 {bad}개 항목에서 문제가 발견되었습니다. 출력을 지우거나 정리본을 만드세요.")
     return 1 if bad else 0          # 0이면 성공, 1이면 문제 있음(셸에서 이 값으로 성공 여부를 알 수 있다)
 
