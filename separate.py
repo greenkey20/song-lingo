@@ -21,6 +21,10 @@
   torch를 불러오지 않도록 이 모듈은 필요한 순간에만 import한다.
 """
 import csv
+import json
+import os
+import subprocess
+import sys
 import time
 from math import gcd
 from pathlib import Path
@@ -181,6 +185,46 @@ def separate_clip(clip_id, work_dir=WORK_DIR, separate=None, overwrite=False):
     seconds = time.time() - t0
     recorder.save_wav(voc_path, vocals.T, MODEL_SR, overwrite=True)
     return {"vocals": voc_path, "seconds": seconds, "sr": MODEL_SR}
+
+
+ROOT = Path(__file__).resolve().parent
+WORKER = ROOT / "scripts" / "separate_worker.py"
+PYTHON_ENV = "SONGLINGO_SEPARATE_PYTHON"     # 분리를 돌릴 파이썬 경로. 없으면 지금 파이썬(sys.executable)
+
+
+def separate_python(python=None):
+    """분리를 돌릴 파이썬 실행 파일 경로: 인자 > 환경변수 SONGLINGO_SEPARATE_PYTHON > 지금 파이썬."""
+    return python or os.environ.get(PYTHON_ENV) or sys.executable
+
+
+def separate_clip_subprocess(clip_id, work_dir=WORK_DIR, python=None, worker=WORKER, timeout=1200):
+    """separate_clip을 **별도 프로세스**로 실행해 보컬을 분리한다(웹 앱 용). 끝나면 보컬 wav 경로와 걸린 시간을 돌려준다: dict(vocals, seconds).
+
+    왜 별도 프로세스인가(검토 문서 16.10): ① 웹 앱 환경(Streamlit 전용)에 torch·demucs를 넣지 않고 노트북 환경(voice-ai)으로 돌릴 수 있다
+    ② faster-whisper와 torch를 한 프로세스에서 불러 죽는 문제(이슈노트 #15)를 피한다. 배포 서버처럼 환경이 하나뿐이면 환경변수를 안 정하면
+    지금 파이썬으로 돈다(그 환경에 demucs가 설치돼 있어야 한다).
+    실패(파이썬이 없음, 시간 초과, 종료 코드 0이 아님)는 RuntimeError(원인 요약)로 알린다. 가사는 메시지에 넣지 않는다.
+    [수업에 없음] `subprocess.run`: 다른 프로그램(여기서는 파이썬 스크립트)을 실행하고 끝날 때까지 기다린다. cwd로 프로젝트 루트를 지정한다."""
+    py = separate_python(python)
+    cmd = [py, str(worker), clip_id, str(work_dir)]
+    try:
+        r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=timeout)
+    except FileNotFoundError:
+        raise RuntimeError(f"분리용 파이썬을 찾을 수 없습니다: {py} (환경변수 {PYTHON_ENV} 확인)") from None
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"분리가 {timeout}초 안에 끝나지 않았습니다.") from None
+    if r.returncode != 0:
+        tail = (r.stderr.strip().splitlines() or ["(오류 내용 없음)"])[-1][:300]
+        raise RuntimeError(f"분리 실패(종료 코드 {r.returncode}): {tail}")
+    last = (r.stdout.strip().splitlines() or ["{}"])[-1]
+    try:
+        seconds = float(json.loads(last).get("seconds", 0.0))
+    except (ValueError, TypeError):
+        seconds = 0.0
+    _mix, voc = clip_paths(clip_id, work_dir)
+    if not voc.exists():
+        raise RuntimeError("분리 프로세스는 끝났지만 보컬 파일이 없습니다.")
+    return {"vocals": voc, "seconds": seconds}
 
 
 def process_clip(song_path, start, duration, clip_id, work_dir=WORK_DIR, separate=None, overwrite=False):

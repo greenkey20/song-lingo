@@ -159,5 +159,61 @@ class CutThenSeparate(unittest.TestCase):
         self.assertTrue(separate.is_cut_current(self.song, 1.5, 1.0, "c01", self.work))
 
 
+
+
+class SubprocessSeparate(unittest.TestCase):
+    """separate_clip_subprocess: 가짜 작업 스크립트로 프로세스 실행·오류 처리를 확인한다(torch·demucs 없이)."""
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.work = Path(self.tmp.name) / "work"
+        self.work.mkdir()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _script(self, body):
+        p = Path(self.tmp.name) / "fake_worker.py"
+        p.write_text(body, encoding="utf-8")
+        return p
+
+    def test_success_returns_vocals_path_and_seconds(self):
+        w = self._script("import sys, json, pathlib\n"
+                         "pathlib.Path(sys.argv[2], sys.argv[1] + '_vocals.wav').write_bytes(b'x')\n"
+                         "print('noise'); print(json.dumps({'seconds': 3.5}))\n")
+        out = separate.separate_clip_subprocess("clip", self.work, worker=w)
+        self.assertTrue(out["vocals"].exists())
+        self.assertEqual(out["seconds"], 3.5)
+
+    def test_failure_exit_code_becomes_runtime_error(self):
+        w = self._script("import sys\nprint('ModuleNotFoundError: demucs', file=sys.stderr)\nsys.exit(1)\n")
+        with self.assertRaises(RuntimeError) as cm:
+            separate.separate_clip_subprocess("clip", self.work, worker=w)
+        self.assertIn("ModuleNotFoundError", str(cm.exception))
+
+    def test_missing_python_is_explained(self):
+        with self.assertRaises(RuntimeError) as cm:
+            separate.separate_clip_subprocess("clip", self.work, python="/no/such/python")
+        self.assertIn(separate.PYTHON_ENV, str(cm.exception))
+
+    def test_no_output_file_is_error(self):
+        w = self._script("print('{}')\n")
+        with self.assertRaises(RuntimeError):
+            separate.separate_clip_subprocess("clip", self.work, worker=w)
+
+    def test_python_resolution_order(self):
+        import os
+        old = os.environ.pop(separate.PYTHON_ENV, None)
+        try:
+            self.assertEqual(separate.separate_python(), sys.executable)
+            os.environ[separate.PYTHON_ENV] = "/env/python"
+            self.assertEqual(separate.separate_python(), "/env/python")
+            self.assertEqual(separate.separate_python("/arg/python"), "/arg/python")
+        finally:
+            os.environ.pop(separate.PYTHON_ENV, None)
+            if old is not None:
+                os.environ[separate.PYTHON_ENV] = old
+
 if __name__ == "__main__":
     unittest.main()

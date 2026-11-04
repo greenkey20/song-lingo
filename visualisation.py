@@ -158,3 +158,25 @@ def plot_error_spans(sounds, blocks, title, sr=16000):
     fig.colorbar(im2, cax=axes[2, 2], label="Log-Mel (dB)")
     fig.suptitle(title)
     return fig
+
+
+def plot_song_selection(mins, maxs, seconds, start, duration):
+    """곡 전체 파형 윤곽(web_song.waveform_peaks의 mins·maxs) 위에 고른 구간 [start, start+duration]을 띠로 표시한 Figure를 돌려준다.
+
+    가로축은 초. 선택 구간은 라임색 띠(theme.LIME)와 양 끝 선으로 나타낸다(앱의 "내 노래" 화면, 검토 문서 16.10)."""
+    theme.apply_style()
+    n = len(mins)
+    t = np.linspace(0, seconds, n)
+    fig, ax = plt.subplots(figsize=(9, 2.2))
+    ax.fill_between(t, mins, maxs, color=theme.GREEN, alpha=0.45, linewidth=0)
+    end = min(seconds, start + duration)
+    ax.axvspan(start, end, color=theme.LIME, alpha=0.55, zorder=0)
+    ax.axvline(start, color=theme.BUTTON_GREEN, linewidth=1.5)
+    ax.axvline(end, color=theme.BUTTON_GREEN, linewidth=1.5)
+    ax.set_xlim(0, seconds)
+    ax.set_yticks([])
+    ax.set_xlabel("시간 (초)")
+    for side in ("left", "top", "right"):
+        ax.spines[side].set_visible(False)
+    fig.tight_layout()
+    return fig
