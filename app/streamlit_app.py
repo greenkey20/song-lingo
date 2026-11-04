@@ -1,53 +1,28 @@
-"""song-lingo 웹 앱의 시작점(빈 앱, 이슈 #36). 화면은 이후 단계(UI 골격)에서 채운다.
+"""song-lingo 웹 앱의 시작점: 사이드바 메뉴(페이지 3개)를 정하고 선택된 페이지를 실행한다. 검토 문서 16.10.
 
-지금은 두 가지만 한다: ① 앱 전용 환경에서 프로젝트 모듈이 import되는지 확인 ② 환경 정보(파이썬·패키지 버전) 표시.
-[수업에 없음] Streamlit: 파이썬 파일 하나가 위에서 아래로 실행되면서 화면이 만들어지는 웹 앱 도구(검토 문서 16.4).
+메뉴: 가사 입력 / 내 노래 / 기록. 각 페이지의 화면 코드는 app/views/*.py, 계산·파일 처리는 프로젝트 루트의 모듈(web_song.py 등)에 있다.
+[수업에 없음] Streamlit: 파이썬 파일이 위에서 아래로 실행되면서 화면이 만들어지는 웹 앱 도구(검토 문서 16.4).
+`st.navigation`·`st.Page`: 페이지 파일마다 주소와 메뉴 항목을 만들어 주는 Streamlit의 다중 페이지 기능.
 
 실행(프로젝트 루트에서): ~/venvs/song-lingo-app/bin/python -m streamlit run app/streamlit_app.py
 """
-import importlib.metadata as md
-import platform
 import sys
 from pathlib import Path
 
 import streamlit as st
+from dotenv import load_dotenv
 
 # 프로젝트 모듈(audio.py, stt.py …)은 프로젝트 루트에 있고 이 파일은 app/ 안에 있으므로 루트를 import 경로에 넣는다.
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "app"))      # app/ui_practice.py 같은 화면 부품을 import하려고
+load_dotenv(ROOT / ".env")                  # OPENAI_API_KEY, (선택) SONGLINGO_SEPARATE_PYTHON을 읽는다. 값은 화면에 보이지 않는다
 
-MODULES = ["audio", "stt", "tts", "quality", "scoring", "report", "practice", "align", "visualisation", "theme"]
-PACKAGES = ["streamlit", "numpy", "scipy", "matplotlib", "faster-whisper", "av", "openai", "python-dotenv"]
+st.set_page_config(page_title="song lingo", page_icon="🎵", layout="wide")
 
-
-def check_imports():
-    """프로젝트 모듈을 하나씩 import해 {이름: 오류 문자열 또는 None}을 돌려준다(하나가 실패해도 나머지는 계속)."""
-    import importlib
-    out = {}
-    for name in MODULES:
-        try:
-            importlib.import_module(name)
-            out[name] = None
-        except Exception as e:      # 환경 점검용이므로 어떤 오류든 화면에 보여 준다
-            out[name] = f"{type(e).__name__}: {e}"
-    return out
-
-
-st.set_page_config(page_title="song-lingo", page_icon="🎵")
-st.title("song-lingo")
-st.caption("외국어 노래 문장 연습 도우미 — 앱 환경 점검 화면(빈 앱)")
-
-st.subheader("프로젝트 모듈 import")
-results = check_imports()
-for name, err in results.items():
-    st.write(("✅ " if err is None else "❌ ") + f"`{name}`" + ("" if err is None else f" — {err}"))
-
-st.subheader("환경")
-st.write(f"Python {platform.python_version()} · `{Path(sys.executable).parent.parent.name}`")   # 환경 폴더 이름만(전체 경로에는 사용자 이름이 들어감)
-versions = {}
-for pkg in PACKAGES:
-    try:
-        versions[pkg] = md.version(pkg)
-    except md.PackageNotFoundError:
-        versions[pkg] = "설치 안 됨"
-st.table({"패키지": list(versions), "버전": list(versions.values())})
+pages = [
+    st.Page("views/lyrics.py", title="가사 입력", icon=":material/edit_note:", default=True),
+    st.Page("views/song.py", title="내 노래", icon=":material/library_music:"),
+    st.Page("views/history.py", title="기록", icon=":material/show_chart:"),
+]
+st.navigation(pages).run()
