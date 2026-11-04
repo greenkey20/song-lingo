@@ -155,3 +155,33 @@ def recognize_words(path, language="en", model_size=None, vad_filter=True, tempe
         words += [{"word": w.word.strip(), "start": w.start, "end": w.end, "prob": w.probability}
                   for w in seg.words]     # seg.words: 이 구간의 단어 목록. w.probability: 모델이 그 단어를 얼마나 확신하는지(0~1)
     return " ".join(w["word"] for w in words), words, time.time() - t0
+
+
+def recognize_segments(path, language="en", model_size=None, vad_filter=False, temperature=None, word_timestamps=False):
+    """소리 하나를 인식해 **구간(segment)별 시각과 글**을 돌려준다: (구간 목록, 걸린 시간). 이슈 #31(노래 구간 → 줄 나누기)용.
+
+    구간 목록: [{"start", "end", "text", "avg_logprob", "no_speech_prob", "compression_ratio", "words"}] (시간은 초).
+    - Whisper는 소리를 문장·구절 정도의 **구간 단위**로 나눠 글을 만들고 구간마다 시작·끝 시각을 준다. 노래에서는 가사의 줄과
+      대체로 비슷하게 나뉘지만 항상 그런 것은 아니다(검토 문서 16.7의 7, [미확인]).
+    - avg_logprob(평균 로그확률, 클수록 확신), no_speech_prob(말이 아닐 확률), compression_ratio(글의 압축률, 크면 같은 말을 되풀이한 것)는
+      **환각·반복 루프를 의심하는 지표**다(기본 폴백 기준: 로그확률 < -1.0, 압축률 > 2.4. 온도 폴백 설명은 recognize 참고).
+    - word_timestamps=True면 각 구간의 "words"에 [{"word", "start", "end", "prob"}]를 담는다(긴 구간을 더 쪼갤 때 쓴다). 아니면 None.
+    - vad_filter 기본은 **False**: 노래에서 VAD를 켜면 가사가 통째로 지워졌다(검토 문서 13.5). recognize_words와 기본이 다르다.
+    - path: recognize와 같다(경로, bytes·BytesIO). 노래 구간은 **경로를 그대로** 넣는다(우리 16 kHz 변환 배열은 결과가 달라질 수 있음, 16.4).
+    temperature: recognize와 같다(None이면 기본 동작).
+
+    [수업에 없음] 구간 객체의 start·end·avg_logprob·no_speech_prob·compression_ratio: faster-whisper가 구간마다 붙여 주는 값이다.
+    recognize는 글만 이어 붙여 돌려주고, 이 함수는 시각과 지표를 버리지 않고 돌려준다."""
+    t0 = time.time()
+    extra = {} if temperature is None else {"temperature": temperature}
+    segments, _info = load_model(model_size).transcribe(transcribe_input(path), language=language, beam_size=BEAM_SIZE,
+                                                        word_timestamps=word_timestamps, vad_filter=vad_filter, **extra)
+    out = []
+    for seg in segments:   # 제너레이터라 여기서 실제로 인식이 돈다
+        words = None
+        if word_timestamps:
+            words = [{"word": w.word.strip(), "start": w.start, "end": w.end, "prob": w.probability} for w in (seg.words or [])]
+        out.append({"start": float(seg.start), "end": float(seg.end), "text": seg.text.strip(),
+                    "avg_logprob": seg.avg_logprob, "no_speech_prob": seg.no_speech_prob,
+                    "compression_ratio": seg.compression_ratio, "words": words})
+    return out, time.time() - t0
