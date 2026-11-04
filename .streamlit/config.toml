@@ -1,0 +1,48 @@
+# song lingo 앱 테마. 색의 출처는 theme.py(BRAND_*)이고, 값이 어긋나지 않는지는 tests/test_theme_config.py가 확인한다.
+# 근거: 검토 문서 16.9(디자인 결정)·16.10(v2 시안 검토).
+# 실행 위치: 프로젝트 루트(`streamlit run app/streamlit_app.py`). Streamlit은 실행한 폴더의 .streamlit/config.toml을 읽는다.
+
+[theme]
+base = "light"
+primaryColor = "#08833c"              # 주 버튼. 흰 글자 대비 4.86:1 (#1a9f4c는 3.44:1이라 큰 글자·그림에만)
+backgroundColor = "#fcfcfb"
+secondaryBackgroundColor = "#eef6ef"  # 사이드바·입력 바탕(연한 민트)
+textColor = "#112d18"                 # 짙은 숲색. 바탕 대비 14.5:1
+linkColor = "#0f6d3c"
+borderColor = "#cfe0d3"
+showWidgetBorder = true
+baseRadius = "large"                  # 시안의 둥근 모서리
+buttonRadius = "full"                 # 알약 모양 버튼
+showSidebarBorder = true
+
+# 글꼴: Streamlit은 글꼴 설정 하나에 Google Fonts 주소를 하나만 받는다(둘 이상이면 세션이 만들어지지 않아 "Connection lost"가 난다).
+# 그래서 본문은 Noto Sans KR(한글·영어 모두 들어 있음), 제목은 Nunito(둥근 산세리프, 한글 제목은 시스템 글꼴로 넘어감)로 나눴다.
+# Google Fonts 주소는 웹 폰트라 인터넷이 있어야 한다(없으면 sans-serif).
+font = "Noto Sans KR:https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap"
+headingFont = "Nunito:https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800&display=swap"
+
+# 빨강은 화면에 나오지 않게 한다(틀린 단어·오류 = 보라). 파랑 정보 상자는 초록, 경고(노랑·주황)는 라임 계열로 바꾼다.
+redColor = "#6250d6"
+redBackgroundColor = "#ece9fb"
+redTextColor = "#4a3bb0"
+blueColor = "#0f6d3c"
+blueBackgroundColor = "#dff3e4"
+blueTextColor = "#0f6d3c"
+greenColor = "#1a9f4c"
+greenBackgroundColor = "#dff3e4"
+greenTextColor = "#0f6d3c"
+yellowColor = "#c6f24e"               # 보조색: 네온 라임. 바탕으로만 쓰고 글자색으로 쓰지 않는다(흰 바탕 대비가 낮음)
+yellowBackgroundColor = "#f1fbc8"
+yellowTextColor = "#3f5200"
+orangeColor = "#c6f24e"
+orangeBackgroundColor = "#f1fbc8"
+orangeTextColor = "#3f5200"
+
+# 그래프 색(st.line_chart 등). 초록 → 보라 → 짙은 초록. 라임은 바탕이 밝아 선·점으로는 안 보여서(대비 1.26:1, validate_palette 탈락) 넣지 않는다.
+chartCategoricalColors = ["#1a9f4c", "#6250d6", "#0f6d3c"]
+# 초록 한 가지 색의 밝기 사다리 10단계(theme.py의 _LIGHT_SURFACE_RAMP를 10단계로 보간).
+chartSequentialColors = ["#e5ffe9", "#b0efbc", "#86da99", "#61c37b", "#3fab60", "#1e9349", "#057937", "#006029", "#02471d", "#112d18"]
+
+[theme.sidebar]
+backgroundColor = "#eef6ef"
+secondaryBackgroundColor = "#dff3e4"
