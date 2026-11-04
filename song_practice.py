@@ -62,7 +62,7 @@ def prepare_lines(clip_id, work_dir=separate.WORK_DIR, out_dir=SONG_DIR, model_s
         "clip_id": clip_id, "start": _num(meta.get("start")), "duration": _num(meta.get("duration")),
         "stt": {"model": model_size, "vad_filter": False, "temperature": "default", "seconds": round(seconds, 1), "n_segments": len(segs)},
         "lines": [{"no": l["no"], "start": l["start"], "end": l["end"], "stt_text": l["text"], "text": l["text"], "edited": False,
-                   "status": "candidate", "source": l["source"], "suspect": l["suspect"], "too_long": l["too_long"],
+                   "status": "candidate", "source": l["source"], "low_confidence": l["low_confidence"], "too_long": l["too_long"],
                    "n_words": l["n_words"], "segment_ids": l["segment_ids"], "tts_path": None} for l in lines],
         "segments": segs,      # 줄을 다시 나누거나 보컬 조각을 자를 때 쓰려고 원본 구간(단어 시간 포함)도 남긴다
     }
@@ -125,9 +125,65 @@ def confirmed_lines(clip_id, out_dir=SONG_DIR):
 
 
 def status_summary(clip_id, out_dir=SONG_DIR):
-    """상태별 줄 수와 고친 줄 수를 {"candidate", "confirmed", "dropped", "edited", "suspect"}로 돌려준다(가사는 포함하지 않음)."""
+    """상태별 줄 수와 고친 줄 수를 {"candidate", "confirmed", "dropped", "edited", "low_confidence"}로 돌려준다(가사는 포함하지 않음)."""
     lines = load_lines(clip_id, out_dir)["lines"]
     out = {s: sum(l["status"] == s for l in lines) for s in STATUSES}
     out["edited"] = sum(l["edited"] for l in lines)
-    out["suspect"] = sum(l["suspect"] for l in lines)
+    out["low_confidence"] = sum(l["low_confidence"] for l in lines)
     return out
+
+
+def tts_plan(clip_id, out_dir=SONG_DIR, lookup=None):
+    """확정된 줄(confirmed) 중 **표준 발음 음성이 아직 없거나 가사가 바뀐** 줄을 찾아 [{"no", "text", "path", "cached"}]로 돌려준다.
+    cached=True면 같은 문장의 음성 파일이 이미 있어 API를 부르지 않는다(tts.py는 문장 내용의 해시로 캐시 파일 이름을 정함). 파일은 만들지 않는다.
+    lookup: tts.lookup_sentence처럼 (문장, []) → (행, 경로)를 돌려주는 함수(테스트에서 가짜로 바꿈)."""
+    import tts
+    lookup = lookup or tts.lookup_sentence
+    plan = []
+    for ln in load_lines(clip_id, out_dir)["lines"]:
+        if ln["status"] != "confirmed":
+            continue
+        _row, path = lookup(ln["text"], [])
+        if ln.get("tts_text") == ln["text"] and ln.get("tts_path") and Path(ln["tts_path"]).exists():
+            continue                                     # 이미 만들어 둔 줄
+        plan.append({"no": ln["no"], "text": ln["text"], "path": Path(path), "cached": Path(path).exists()})
+    return plan
+
+
+def make_tts(clip_id, out_dir=SONG_DIR, generate=False, lookup=None, synth=None):
+    """확정된 줄마다 **표준 발음 기준 음성**(OpenAI TTS, 기존 tts.py)을 만든다. 기본은 **계획만 보여 주는 안전 모드**다.
+
+    generate=False(기본): 파일도 API 호출도 없이 {"n_lines", "n_api_calls"(캐시에 없어 새로 부를 줄 수), "n_cached", "chars"(새로 보낼 글자 수), "done": False}만 돌려준다.
+    generate=True: 줄마다 음성을 만들고(캐시에 있으면 API를 부르지 않음) lines.json에 tts_path·tts_text를 저장한다. 호출은 **과금**된다.
+    가사가 외부 API로 나가는 것은 11-04 사용자 결정으로 허용했다(검토 문서 13.5). 만든 음성은 data/ 아래(git 제외)에만 있다.
+    synth: tts.tts_wav처럼 (문장, 경로)로 음성 파일을 만드는 함수(테스트에서 가짜로 바꿈)."""
+    import tts
+    synth = synth or tts.tts_wav
+    plan = tts_plan(clip_id, out_dir, lookup)
+    new = [p for p in plan if not p["cached"]]
+    summary = {"n_lines": len(plan), "n_api_calls": len(new), "n_cached": len(plan) - len(new),
+               "chars": sum(len(p["text"]) for p in new), "done": False}
+    if not generate or not plan:
+        return summary
+    doc = load_lines(clip_id, out_dir)
+    by_no = {l["no"]: l for l in doc["lines"]}
+    for p in plan:
+        wav = synth(p["text"], p["path"])
+        by_no[p["no"]]["tts_path"] = str(wav)
+        by_no[p["no"]]["tts_text"] = p["text"]
+    _write_json(lines_path(clip_id, out_dir), doc)
+    summary["done"] = True
+    return summary
+
+
+def save_review(clip_id, boundary_notes, out_dir=SONG_DIR):
+    """귀로 확인한 **줄 경계 메모**를 lines.json의 "review"에 저장한다(줄 번호 → 짧은 메모, 예: "너무 짧음", "앞 줄과 합쳐야 함").
+    가사는 바꾸지 않는다. 규칙(song_lines)을 고칠 때 근거로 쓴다. 없는 줄 번호는 ValueError. 빈 dict를 주면 메모를 지운다."""
+    doc = load_lines(clip_id, out_dir)
+    nos = {l["no"] for l in doc["lines"]}
+    bad = [n for n in boundary_notes if n not in nos]
+    if bad:
+        raise ValueError(f"줄 {bad}번이 없습니다(있는 줄: {sorted(nos)}).")
+    doc["review"] = {"boundary_notes": {str(k): str(v) for k, v in boundary_notes.items()}, "reviewed_at": time.strftime("%Y-%m-%d %H:%M:%S")}
+    _write_json(lines_path(clip_id, out_dir), doc)
+    return doc["review"]

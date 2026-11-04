@@ -34,7 +34,7 @@ class Basic(unittest.TestCase):
         self.assertEqual(len(lines), 1)
         self.assertEqual((lines[0]["no"], lines[0]["source"], lines[0]["n_words"]), (1, "segment", 6))
         self.assertEqual(lines[0]["start"], 1.0)
-        self.assertFalse(lines[0]["suspect"] or lines[0]["too_long"])
+        self.assertFalse(lines[0]["low_confidence"] or lines[0]["too_long"])
 
     def test_lines_are_numbered_in_order_and_do_not_overlap(self):
         lines = song_lines.split_into_lines([seg(0, 6), seg(5, 6, first=7), seg(10, 6, first=13)])
@@ -93,14 +93,21 @@ class Merge(unittest.TestCase):
         self.assertEqual(len(lines), 2)
 
 
-class Suspect(unittest.TestCase):
-    def test_flags_loops_low_confidence_and_non_speech(self):
-        for kw in ({"compression_ratio": 3.0}, {"avg_logprob": -1.4}, {"no_speech_prob": 0.9}):
+class LowConfidence(unittest.TestCase):
+    def test_flags_repetition_and_low_logprob(self):
+        for kw in ({"compression_ratio": 2.0}, {"avg_logprob": -0.7}):
             lines = song_lines.split_into_lines([seg(0, 6, **kw)])
-            self.assertTrue(lines[0]["suspect"], kw)
+            self.assertTrue(lines[0]["low_confidence"], kw)
 
-    def test_normal_segment_is_not_suspect(self):
-        self.assertFalse(song_lines.split_into_lines([seg(0, 6)])[0]["suspect"])
+    def test_no_speech_prob_is_not_used(self):
+        # 완벽히 인식된 구간에서도 높게 나와 좋은 클립과 나쁜 클립을 가르지 못해서 기준에서 뺐다(작업 기록 문서 C2)
+        self.assertFalse(song_lines.split_into_lines([seg(0, 6, no_speech_prob=0.9)])[0]["low_confidence"])
+
+    def test_normal_segment_is_not_flagged(self):
+        self.assertFalse(song_lines.split_into_lines([seg(0, 6)])[0]["low_confidence"])
+
+    def test_threshold_values_are_the_observed_ones(self):
+        self.assertEqual((song_lines.LOW_LOGPROB, song_lines.LOW_COMPRESSION), (-0.6, 1.8))
 
 
 if __name__ == "__main__":

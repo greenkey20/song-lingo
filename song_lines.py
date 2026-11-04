@@ -7,19 +7,21 @@
 
 규칙 (모두 인자로 바꿀 수 있고, 기본값은 실제 구간 통계를 본 뒤 조정한다. 작업 기록 문서 C2)
 1. 구간 하나 = 줄 하나로 시작한다.
-2. **길면 쪼갠다**: 길이 > max_sec 이거나 단어 수 > max_words 인 줄은 단어 사이 **가장 큰 쉼**(앞 단어 끝 ~ 다음 단어 시작)에서 둘로 나눈다
+2. **길면 쪼갠다**: 길이 > max_sec(기본 6초) 이거나 단어 수 > max_words(기본 14) 인 줄은 단어 사이 **가장 큰 쉼**(앞 단어 끝 ~ 다음 단어 시작)에서 둘로 나눈다
    (가운데 쪽 후보에서 고름). 쪼갠 조각이 아직 길면 되풀이한다. 단어 시간이 없는 구간은 쪼갤 수 없어 "too_long" 표시만 한다.
 3. **짧으면 합친다**: 길이 < min_sec 이거나 단어 수 < min_words 인 줄은 **쉼이 더 짧은 이웃**과 합친다(쉼이 max_merge_gap 이하이고
    합친 결과가 길이·단어 한도를 넘지 않을 때만). 이웃이 멀거나 합치면 너무 길어지면 그대로 둔다.
-4. **의심 표시**: 부모 구간의 압축률이 높거나(같은 말 반복), 평균 로그확률이 낮거나, 말이 아닐 확률이 높으면 "suspect"로 표시한다
-   (환각·반복 루프 의심, stt.recognize_segments 설명 참고). 줄을 버리지는 않고 사람이 확인하게 한다.
+4. **주의 표시(low_confidence)**: 부모 구간의 평균 로그확률이 낮거나(-0.6 미만) 압축률이 높으면(1.8 초과) 표시한다. 줄을 버리지는 않고
+   사람이 더 꼼꼼히 확인하게 하는 **힌트**다. 주의: faster-whisper는 이 지표를 **30초 창 하나에서 구해 그 안의 모든 구간에 똑같이 붙인다**
+   (20초 클립이면 줄마다 값이 같다) → 줄 단위가 아니라 **클립 단위 힌트**다. 기준값은 노래 14구간의 정답 대비 오류율과 비교해 정했고
+   (오류율 0.2 이상 6개 중 5개를 잡고 0.2 미만 8개는 안 잡음) **같은 14개로 정한 것이라 검증되지 않았다 [추정]**. 말이 아닐 확률(no_speech_prob)은
+   뺐다: 완벽히 인식된 구간에서도 0.7까지 나와 좋은 클립과 나쁜 클립을 가르지 못했다. 작업 기록 문서 C2.
 
 [수업에 없음] 이 모듈 전체. 입력은 stt.recognize_segments가 돌려주는 dict 목록이고, 계산만 하며 파일·모델은 건드리지 않는다.
 """
 
-SUSPECT_COMPRESSION = 2.4     # faster-whisper의 기본 폴백 기준과 같은 값(같은 말을 되풀이하면 압축률이 커짐)
-SUSPECT_LOGPROB = -1.0        # 평균 로그확률이 이보다 낮으면 인식에 자신이 없다는 뜻
-SUSPECT_NO_SPEECH = 0.6       # 말이 아닐 확률이 이보다 높으면 반주만 있는 구간일 수 있다
+LOW_COMPRESSION = 1.8         # 압축률이 이보다 크면 같은 말을 되풀이했을 수 있다(faster-whisper 폴백 기준 2.4보다 낮게 잡음: 14구간 관찰)
+LOW_LOGPROB = -0.6            # 평균 로그확률이 이보다 낮으면 인식에 자신이 없다는 뜻(폴백 기준 -1.0보다 높게 잡음: 14구간 관찰)
 
 
 def _n_words(line):
@@ -99,15 +101,15 @@ def _merge_short(lines, min_sec, min_words, max_sec, max_words, max_merge_gap):
     return lines
 
 
-def _suspect(parts):
-    return any((p.get("compression_ratio") or 0) > SUSPECT_COMPRESSION or (p.get("avg_logprob") if p.get("avg_logprob") is not None else 0) < SUSPECT_LOGPROB
-               or (p.get("no_speech_prob") or 0) > SUSPECT_NO_SPEECH for p in parts)
+def _low_confidence(parts):
+    return any((p.get("compression_ratio") or 0) > LOW_COMPRESSION or (p.get("avg_logprob") if p.get("avg_logprob") is not None else 0) < LOW_LOGPROB
+               for p in parts)
 
 
-def split_into_lines(segments, max_sec=7.0, max_words=16, min_sec=1.2, min_words=3, max_merge_gap=1.5):
+def split_into_lines(segments, max_sec=6.0, max_words=14, min_sec=1.2, min_words=3, max_merge_gap=1.5):
     """구간 목록(stt.recognize_segments의 결과) → 줄 목록. 시간순이고 겹치지 않는다.
 
-    돌려주는 줄: {"no"(1부터), "start", "end", "text", "n_words", "source"("segment"|"split"|"merged"), "segment_ids", "suspect", "too_long"}.
+    돌려주는 줄: {"no"(1부터), "start", "end", "text", "n_words", "source"("segment"|"split"|"merged"), "segment_ids", "low_confidence", "too_long"}.
     인자의 뜻은 파일 맨 위 규칙 참고(길이·시간은 초). 빈 글의 구간은 버린다."""
     segs = [s for s in segments if s.get("text", "").strip()]
     lines = []
@@ -117,6 +119,6 @@ def split_into_lines(segments, max_sec=7.0, max_words=16, min_sec=1.2, min_words
     out = []
     for no, ln in enumerate(lines, 1):
         out.append({"no": no, "start": round(ln["start"], 2), "end": round(ln["end"], 2), "text": ln["text"], "n_words": _n_words(ln),
-                    "source": ln["source"], "segment_ids": ln["segment_ids"], "suspect": _suspect(ln["parts"]),
+                    "source": ln["source"], "segment_ids": ln["segment_ids"], "low_confidence": _low_confidence(ln["parts"]),
                     "too_long": bool(ln.get("too_long")) or _too_long(ln, max_sec, max_words)})
     return out
