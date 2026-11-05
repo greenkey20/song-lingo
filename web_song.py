@@ -24,12 +24,14 @@ import numpy as np
 
 import audio
 import languages
+import quality
 import separate
 import song_practice
 import stt
 
 WORKSPACE_PREFIX = "songlingo_"
 CLIP_ID = "clip"                 # 웹 세션에서는 한 번에 구간 하나만 다룬다
+LONG_RECORDING_S = 60            # 주변 음악 녹음이 이보다 길면 "인식이 오래 걸릴 수 있다"고 안내만 한다(제한은 두지 않음, 이슈 #51)
 DURATIONS = (10, 15, 20, 30)     # 사용자가 고르는 구간 길이(초). 30초는 Whisper의 한 처리 창(감지·인식 단위)과 같다
 
 
@@ -75,6 +77,16 @@ def save_upload(ws, name, data):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
     return path
+
+
+def recording_info(data):
+    """주변 음악 녹음(bytes)의 상태를 점검한다(이슈 #51). quality.check_file을 그대로 쓰고 화면에 필요한 값만 추린다.
+
+    돌려주는 값: {"seconds": 길이, "ok": 경고 없음 여부, "warnings": 경고 글 목록, "long": LONG_RECORDING_S 초과 여부}.
+    경고는 안내일 뿐이며 인식·연습은 계속할 수 있다(quality.py의 방침과 같다). 읽을 수 없는 데이터면 audio.load_raw의 예외가 그대로 난다."""
+    q = quality.check_file(data)
+    seconds = float(q["metrics"]["seconds"])
+    return {"seconds": seconds, "ok": q["ok"], "warnings": q["warnings"], "long": seconds > LONG_RECORDING_S}
 
 
 # ---------- 파형·시각 ----------
