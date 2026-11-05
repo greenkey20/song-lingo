@@ -40,19 +40,35 @@ if "swept" not in st.session_state:                      # 세션당 한 번, �
     web_song.cleanup_old_workspaces()
     st.session_state["swept"] = True
 
-# ---------- 1. 업로드 ----------
-uploaded = st.file_uploader("음악 파일", type=["mp3", "wav", "m4a", "flac", "ogg", "wma"], key="uploader")
-if uploaded is None:
+# ---------- 1. 입력: 음원 파일 업로드 또는 주변 음악 녹음 (이슈 #51) ----------
+# 두 입력은 (이름, bytes) 하나로 합쳐 아래의 같은 흐름(작업 폴더 → 구간 → 언어 확인 → 인식 → 연습)에 넣는다.
+# 탭 대신 segmented_control을 쓴다: 한 번에 한 입력만 그려서 st.stop()으로 흐름을 끊어도 다른 쪽 코드가 같이 실행되지 않는다.
+MODE_FILE, MODE_REC = "음원 파일 업로드", "주변 음악 녹음"
+mode = st.segmented_control("입력 방식", [MODE_FILE, MODE_REC], default=MODE_FILE, key="song_mode") or MODE_FILE
+if st.session_state.get("song_mode_prev", mode) != mode and "ws" in st.session_state:
+    reset_song()                                          # 입력 방식을 바꾸면 이전 입력의 작업 폴더를 지운다
+st.session_state["song_mode_prev"] = mode
+is_rec = mode == MODE_REC
+
+if is_rec:
+    st.caption("스피커로 노래를 틀어 두고, 마이크가 그 소리를 듣도록 녹음하세요(10~30초 정도가 좋아요). "
+               "녹음이 길수록 인식에 오래 걸려요. 마이크는 이 주소(localhost)나 HTTPS에서만 동작해요.")
+    rec = st.audio_input("눌러서 녹음 시작, 다시 눌러서 끝내기", key="ambient_rec")
+    source = None if rec is None else ("recording.wav", rec.getvalue())
+else:
+    uploaded = st.file_uploader("음악 파일", type=["mp3", "wav", "m4a", "flac", "ogg", "wma"], key="uploader")
+    source = None if uploaded is None else (uploaded.name, uploaded.getvalue())
+if source is None:
     if "ws" in st.session_state:
-        reset_song()                                      # 업로드 칸의 X로 지우면 폴더도 지운다
+        reset_song()                                      # 업로드 칸의 X(또는 녹음 지우기)로 비우면 폴더도 지운다
     st.stop()
 
-data = uploaded.getvalue()
+src_name, data = source
 digest = hashlib.sha1(data).hexdigest()
 if st.session_state.get("song_digest") != digest:
     reset_song()
     ws = web_song.new_workspace()
-    st.session_state.update(ws=ws, song_digest=digest, song_path=web_song.save_upload(ws, uploaded.name, data), gen=0)
+    st.session_state.update(ws=ws, song_digest=digest, song_path=web_song.save_upload(ws, src_name, data), gen=0)
 ws = st.session_state["ws"]
 
 try:
@@ -67,44 +83,63 @@ if clear.button("곡 지우기", key="clear"):
     reset_song()
     st.rerun()
 
-# ---------- 2. 구간 고르기 ----------
-st.subheader("구간 고르기")
-duration = st.segmented_control("구간 길이", [f"{d}초" for d in web_song.DURATIONS], default="15초", key="dur")
-duration = int((duration or "15초").rstrip("초"))
-total = int(ov["seconds"])
-if total < duration + 1:
-    st.warning("곡이 선택한 길이보다 짧아요. 더 짧은 길이를 고르세요.")
-    st.stop()
-# 슬라이더의 범위를 **곡 전체(0~총 길이)** 로 둔다: 파형의 가로축도 곡 전체라서 슬라이더 위치와 파형 위치가 맞는다(이전에는 0~(총 길이−구간 길이)여서 어긋났다).
-# 시작 위치가 곡 끝에서 구간 길이만큼 남기지 못하면 곡 끝에 맞춘다.
-start_raw = st.slider("시작 위치(초)", 0, total, min(60, total - duration), key="start")
-start = min(start_raw, total - duration)
-if start != start_raw:
-    st.caption(f"곡 끝을 넘지 않도록 시작 위치를 {start}초로 맞췄어요.")
-fig = visualisation.plot_song_selection(ov["mins"], ov["maxs"], ov["seconds"], start, duration)
-st.pyplot(fig, clear_figure=True)
-st.markdown(f"**선택한 구간** `{web_song.clip_range_label(start, duration)}` · {duration}초")
-# 미리 듣기: 올린 원본 파일을 그대로 브라우저 플레이어에 주고 재생 구간만 [시작, 시작+길이]로 지정한다(자르지 않아도 되어 슬라이더를 옮길 때마다 바로 들어 볼 수 있다).
-# WMA 같은 형식은 브라우저가 재생하지 못해 '이 구간으로 정하기'로 자른 wav로만 들을 수 있다.
-_MIME = {".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4", ".ogg": "audio/ogg", ".flac": "audio/flac"}
-_suffix = "." + uploaded.name.rsplit(".", 1)[-1].lower() if "." in uploaded.name else ""
-if _suffix in _MIME:
-    st.audio(data, format=_MIME[_suffix], start_time=int(start), end_time=int(start + duration))
-    st.caption("초록 띠 구간을 바로 들어 볼 수 있어요. 시작 위치를 옮기면 재생 구간이 바뀌어요(재생 버튼을 다시 눌러 주세요).")
+if is_rec:
+    # 주변 음악 녹음은 **녹음 전체를 구간으로** 쓴다(슬라이더·파형 없음). 상태 점검은 안내일 뿐이라 경고가 있어도 계속할 수 있다.
+    try:
+        info = web_song.recording_info(data)
+    except Exception as e:
+        st.error(f"녹음을 읽을 수 없어요 ({type(e).__name__}). 다시 녹음해 보세요.")
+        st.stop()
+    for w in info["warnings"]:
+        st.warning(w)
+    if info["long"]:
+        st.info(f"{web_song.format_hms(info['seconds'])} 길이예요. 길수록 언어 확인·인식이 오래 걸려요(제한은 없어요).")
+    if st.button("이 녹음으로 정하기 (들어 보기)", type="primary", key="cut_rec_btn"):
+        with st.spinner("녹음을 준비하는 중…"):
+            web_song.cut(ws, st.session_state["song_path"], 0.0, ov["seconds"])
+        st.session_state["cut"] = (0.0, ov["seconds"])
+        st.session_state["gen"] += 1
+    start, duration = 0.0, ov["seconds"]
 else:
-    st.caption(f"{_suffix or '이'} 형식은 브라우저에서 미리 들을 수 없어요. '이 구간으로 정하기'를 누르면 잘라서 들어 볼 수 있어요.")
-with st.expander("파형은 무엇인가요? · 수업과의 연결"):
-    st.markdown(
-        "소리는 **1초에 수만 번 잰 소리 세기의 숫자 나열**이에요(수업 01·02: 샘플링 레이트, 진폭). 곡 한 곡은 수백만 개라 하나하나 그릴 수 없어서, "
-        "**600칸으로 나눠 칸마다 가장 작은 값과 가장 큰 값**만 이어 그린 윤곽이에요. 두꺼운 곳이 소리가 큰 구간이에요. "
-        "선택한 구간은 02 실습 7처럼 `axvspan`으로 띠를 칠했어요. 구간을 자르고 인식하기 전에 모델이 읽는 것은 이 숫자들이고, "
-        "음성 인식(Whisper)은 안에서 16 kHz 모노로 바꿔 읽어요(수업 07).")
+    # ---------- 2. 구간 고르기 ----------
+    st.subheader("구간 고르기")
+    duration = st.segmented_control("구간 길이", [f"{d}초" for d in web_song.DURATIONS], default="15초", key="dur")
+    duration = int((duration or "15초").rstrip("초"))
+    total = int(ov["seconds"])
+    if total < duration + 1:
+        st.warning("곡이 선택한 길이보다 짧아요. 더 짧은 길이를 고르세요.")
+        st.stop()
+    # 슬라이더의 범위를 **곡 전체(0~총 길이)** 로 둔다: 파형의 가로축도 곡 전체라서 슬라이더 위치와 파형 위치가 맞는다(이전에는 0~(총 길이−구간 길이)여서 어긋났다).
+    # 시작 위치가 곡 끝에서 구간 길이만큼 남기지 못하면 곡 끝에 맞춘다.
+    start_raw = st.slider("시작 위치(초)", 0, total, min(60, total - duration), key="start")
+    start = min(start_raw, total - duration)
+    if start != start_raw:
+        st.caption(f"곡 끝을 넘지 않도록 시작 위치를 {start}초로 맞췄어요.")
+    fig = visualisation.plot_song_selection(ov["mins"], ov["maxs"], ov["seconds"], start, duration)
+    st.pyplot(fig, clear_figure=True)
+    st.markdown(f"**선택한 구간** `{web_song.clip_range_label(start, duration)}` · {duration}초")
+    # 미리 듣기: 올린 원본 파일을 그대로 브라우저 플레이어에 주고 재생 구간만 [시작, 시작+길이]로 지정한다(자르지 않아도 되어 슬라이더를 옮길 때마다 바로 들어 볼 수 있다).
+    # WMA 같은 형식은 브라우저가 재생하지 못해 '이 구간으로 정하기'로 자른 wav로만 들을 수 있다.
+    _MIME = {".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4", ".ogg": "audio/ogg", ".flac": "audio/flac"}
+    _suffix = "." + src_name.rsplit(".", 1)[-1].lower() if "." in src_name else ""
+    if _suffix in _MIME:
+        st.audio(data, format=_MIME[_suffix], start_time=int(start), end_time=int(start + duration))
+        st.caption("초록 띠 구간을 바로 들어 볼 수 있어요. 시작 위치를 옮기면 재생 구간이 바뀌어요(재생 버튼을 다시 눌러 주세요).")
+    else:
+        st.caption(f"{_suffix or '이'} 형식은 브라우저에서 미리 들을 수 없어요. '이 구간으로 정하기'를 누르면 잘라서 들어 볼 수 있어요.")
+    with st.expander("파형은 무엇인가요? · 수업과의 연결"):
+        st.markdown(
+            "소리는 **1초에 수만 번 잰 소리 세기의 숫자 나열**이에요(수업 01·02: 샘플링 레이트, 진폭). 곡 한 곡은 수백만 개라 하나하나 그릴 수 없어서, "
+            "**600칸으로 나눠 칸마다 가장 작은 값과 가장 큰 값**만 이어 그린 윤곽이에요. 두꺼운 곳이 소리가 큰 구간이에요. "
+            "선택한 구간은 02 실습 7처럼 `axvspan`으로 띠를 칠했어요. 구간을 자르고 인식하기 전에 모델이 읽는 것은 이 숫자들이고, "
+            "음성 인식(Whisper)은 안에서 16 kHz 모노로 바꿔 읽어요(수업 07).")
 
-if st.button("이 구간으로 정하기 (자르고 들어 보기)", type="primary", key="cut_btn"):
-    with st.spinner("구간을 자르는 중…"):
-        web_song.cut(ws, st.session_state["song_path"], start, duration)
-    st.session_state["cut"] = (start, duration)
-    st.session_state["gen"] += 1
+    if st.button("이 구간으로 정하기 (자르고 들어 보기)", type="primary", key="cut_btn"):
+        with st.spinner("구간을 자르는 중…"):
+            web_song.cut(ws, st.session_state["song_path"], start, duration)
+        st.session_state["cut"] = (start, duration)
+        st.session_state["gen"] += 1
+
 
 cut = st.session_state.get("cut")
 if cut is None:

@@ -50,6 +50,41 @@ class Pure(unittest.TestCase):
         self.assertAlmostEqual(b, 5.1)
 
 
+class RecordingInfo(unittest.TestCase):
+    """주변 음악 녹음 점검(이슈 #51): 합성 신호로 길이·경고·긴 녹음 표시를 확인한다."""
+
+    @staticmethod
+    def _wav(seconds, amp=0.3, sr=16000):
+        t = np.arange(int(seconds * sr)) / sr
+        x = (amp * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
+        import io
+        buf = io.BytesIO()
+        import wave
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr)
+            w.writeframes((x * 32767).astype("<i2").tobytes())
+        return buf.getvalue()
+
+    def test_normal(self):
+        r = web_song.recording_info(self._wav(12))
+        self.assertAlmostEqual(r["seconds"], 12, delta=0.1)
+        self.assertTrue(r["ok"])
+        self.assertFalse(r["long"])
+
+    def test_long_is_only_flagged(self):
+        r = web_song.recording_info(self._wav(web_song.LONG_RECORDING_S + 5))
+        self.assertTrue(r["long"])             # 제한이 아니라 안내용 표시
+
+    def test_silent_warns(self):
+        r = web_song.recording_info(self._wav(5, amp=0.0))
+        self.assertFalse(r["ok"])
+        self.assertTrue(r["warnings"])
+
+    def test_unreadable_raises(self):
+        with self.assertRaises(Exception):
+            web_song.recording_info(b"not audio")
+
+
 class Workspace(unittest.TestCase):
     def test_cleanup_and_delete(self):
         with tempfile.TemporaryDirectory() as base:
