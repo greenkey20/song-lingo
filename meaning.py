@@ -70,8 +70,9 @@ def lookup(text, lang="", examples=None, cache_dir=None):
 NOTES_SYSTEM = (
     "You help a Korean speaker study one foreign-language sentence or one line of song lyrics. "
     "Reply with JSON only, with exactly these keys: "
-    '"words": up to 6 important words, each {"word": the word as written, "meaning": Korean meaning in this sentence}; '
-    '"expressions": idioms, phrasal verbs or set phrases found in the sentence, each {"expression": ..., "meaning": Korean}; use [] if none; '
+    '"words": up to 6 important words, each {"word": the word as written, "ipa": its pronunciation in IPA without slashes '
+    '(for Japanese, the IPA of the reading), "meaning": Korean meaning in this sentence}; '
+    '"expressions": idioms, phrasal verbs or set phrases found in the sentence, each {"expression": ..., "ipa": IPA of the whole phrase, "meaning": Korean}; use [] if none; '
     '"grammar": one short Korean note about the most useful grammar point, or "" if none; '
     '"examples": exactly 2 NEW simple sentences in the same language that reuse the key words or expressions, each {"sentence": ..., "meaning": Korean translation}. '
     "Do not quote the original sentence in the examples. Keep every Korean explanation short."
@@ -83,14 +84,15 @@ def _clean_notes(data):
     if not isinstance(data, dict):
         raise ValueError("설명 형식이 올바르지 않습니다.")
 
-    def pairs(key, a, b):
+    def pairs(key, a, *others):
         out = []
         for it in data.get(key) or []:
             if isinstance(it, dict) and str(it.get(a, "")).strip():
-                out.append({a: str(it[a]).strip(), b: str(it.get(b, "")).strip()})
+                out.append({a: str(it[a]).strip(), **{o: str(it.get(o, "")).strip() for o in others}})
         return out
 
-    notes = {"words": pairs("words", "word", "meaning"), "expressions": pairs("expressions", "expression", "meaning"),
+    # ipa는 단어·표현에만 있다(없으면 빈 글: 예전 형식이나 모델이 빼먹은 경우)
+    notes = {"words": pairs("words", "word", "ipa", "meaning"), "expressions": pairs("expressions", "expression", "ipa", "meaning"),
              "grammar": str(data.get("grammar") or "").strip(), "examples": pairs("examples", "sentence", "meaning")[:2]}
     if not (notes["words"] or notes["expressions"] or notes["grammar"] or notes["examples"]):
         raise ValueError("설명 결과가 비어 있습니다.")
@@ -99,7 +101,7 @@ def _clean_notes(data):
 
 def cached_notes(text, lang="", cache_dir=None):
     """캐시에 있는 표현 설명(없거나 깨졌으면 None). 호출하지 않는다."""
-    path = Path(cache_dir or CACHE_DIR) / f"{_key(text, lang)}.notes.json"
+    path = Path(cache_dir or CACHE_DIR) / f"{_key(text, lang)}.notes2.json"      # 발음 기호(ipa) 칸을 넣으면서 이름을 바꿈: 옛 설명은 무시하고 새로 받는다
     if not path.exists():
         return None
     try:
@@ -130,8 +132,14 @@ def explain_sentence(text, lang="", client=None, cache_dir=None):
     notes = _clean_notes(json.loads(raw))        # 깨진 JSON이면 JSONDecodeError(ValueError)
     folder = Path(cache_dir or CACHE_DIR)
     folder.mkdir(parents=True, exist_ok=True)
-    (folder / f"{_key(text, lang)}.notes.json").write_text(json.dumps(notes, ensure_ascii=False), encoding="utf-8")
+    (folder / f"{_key(text, lang)}.notes2.json").write_text(json.dumps(notes, ensure_ascii=False), encoding="utf-8")
     return notes
+
+
+def _ipa(item):
+    """발음 기호가 있으면 '/…/ ' 모양(뒤에 공백 포함)으로, 없으면 빈 글. 모델이 슬래시를 붙여 와도 한 겹만 남긴다."""
+    ipa = item.get("ipa", "").strip().strip("/[] ").strip()
+    return f"/{ipa}/ " if ipa else ""
 
 
 def notes_markdown(notes):
@@ -139,10 +147,10 @@ def notes_markdown(notes):
     lines = []
     if notes["words"]:
         lines.append("**단어**")
-        lines += [f"- **{w['word']}** — {w['meaning']}" for w in notes["words"]]
+        lines += [f"- **{w['word']}** {_ipa(w)}— {w['meaning']}" for w in notes["words"]]
     if notes["expressions"]:
         lines.append("\n**표현·숙어**")
-        lines += [f"- **{e['expression']}** — {e['meaning']}" for e in notes["expressions"]]
+        lines += [f"- **{e['expression']}** {_ipa(e)}— {e['meaning']}" for e in notes["expressions"]]
     if notes["grammar"]:
         lines.append(f"\n**문법 포인트** · {notes['grammar']}")
     if notes["examples"]:

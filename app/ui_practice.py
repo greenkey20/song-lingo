@@ -194,6 +194,16 @@ def meaning_box(text, lang, key):
         st.rerun()
 
 
+def meaning_group(text, lang, key):
+    """한글 뜻과 (일본어면) 히라가나 읽기·로마자를 한 테두리 상자로 묶어 보여 준다."""
+    with st.container(border=True):
+        meaning_box(text, lang, key)
+        if lang == "ja":
+            rc = wp.reading_caption(text)                      # 한자·가타카나를 히라가나 읽기와 로마자로
+            if rc:
+                st.caption(rc)
+
+
 def notes_box(text, lang, key):
     """문장의 **표현 설명**(단어·표현/숙어·문법 포인트·예문 2개)을 보여 준다(이슈 #58). 한글 뜻과 같은 방식: 캐시가 있으면 바로 보여 주고,
     없으면 **버튼을 눌러야** OpenAI를 부른다(한글 뜻보다 응답이 길어 과금이 조금 더 크다). 모델 글은 HTML 없이 마크다운으로만 그리고 "AI 설명 · 참고용"으로 표시한다."""

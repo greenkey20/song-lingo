@@ -54,7 +54,7 @@ class ExampleMeanings(unittest.TestCase):
             self.assertTrue(m.get(t), t)                                        # 영어는 sentences.csv의 meaning_ko
 
 
-NOTES = {"words": [{"word": "bright", "meaning": "밝은"}], "expressions": [{"expression": "light up", "meaning": "환하게 하다"}],
+NOTES = {"words": [{"word": "bright", "ipa": "/braɪt/", "meaning": "밝은"}], "expressions": [{"expression": "light up", "meaning": "환하게 하다"}],
          "grammar": "현재진행형은 be + -ing 입니다.", "examples": [{"sentence": "The room is bright.", "meaning": "방이 밝아요."},
                                                                     {"sentence": "Light up the room.", "meaning": "방을 밝혀 줘."},
                                                                     {"sentence": "세 번째", "meaning": "버려짐"}]}
@@ -85,11 +85,12 @@ class Notes(unittest.TestCase):
 
     def test_broken_cache_is_ignored_and_markdown_has_sections(self):
         with tempfile.TemporaryDirectory() as d:
-            (__import__("pathlib").Path(d) / f"{meaning._key('x', 'en')}.notes.json").write_text("{broken", encoding="utf-8")
+            (__import__("pathlib").Path(d) / f"{meaning._key('x', 'en')}.notes2.json").write_text("{broken", encoding="utf-8")
             self.assertIsNone(meaning.cached_notes("x", "en", d))
         md = meaning.notes_markdown(meaning._clean_notes(NOTES))
         for head in ("**단어**", "**표현·숙어**", "**문법 포인트**", "**예문**"):
             self.assertIn(head, md)
+        self.assertIn("**bright** /braɪt/ — 밝은", md)                          # 발음 기호는 슬래시 한 겹
         self.assertNotIn("<", md)                                            # HTML을 만들지 않는다
 
 

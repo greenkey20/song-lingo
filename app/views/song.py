@@ -16,7 +16,7 @@ import visualisation
 import web_practice as wp
 import web_song
 import explain
-from ui_practice import meaning_box, notes_box, practice_panel
+from ui_practice import meaning_group, notes_box, practice_panel
 
 st.title("내 노래")
 st.caption("올린 곡은 이 세션의 임시 폴더에만 저장돼요(저장소에는 올라가지 않아요). 1시간이 지나거나 '곡 지우기'를 누르면 지워져요.")
@@ -242,13 +242,11 @@ c3.caption({"confirmed": "고쳐서 저장함", "dropped": "연습에서 뺌", "
            + (" · 원문과 달라요" if ln["edited"] else ""))
 
 # ---------- 5. 듣기 ----------
+line_lang = ln.get("lang") or (doc.get("languages") or ["en"])[0]       # 이슈 #50 이전에 만든 줄 데이터는 언어 칸이 없어 영어
+notes_box(ln["text"], line_lang, f"song_{gen}_{ln['no']}")               # 표현 설명(버튼): '듣기' 제목 바로 위
 st.subheader("듣기")
 explain.show("song_listen")
-line_lang = ln.get("lang") or (doc.get("languages") or ["en"])[0]       # 이슈 #50 이전에 만든 줄 데이터는 언어 칸이 없어 영어
-meaning_box(ln["text"], line_lang, f"song_{gen}_{ln['no']}")             # 들을 문장의 한글 뜻
-notes_box(ln["text"], line_lang, f"song_{gen}_{ln['no']}")               # 표현 설명(버튼)
-if line_lang == "ja" and wp.reading_caption(ln["text"]):
-    st.caption(wp.reading_caption(ln["text"]))                          # 한자·가타카나의 히라가나 읽기와 로마자
+meaning_group(ln["text"], line_lang, f"song_{gen}_{ln['no']}")           # 들을 문장의 한글 뜻 + 일본어면 읽기·로마자
 sources = ["원본 음악", "보컬만", "표준 발음"]
 src = st.segmented_control("들을 소리", sources, default="원본 음악", key="listen_src")
 a, b = web_song.line_range(ln, clip_seconds)
