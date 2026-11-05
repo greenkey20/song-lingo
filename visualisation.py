@@ -7,10 +7,15 @@
 수업과의 관계
 - [수업과 같음] STFT 설정(창 512, 이동 128, hann), 삼각형 Mel 필터 40개, 파워를 dB로 바꾸는 순서.
   출처: 017_sound/03_FFT_STFT_그림으로_소리읽기.ipynb(`compute_stft`), lesson04 실습 2-F(Mel 필터), 3-B(logmel).
+- [수업과 같음] **전체 FFT**: `np.fft.rfft`(실수 신호의 FFT) → `np.abs(...)`(복소수의 크기) → `np.fft.rfftfreq(길이, d=1/sr)`(칸마다 Hz)로 주파수별 크기를 구한다.
+  출처: 03 실습1~3, lesson04 실습 1-B(한 구간에 `np.hanning` 창을 곱한 뒤 rfft). `fft_spectrum`이 이 순서를 그대로 따른다.
+- [수업과 같음] 그림 그리기: `plt.subplots`, `pcolormesh(shading="auto")`로 시간×주파수(또는 Mel 칸)를 색으로, `colorbar`로 색의 뜻을 표시, `axvspan`으로 구간 표시(02 실습7).
 - [수업에 없음] `stft_power` 함수로 한 번 감싼 것(logmel과 quality.py가 함께 쓰려는 용도)과 to_db 함수화.
+- [수업에 없음] 두 소리를 **같은 색 범위(가장 센 값 기준 80 dB 아래까지)** 로 맞춰 밝기를 비교하는 것. 수업은 그림마다 자동 범위나 `Greens`를 썼다.
+  색 지도는 수업의 `Greens`·`magma` 대신 프로젝트 팔레트(theme.CMAP_SPEC, 검토 문서 14.4)를 쓴다.
 
 이 모듈에는 '그릴 숫자'를 계산하는 함수(stft_power, logmel …)와 그림을 그리는 함수(plot_sound_pair,
-plot_error_spans)가 함께 있다. 그림 함수는 파형과 단어별 시간을 인자로 받아 figure를 돌려줄 뿐,
+plot_error_spans, plot_sound_panels)가 함께 있다. 그림 함수는 파형과 단어별 시간을 인자로 받아 figure를 돌려줄 뿐,
 녹음 찾기·인식·채점은 하지 않는다(그건 노트북의 practice/show_error_spans가 stt·align을 불러 준비한다).
 [수업에 없음] 그림 함수의 구성(3x2 격자, 색 막대 칸, 틀린 구간 표시)은 직접 만든 것이고, 그리는 도구인
 matplotlib 사용법(subplots, pcolormesh, axvspan)은 수업과 같다.
@@ -105,6 +110,80 @@ def plot_sound_pair(sounds, title, sr=16000):
     fig.colorbar(im2, ax=axes[2, :], label="Log-Mel (dB)")
     fig.suptitle(title)
     return fig
+
+
+def fft_spectrum(sound, sr, use_window=True):
+    """소리 전체의 **FFT 크기 스펙트럼**을 돌려준다: (주파수 hz 배열, 크기 배열). 시간 정보는 없고 "어떤 주파수가 얼마나 들어 있나"만 보여 준다.
+
+    수업과 같은 순서(03 실습1~3, lesson04 실습 1-B):
+      1. `np.hanning(길이)`를 곱한다(use_window=True, lesson04). 창 함수는 소리의 양 끝을 0으로 부드럽게 줄여, 끝이 갑자기 잘린 것처럼 보여서 생기는
+         가짜 주파수 성분(누설)을 줄인다. 03은 창을 곱하지 않았다(use_window=False로 같은 결과).
+      2. `np.fft.rfft(x)`: 실수 소리를 주파수 성분의 **복소수** 배열로 바꾼다. 실수 신호는 음의 주파수가 중복이라 절반(길이//2+1칸)만 돌려준다.
+      3. `np.abs(...) / 길이`: 복소수의 **크기**(위상은 버림)를 샘플 수로 나눠, 길이가 다른 소리끼리도 크기를 비교할 수 있게 보정한다(03 셀 9).
+      4. `np.fft.rfftfreq(길이, d=1/sr)`: 각 칸이 몇 Hz인지. 간격은 sr/길이 Hz이고 마지막 칸은 sr/2(나이퀴스트 주파수)다.
+    [수업에 없음] 말소리 전체를 한 번에 FFT하는 것은 시간에 따른 변화를 모두 평균내므로, "어느 순간에 어떤 소리가 났나"는 STFT가 보여 준다."""
+    x = np.asarray(sound, dtype=np.float64)
+    if x.ndim != 1 or x.size < 2:
+        raise ValueError("모노 파형(샘플 2개 이상)이 필요합니다.")
+    if use_window:
+        x = x * np.hanning(len(x))                          # lesson04 실습 1-B
+    hz = np.fft.rfftfreq(len(x), d=1 / sr)                  # 칸마다 주파수(Hz)
+    amplitude = np.abs(np.fft.rfft(x)) / len(x)             # 칸마다 크기(복소수의 절댓값 ÷ 샘플 수)
+    return hz, amplitude
+
+
+def plot_sound_panels(sounds, sr=16000):
+    """소리 두 개(표준 발음과 내 녹음)를 **칸마다 따로** 그려 {"wave", "fft", "stft", "logmel"} Figure 4개를 돌려준다(웹 화면의 2×2 칸용).
+
+    sounds: [(이름, 16 kHz 모노 파형)] 2개. 비교를 위해 최대 진폭을 맞춘 파형을 넣는다(web_practice.normalized_sounds).
+    칸마다 수업의 어느 부분과 이어지는지 (출처는 017_sound):
+    - wave  [수업과 같음, 01·02]: 시간(초)에 따른 진폭. 두 소리의 시간축(긴 쪽 기준)과 세로 범위(-1~1)를 같게 해 소리 크기와 타이밍을 비교한다.
+    - fft   [수업과 같음, 03 실습1~3·lesson04 1-B]: **소리 전체**의 주파수별 크기(`fft_spectrum`). 두 소리를 한 그림에 겹쳐(초록·보라, theme.SERIES 규칙) 낮은 주파수
+            (목소리 높이와 배음)가 어디에 몰려 있는지 본다. 시간 정보는 없다. 가장 큰 봉우리(50 Hz 이상, 03 실습3의 argmax)를 이름 옆에 적는다.
+    - stft  [수업과 같음, 03·lesson04 1교시]: 창 512·이동 128·hann으로 한 프레임씩 FFT한 파워(dB). "어떤 주파수가 **언제** 나타났나". 밝을수록 센 소리.
+    - logmel [수업과 같음, lesson04 2·3교시]: STFT 파워를 삼각형 Mel 필터 40개로 묶고 로그(dB). 사람 귀가 낮은 소리 차이에 더 민감한 점을 반영한 눈금이라 음성 인식 모델 입력으로 쓴다.
+    [수업에 없음] stft·logmel은 두 소리를 **같은 색 범위**(가장 센 값 기준 80 dB 아래까지)로 그려 밝기를 비교할 수 있게 한다. 짧은 쪽의 뒤는 '데이터 없음' 색.
+    그림은 소리의 모양을 보는 **참고용**이고 점수가 아니다(목소리·마이크·방이 달라도 모양이 달라진다)."""
+    for name, x in sounds:
+        if len(x) < FRAME_LENGTH:      # 수업 compute_stft와 같은 검사(1 ≤ 이동 ≤ 창 ≤ 샘플 수): 창 하나(32 ms)를 못 채우면 STFT를 만들 수 없다
+            raise ValueError(f"'{name}'이 너무 짧아요({len(x) / sr * 1000:.0f} ms). 32 ms 이상이어야 그릴 수 있어요.")
+    theme.apply_style()
+    feats = [(name, x, logmel(x, sr)) for name, x in sounds]
+    t_max = max(len(x) for _, x, _ in feats) / sr
+    n = len(feats)
+    figs = {}
+
+    fig, axes = plt.subplots(1, n, figsize=(6.5, 2.4), sharey=True, squeeze=False)
+    for ax, (name, x, _) in zip(axes[0], feats):
+        ax.plot(np.arange(len(x)) / sr, x, lw=0.6, color=theme.WAVEFORM)
+        ax.set(title=name, xlabel="시간 (초)", xlim=(0, t_max), ylim=(-1, 1))
+    axes[0, 0].set_ylabel("진폭")
+    fig.tight_layout()
+    figs["wave"] = fig
+
+    fig, ax = plt.subplots(figsize=(6.5, 2.4))
+    for (name, x, _), color in zip(feats, (theme.SERIES[0], theme.PURPLE)):
+        hz, amp = fft_spectrum(x, sr)
+        keep = hz >= 50                                          # 50 Hz 미만(직류·진동 잡음)은 봉우리 후보에서 뺀다
+        peak = hz[keep][int(np.argmax(amp[keep]))]               # 03 실습3: argmax로 가장 큰 칸 → 그 칸의 Hz
+        ax.plot(hz / 1000, amp, lw=1.0, color=color, label=f"{name} (가장 큰 봉우리 {peak:.0f} Hz)")
+    ax.set(xlabel="주파수 (kHz)", ylabel="FFT 크기 / 샘플 수", xlim=(0, 4))     # 말소리의 대부분은 4 kHz 아래
+    ax.legend(fontsize=8, frameon=False)
+    fig.tight_layout()
+    figs["fft"] = fig
+
+    for key, label, value in (("stft", "STFT 파워 (dB)", lambda f: to_db(f["power"])), ("logmel", "Log-Mel (dB)", lambda f: f["log_mel"])):
+        vmax = max(value(f).max() for _, _, f in feats)
+        fig, axes = plt.subplots(1, n, figsize=(6.5, 2.6), sharey=True, squeeze=False)
+        for ax, (name, x, f) in zip(axes[0], feats):
+            y = f["hz"] / 1000 if key == "stft" else np.arange(N_MELS)
+            im = ax.pcolormesh(f["times"], y, value(f), shading="auto", cmap=theme.CMAP_SPEC, vmin=vmax - 80, vmax=vmax)
+            ax.set(title=name, xlabel="시간 (초)", xlim=(0, t_max))
+            ax.set_facecolor(theme.NO_DATA)
+        axes[0, 0].set_ylabel("주파수 (kHz)" if key == "stft" else "Mel 칸 번호")
+        fig.colorbar(im, ax=axes[0, :], label=label)
+        figs[key] = fig
+    return figs
 
 
 def plot_error_spans(sounds, blocks, title, sr=16000):

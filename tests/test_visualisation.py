@@ -87,5 +87,44 @@ class Plots(unittest.TestCase):
         vis.plot_error_spans([("TTS", sine(440), toks, "tts_span"), ("내 녹음", sine(440), toks, "hyp_span")], blocks, "t")
 
 
+class SoundPanels(unittest.TestCase):
+    def test_fft_spectrum_peak_and_axis(self):
+        # 03 실습: 440 Hz 사인파 → rfft의 가장 큰 칸이 440 Hz, 칸 간격은 sr/길이, 마지막 칸은 sr/2
+        x = sine(440, 1.0)
+        hz, amp = vis.fft_spectrum(x, SR)
+        self.assertEqual(len(hz), len(x) // 2 + 1)
+        self.assertAlmostEqual(hz[int(np.argmax(amp))], 440, delta=2)
+        self.assertAlmostEqual(hz[1] - hz[0], SR / len(x))
+        self.assertAlmostEqual(hz[-1], SR / 2)
+
+    def test_fft_spectrum_normalised_by_length(self):
+        # 길이가 달라도 같은 소리면 크기가 비슷해야 한다(÷샘플 수 보정, 03 셀 9)
+        a = vis.fft_spectrum(sine(440, 1.0), SR, use_window=False)[1].max()
+        b = vis.fft_spectrum(sine(440, 2.0), SR, use_window=False)[1].max()
+        self.assertAlmostEqual(a, b, delta=0.01)
+        self.assertAlmostEqual(a, 0.25, delta=0.01)             # 진폭 0.5인 사인파 → 크기 = 진폭/2
+
+    def test_fft_spectrum_rejects_bad_input(self):
+        with self.assertRaises(ValueError):
+            vis.fft_spectrum(np.zeros(1), SR)
+
+    def test_panels_reject_too_short_sound(self):
+        with self.assertRaises(ValueError):
+            vis.plot_sound_panels([("표준 발음", sine(440, 1.0)), ("내 녹음", np.zeros(100, dtype=np.float32))], SR)
+
+    def test_panels_make_four_figures_with_shared_axes(self):
+        figs = vis.plot_sound_panels([("표준 발음", sine(440, 1.0)), ("내 녹음", sine(440, 0.6))], SR)
+        try:
+            self.assertEqual(set(figs), {"wave", "fft", "stft", "logmel"})
+            wave_axes = [a for a in figs["wave"].axes]
+            self.assertEqual(len(wave_axes), 2)                            # 이름별로 나란히
+            self.assertEqual(wave_axes[0].get_xlim(), wave_axes[1].get_xlim())   # 같은 시간축(긴 쪽 기준)
+            self.assertEqual(len(figs["fft"].axes[0].lines), 2)            # 한 그림에 두 소리를 겹쳐 그림
+            self.assertEqual(len(figs["stft"].axes), 3)                    # 두 칸 + 색 막대
+        finally:
+            for f in figs.values():
+                plt.close(f)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -83,5 +83,50 @@ class Rendering(unittest.TestCase):
         self.assertEqual(wp.pct(1.5), "150.0%")
 
 
+
+class Sounds(unittest.TestCase):
+    def test_normalized_sounds_from_path_and_bytes(self):
+        import numpy as np
+        import recorder
+        with tempfile.TemporaryDirectory() as d:
+            t = np.arange(16000) / 16000
+            quiet = (0.05 * np.sin(2 * np.pi * 440 * t)).astype("float32")
+            loud = (0.8 * np.sin(2 * np.pi * 660 * t)).astype("float32")
+            a, b = Path(d) / "a.wav", Path(d) / "b.wav"
+            recorder.save_wav(a, np.stack([quiet, quiet], 1), 16000)
+            recorder.save_wav(b, np.stack([loud, loud], 1), 16000)
+            out = wp.normalized_sounds(a, b.read_bytes())                  # 둘째는 bytes(웹 녹음)
+            self.assertEqual([n for n, _ in out], ["표준 발음", "내 녹음"])
+            for _n, x in out:
+                self.assertAlmostEqual(float(abs(x).max()), 0.9, places=2)   # 소리 크기 차이는 지워져 둘 다 0.9
+            silent = Path(d) / "s.wav"
+            recorder.save_wav(silent, np.zeros((16000, 2), dtype="float32"), 16000)
+            self.assertEqual(float(abs(wp.normalized_sounds(silent, silent)[0][1]).max()), 0.0)   # 무음은 0으로 나눠 깨지지 않는다
+
+
+
+class ErrorSpans(unittest.TestCase):
+    PREP = {"error": None, "text": "we will sing", "lang": "en", "tts_path": "x.wav"}
+
+    def test_requires_tts_and_result(self):
+        with self.assertRaises(ValueError):
+            wp.error_spans({**self.PREP, "tts_path": None}, {"recording": b"x"})
+        with self.assertRaises(ValueError):
+            wp.error_spans(self.PREP, {"error": "녹음 없음"})
+
+    def test_no_blocks_means_nothing_to_mark(self):
+        fake = lambda prep, res: {"loc": {"blocks": [], "result": None}, "sounds": []}
+        out = wp.error_spans(self.PREP, {"recording": b"x"}, locate=fake)
+        self.assertEqual(out["blocks"], 0)
+
+    def test_blocks_become_text_and_sounds(self):
+        loc = {"result": {"rate": 0.5}, "blocks": [{"ref_words": ["will"], "hyp_words": ["are"], "tts_span": (0.3, 0.6), "hyp_span": (0.4, 0.8)}]}
+        fake = lambda prep, res: {"loc": loc, "sounds": ["s"]}
+        out = wp.error_spans(self.PREP, {"recording": b"x"}, locate=fake)
+        self.assertEqual(out["blocks"], 1)
+        self.assertIn("0.30~0.60", out["text"])           # TTS 쪽 구간이 글에 들어간다
+        self.assertEqual(out["sounds"], ["s"])
+
+
 if __name__ == "__main__":
     unittest.main()

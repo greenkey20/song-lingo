@@ -10,6 +10,11 @@
 """
 import html
 
+import numpy as np
+
+import audio
+import practice
+import report
 import scoring
 import theme
 import tts
@@ -56,6 +61,40 @@ def make_tts(text, sentences=None):
     """표준 발음 음성을 준비한다. 캐시에 있으면 API를 부르지 않는다(없으면 OpenAI TTS 호출 = 과금). 파일 경로를 돌려준다."""
     path, _cached = tts_target(text, sentences)
     return tts.tts_wav(str(text).strip(), path)
+
+
+def normalized_sounds(tts_path, recording, names=("표준 발음", "내 녹음"), sr=audio.TARGET_SR, peak=0.9):
+    """소리 모양 비교용으로 표준 발음(경로)과 내 녹음(경로 또는 bytes)을 읽어 [(이름, 16 kHz 모노 파형)]으로 돌려준다.
+
+    [수업과 같음] 읽기·모노 변환·16 kHz 리샘플링은 audio.load_audio가 한다(02: PCM16 읽기 ÷32768, 스테레오는 채널 평균, `resample_poly`).
+    음성 인식과 그림에 16 kHz 모노를 쓰는 이유는 02 4교시 "왜 16,000Hz 모노로 준비하나요?"와 같다(말소리 정보는 8 kHz 아래에 대부분 있다: 나이퀴스트).
+    [수업에 없음] 최대 진폭을 peak로 맞추는 정규화(수업 02의 최대 진폭·RMS 관찰을 두 소리의 비교에 응용).
+
+    두 소리의 **모양**만 비교하려고 최대 진폭을 peak(0.9)로 맞춘다(마이크 음량 차이는 그림에서 지운다. 완전한 무음이면 그대로 둠).
+    둘 중 하나라도 읽을 수 없으면 그 예외를 그대로 올린다(호출한 화면이 안내 문구로 바꾼다)."""
+    out = []
+    for name, src in zip(names, (tts_path, recording)):
+        x, _sr, _ch = audio.load_audio(src, sr)
+        out.append((name, (x / max(float(np.abs(x).max()), 1e-9) * peak).astype(np.float32)))
+    return out
+
+
+def error_spans(prep, res, locate=None):
+    """따라읽기 결과에서 **틀린 단어가 소리의 어디인지**(TTS와 내 녹음의 시간 구간)를 구해 돌려준다. 그림은 그리지 않는다(화면이 plot_error_spans로 그림).
+
+    돌려주는 dict: {"blocks": 틀린 덩어리 수, "text": 덩어리별 시간 구간 글(report.error_blocks), "sounds": plot_error_spans에 넘길 목록, "loc": align 결과}.
+    틀린 덩어리가 없으면 blocks=0이고 text·sounds는 빈 값이다. 표준 발음(prep["tts_path"])이 없거나 채점 오류면 ValueError.
+    내부에서 인식을 **두 번**(내 녹음, TTS; 단어별 시간 모드, tiny, VAD 켬) 더 돌려 몇 초 걸린다(practice.locate_errors, 노트북 '틀린 구간 표시'와 같은 경로).
+    구간은 Whisper가 추정한 단어 시간이라 **대략의 위치**이고 평가가 아니다. locate: 테스트에서 가짜 함수를 넣는 자리."""
+    if not prep.get("tts_path"):
+        raise ValueError("표준 발음이 없어 틀린 구간을 표시할 수 없습니다.")
+    if res.get("error") or not res.get("recording"):
+        raise ValueError("채점 결과가 없어 틀린 구간을 표시할 수 없습니다.")
+    out = (locate or practice.locate_errors)(prep, res)
+    blocks = out["loc"]["blocks"]
+    if not blocks:
+        return {"blocks": 0, "text": "", "sounds": [], "loc": out["loc"]}
+    return {"blocks": len(blocks), "text": report.error_blocks(prep, out["loc"]), "sounds": out["sounds"], "loc": out["loc"]}
 
 
 # ---------- 채점 결과 → 화면용 조각 ----------

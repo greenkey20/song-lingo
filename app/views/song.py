@@ -76,6 +76,12 @@ start = st.slider("시작 위치(초)", 0, max_start, min(60, max_start), key="s
 fig = visualisation.plot_song_selection(ov["mins"], ov["maxs"], ov["seconds"], start, duration)
 st.pyplot(fig, clear_figure=True)
 st.markdown(f"**선택한 구간** `{web_song.clip_range_label(start, duration)}` · {duration}초")
+with st.expander("파형은 무엇인가요? · 수업과의 연결"):
+    st.markdown(
+        "소리는 **1초에 수만 번 잰 소리 세기의 숫자 나열**이에요(수업 01·02: 샘플링 레이트, 진폭). 곡 한 곡은 수백만 개라 하나하나 그릴 수 없어서, "
+        "**600칸으로 나눠 칸마다 가장 작은 값과 가장 큰 값**만 이어 그린 윤곽이에요. 두꺼운 곳이 소리가 큰 구간이에요. "
+        "선택한 구간은 02 실습 7처럼 `axvspan`으로 띠를 칠했어요. 구간을 자르고 인식하기 전에 모델이 읽는 것은 이 숫자들이고, "
+        "음성 인식(Whisper)은 안에서 16 kHz 모노로 바꿔 읽어요(수업 07).")
 
 if st.button("이 구간으로 정하기", type="primary", key="cut_btn"):
     with st.spinner("구간을 자르는 중…"):
