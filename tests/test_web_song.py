@@ -126,6 +126,122 @@ class Flow(unittest.TestCase):
         _mix, voc = separate.clip_paths(web_song.CLIP_ID, web_song.work_dir(self.ws))
         self.assertFalse(voc.exists())
 
+class Language(unittest.TestCase):
+    """이슈 #50: 구간 언어 제안과 언어가 인식 호출·줄 데이터로 전달되는지(가짜 감지·인식 함수)."""
+
+    def setUp(self):
+        self.base = tempfile.TemporaryDirectory()
+        self.ws = web_song.new_workspace(self.base.name)
+        src = Path(self.base.name) / "src.wav"
+        recorder.save_wav(src, np.stack([_tone(30), _tone(30)], axis=1), SR)
+        self.song = web_song.save_upload(self.ws, "x.wav", src.read_bytes())
+        web_song.cut(self.ws, self.song, 5, 10)
+        self.calls = []
+
+    def tearDown(self):
+        self.base.cleanup()
+
+    def fake_recognize(self, path, language, model_size=None, vad_filter=False, word_timestamps=False, **kw):
+        self.calls.append({"language": language, **kw})
+        seg = {"start": 0.5, "end": 3.0, "text": "きみがすき", "avg_logprob": -0.3, "no_speech_prob": 0.01, "compression_ratio": 1.2,
+               "words": [{"word": "きみ", "start": 0.5, "end": 1.5, "prob": 0.9}, {"word": "が", "start": 1.5, "end": 2.0, "prob": 0.9},
+                         {"word": "すき", "start": 2.0, "end": 3.0, "prob": 0.9}]}
+        return [seg], 0.1
+
+    def test_detect_restricts_to_supported_languages(self):
+        probs = [("br", 0.5), ("fr", 0.3), ("en", 0.15), ("ja", 0.05)]
+        out = web_song.detect_clip_language(self.ws, detect=lambda path, size: ("br", 0.5, probs))
+        self.assertEqual(out["top"][0], "fr")                           # 브르타뉴어(br)는 후보 밖이라 빠지고 프랑스어가 1등
+        self.assertEqual(out["raw_top"], ("br", 0.5))
+        self.assertEqual(out["mixed"], "en")                            # 2등 영어가 후보 안의 비율 25% 이상이라 "섞였을 수 있음"
+
+    def test_single_language_is_passed_and_recorded(self):
+        doc = web_song.recognize_lines(self.ws, recognize=self.fake_recognize, language="ja", languages=["ja"])
+        self.assertEqual(self.calls[0], {"language": "ja"})             # multilingual은 켤 때만 넘김
+        self.assertEqual(doc["languages"], ["ja"])
+        self.assertEqual(doc["lines"][0]["lang"], "ja")
+
+    def test_no_space_language_joins_words_without_spaces_when_split(self):
+        doc = web_song.recognize_lines(self.ws, recognize=self.fake_recognize, language="ja", languages=["ja"])
+        self.assertNotIn(" ", doc["lines"][0]["text"])                   # 일본어 줄에는 공백이 끼지 않는다
+
+    def test_auto_and_multilingual(self):
+        doc = web_song.recognize_lines(self.ws, recognize=self.fake_recognize, language=None, multilingual=True, languages=["ja", "en"])
+        self.assertEqual(self.calls[0], {"language": None, "multilingual": True})
+        self.assertEqual(doc["languages"], ["ja", "en"])
+        self.assertEqual(doc["lines"][0]["lang"], "ja")                  # 자동이면 목록의 첫 언어를 줄의 주 언어로
+        self.assertTrue(doc["stt"]["multilingual"])
+
+    def test_default_language_is_english_as_before(self):
+        web_song.recognize_lines(self.ws, recognize=self.fake_recognize)
+        self.assertEqual(self.calls[0]["language"], "en")
+
+
+
+class BackgroundVocals(unittest.TestCase):
+    """보컬 분리를 화면을 막지 않고 시작·조회(가짜 작업 스크립트로, torch·demucs 없이)."""
+
+    def setUp(self):
+        self.base = tempfile.TemporaryDirectory()
+        self.ws = web_song.new_workspace(self.base.name)
+        src = Path(self.base.name) / "src.wav"
+        recorder.save_wav(src, np.stack([_tone(12), _tone(12)], axis=1), SR)
+        self.song = web_song.save_upload(self.ws, "x.wav", src.read_bytes())
+        web_song.cut(self.ws, self.song, 1, 10)
+
+    def tearDown(self):
+        web_song._stop_job(self.ws)
+        self.base.cleanup()
+
+    def _worker(self, body):
+        p = Path(self.base.name) / "worker.py"
+        p.write_text(body, encoding="utf-8")
+        return p
+
+    def test_none_then_running_then_done_without_blocking(self):
+        import sys
+        import time
+        self.assertEqual(web_song.vocals_status(self.ws)["state"], "none")
+        w = self._worker("import sys, time, pathlib\ntime.sleep(0.6)\n"
+                         "pathlib.Path(sys.argv[2], sys.argv[1] + '_vocals.wav').write_bytes(b'x')\n")
+        t0 = time.time()
+        self.assertEqual(web_song.start_vocals(self.ws, python=sys.executable, worker=w), "running")
+        self.assertLess(time.time() - t0, 0.5)                                  # 시작만 하고 바로 돌아온다(기다리지 않음)
+        st = web_song.vocals_status(self.ws)
+        self.assertEqual(st["state"], "running")
+        self.assertEqual(web_song.start_vocals(self.ws, python=sys.executable, worker=w), "running")   # 중복 시작 안 함
+        self.assertEqual(len(web_song._JOBS), 1)
+        for _ in range(40):
+            if web_song.vocals_status(self.ws)["state"] == "done":
+                break
+            time.sleep(0.1)
+        self.assertEqual(web_song.vocals_status(self.ws)["state"], "done")
+        self.assertEqual(web_song.start_vocals(self.ws, python=sys.executable, worker=w), "done")      # 이미 있으면 다시 안 만듦
+
+    def test_failure_is_reported_with_error_tail(self):
+        import sys
+        import time
+        w = self._worker("import sys\nprint('ModuleNotFoundError: demucs', file=sys.stderr)\nsys.exit(1)\n")
+        web_song.start_vocals(self.ws, python=sys.executable, worker=w)
+        st = {"state": "running"}
+        for _ in range(40):
+            st = web_song.vocals_status(self.ws)
+            if st["state"] != "running":
+                break
+            time.sleep(0.1)
+        self.assertEqual(st["state"], "error")
+        self.assertIn("ModuleNotFoundError", st["error"])
+
+    def test_recut_stops_the_old_job(self):
+        import sys
+        w = self._worker("import time\ntime.sleep(30)\n")
+        web_song.start_vocals(self.ws, python=sys.executable, worker=w)
+        proc = web_song._JOBS[str(self.ws)]["proc"]
+        web_song.cut(self.ws, self.song, 2, 10)                                  # 구간을 바꾸면 옛 분리는 멈춘다
+        proc.wait(timeout=5)
+        self.assertIsNotNone(proc.poll())
+        self.assertEqual(web_song.vocals_status(self.ws)["state"], "none")
+
 
 if __name__ == "__main__":
     unittest.main()

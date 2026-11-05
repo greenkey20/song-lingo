@@ -253,9 +253,11 @@ def plot_song_selection(mins, maxs, seconds, start, duration):
     ax.axvline(start, color=theme.BUTTON_GREEN, linewidth=1.5)
     ax.axvline(end, color=theme.BUTTON_GREEN, linewidth=1.5)
     ax.set_xlim(0, seconds)
+    # 세로축은 소리의 세기(진폭)다: 두 채널을 평균한 모노 파형의 칸별 최솟값~최댓값(수업 01·02의 파형과 같은 축). 눈금과 이름표는 그리지 않는다:
+    # 왼쪽 눈금이 그림을 오른쪽으로 밀어 아래의 시작 위치 슬라이더와 시간축이 어긋나기 때문이다(사용자 피드백, 11-06). 위치는 가로축(초)만 읽으면 된다.
     ax.set_yticks([])
     ax.set_xlabel("시간 (초)")
     for side in ("left", "top", "right"):
         ax.spines[side].set_visible(False)
-    fig.tight_layout()
+    fig.subplots_adjust(left=0.01, right=0.99, bottom=0.28, top=0.97)
     return fig

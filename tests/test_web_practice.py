@@ -183,5 +183,71 @@ class AzureProsodyAndLocales(unittest.TestCase):
         self.assertEqual(wp.phoneme_lines(res), [])             # 음소 이름이 없는 로캘은 줄을 만들지 않는다
 
 
+
+class ExampleSets(unittest.TestCase):
+    def test_sets_have_four_sentences_each_in_the_right_script(self):
+        import languages
+        self.assertEqual(wp.EXAMPLE_NAMES, ["영어", "일본어", "프랑스어", "일본어+영어 섞인 예"])
+        for name in ("일본어", "프랑스어", "일본어+영어 섞인 예"):
+            self.assertEqual(len(wp.EXAMPLE_SETS[name]), 4)
+        ja = [languages.detect_text_language(t)["primary"] for t in wp.EXAMPLE_SETS["일본어"]]
+        self.assertEqual(ja, ["ja"] * 4)
+        mixed = [languages.detect_text_language(t) for t in wp.EXAMPLE_SETS["일본어+영어 섞인 예"]]
+        self.assertTrue(all(set(m["languages"]) == {"ja", "en"} for m in mixed))      # 섞인 예는 모두 일본어와 영어가 함께 있다
+        fr = wp.EXAMPLE_SETS["프랑스어"]
+        self.assertTrue(all(languages.detect_text_language(t)["assumed"] for t in fr))  # 프랑스어는 라틴 문자라 영어로 "가정"만 됨(사용자가 바꿔야 함)
+
+    def test_example_set_text(self):
+        self.assertEqual(wp.example_set("일본어").count("\n"), 3)
+        self.assertEqual(wp.example_set("영어", [{"id": "1", "sentence": "One."}, {"id": "2", "sentence": "Two."}]), "One.\nTwo.")
+        with self.assertRaises(ValueError):
+            wp.example_set("없는 묶음")
+
+
+
+class CardForNoSpaceLanguages(unittest.TestCase):
+    def test_wer_box_is_replaced_for_japanese(self):
+        import scoring
+        card = wp.result_card_html(scoring.evaluate("甘い Coffee 苦い Memory", "マイコーヒーにがいめもり", "ja"))
+        self.assertIn("공백 없이 쓰는 언어", card)
+        self.assertNotIn("1단어 중", card)                       # 문장 전체가 1단어로 세어지는 WER 숫자는 보여 주지 않는다
+        en = wp.result_card_html(scoring.evaluate("a b c", "a b d", "en"))
+        self.assertIn("3단어 중 1개", en)
+
+
+
+class JapaneseReadingScore(unittest.TestCase):
+    PREP = {"lang": "ja", "text": "朝の光が部屋を満たしている。"}
+
+    def _res(self, hyp):
+        import scoring
+        return {"error": None, "hyp": hyp, "score": scoring.evaluate(self.PREP["text"], hyp, "ja"), "recording": b"x"}
+
+    def test_katakana_and_kanji_differences_disappear(self):
+        import japanese
+        if not japanese.available():
+            self.skipTest("pykakasi 없음")
+        res = self._res("あさのひかりがへやをみたしている")                       # 한자 없이 히라가나로 인식된 같은 문장
+        raw_rate = res["score"]["cer"]["rate"]
+        out = wp.apply_japanese_reading(self.PREP, res)
+        self.assertGreater(raw_rate, 0.5)                                         # 원문 기준으로는 한자 때문에 크게 틀림
+        self.assertEqual(out["score"]["cer"]["rate"], 0.0)                        # 읽기 기준으로는 같은 소리
+        self.assertEqual(out["reading"]["ref"], "あさのひかりがへやをみたしている。")
+        self.assertIn("asa no hikari", out["reading"]["ref_romaji"])
+        self.assertEqual(out["score_raw"]["cer"]["rate"], raw_rate)               # 원문 기준 점수는 남겨 둔다
+
+    def test_non_japanese_and_errors_are_untouched(self):
+        en = {"error": None, "hyp": "a", "score": {"x": 1}}
+        self.assertIs(wp.apply_japanese_reading({"lang": "en", "text": "a"}, en), en)
+        self.assertNotIn("reading", en)
+        err = {"error": "녹음 없음", "score": None}
+        self.assertNotIn("reading", wp.apply_japanese_reading(self.PREP, err))
+
+    def test_reading_caption(self):
+        import japanese
+        if japanese.available():
+            self.assertIn("로마자:", wp.reading_caption("朝"))
+
+
 if __name__ == "__main__":
     unittest.main()

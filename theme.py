@@ -43,18 +43,29 @@ CMAP_HEAT = LinearSegmentedColormap.from_list("songlingo_heat", _LIGHT_SURFACE_R
 CMAP_SPEC = LinearSegmentedColormap.from_list("songlingo_spec", _DARK_PANEL_RAMP, N=256)     # 낮음=어두움 → 높음=밝음 (스펙트로그램)
 
 
-def _korean_font():
-    """설치된 한글 글꼴 중 첫 번째를 돌려준다. 없으면 기본 글꼴(한글은 네모로 보임)."""
+# 글꼴 후보(앞쪽이 우선). matplotlib 3.6 이상은 `font.family`에 목록을 주면 **글자마다 목록의 다음 글꼴로 넘어가며(글꼴 대체)** 찾는다. 한글 글꼴(AppleGothic 등)에는
+# 프랑스어 악센트(é·à·ç)나 일본어 가나·한자가 없어 깨져 보였으므로(11-06, 틀린 구간 그림의 단어 이름표), 한글 → 일본어 → 라틴 글꼴 순으로 이어 붙인다.
+_FONT_CANDIDATES = ("AppleGothic", "Malgun Gothic", "NanumGothic", "Hiragino Sans",
+                    "Noto Sans CJK JP", "Arial Unicode MS", "DejaVu Sans")
+
+
+def _font_stack():
+    """설치된 글꼴 중 후보 순서대로 목록을 돌려준다. 마지막에 항상 DejaVu Sans(matplotlib 기본, 악센트·그리스 문자 등 라틴 확장 글자가 있음)를 둔다."""
     installed = {f.name for f in font_manager.fontManager.ttflist}    # matplotlib이 찾은 글꼴 이름 집합
-    # next(..., 기본값): 후보 중 설치된 첫 번째. macOS(AppleGothic) → Windows(Malgun Gothic) → 나눔고딕 순
-    return next((n for n in ("AppleGothic", "Malgun Gothic", "NanumGothic") if n in installed), "DejaVu Sans")
+    stack = [n for n in _FONT_CANDIDATES if n in installed]
+    return stack if "DejaVu Sans" in stack else stack + ["DejaVu Sans"]
+
+
+def _korean_font():
+    """하위 호환: 글꼴 목록의 첫 번째(한글 글꼴이 있으면 그것)."""
+    return _font_stack()[0]
 
 
 def apply_style():
     """matplotlib 기본값을 프로젝트 설정으로 바꾼다. 그림을 그리기 전에 한 번 부른다.
     (rcParams는 전역 설정이라 한 번 바꾸면 이후 모든 그림에 적용된다. 여러 번 불러도 같은 값이므로 안전하다.)"""
     mpl.rcParams.update({
-        "font.family": _korean_font(),
+        "font.family": _font_stack(),
         "axes.unicode_minus": False,               # 한글 글꼴에서 음수 부호(−)가 네모로 깨지는 것을 막는다
         "figure.facecolor": SURFACE,
         "axes.facecolor": SURFACE,
