@@ -8,6 +8,7 @@
 import matplotlib.pyplot as plt
 import streamlit as st
 
+import azure_pronunciation
 import practice
 import practice_log
 import visualisation
@@ -55,6 +56,40 @@ def _span_figure(prep, res):
         return {"blocks": sp["blocks"], "text": sp["text"], "fig": fig}
     except Exception as e:
         return {"error": f"틀린 구간을 표시하지 못했어요 ({type(e).__name__})"}
+
+
+def _show_azure(key, prep, rec, nonce):
+    """따라읽기 결과 아래 '표준 평가(Azure)'. 버튼을 눌렀을 때만 녹음이 Microsoft Azure로 전송된다(자동 전송 없음). 결과는 세션에 보관해 화면이 다시 그려져도 다시 보내지 않는다."""
+    st.markdown("**표준 평가 · Azure 발음 평가** · 참고용 · 외부 서비스")
+    st.caption("누르면 이 녹음이 Microsoft Azure Speech로 전송돼요. 정확도·유창성·완성도·운율은 Azure가 쓰는 표준 항목이고, 위의 오류율(문장 인식 일치도)과는 다른 방식이에요. "
+               "TTS는 기계 목소리라 원어민 기준이 아니고, 사람과 마이크가 달라도 점수가 달라져요.")
+    state = f"{key}_azure"
+    if st.button("Azure로 평가하기", key=f"{key}_az_go_{nonce}", disabled=rec is None):
+        with st.spinner("Azure에서 평가하는 중…"):
+            try:
+                st.session_state[state] = {"result": azure_pronunciation.assess(
+                    rec.getvalue(), prep["text"], wp.LOCALES.get(prep["lang"], "en-US"))}
+            except azure_pronunciation.NotConfigured as e:
+                st.session_state[state] = {"error": str(e)}
+            except (azure_pronunciation.AssessmentError, ValueError) as e:
+                st.session_state[state] = {"error": str(e)}
+            except Exception as e:                       # 네트워크 등 예상 못 한 오류: 종류만 보여 준다(키·녹음 내용은 메시지에 없음)
+                st.session_state[state] = {"error": f"평가하지 못했어요 ({type(e).__name__})"}
+    az = st.session_state.get(state)
+    if not az:
+        return
+    if "error" in az:
+        st.warning(az["error"])
+        return
+    res = az["result"]
+    st.markdown(wp.azure_cards_html(res), unsafe_allow_html=True)
+    st.markdown("**단어별 정확도** · 보라 물결 밑줄은 점수가 낮거나 오류가 있는 단어, 연한 라임은 보통")
+    st.markdown(wp.azure_words_html(res), unsafe_allow_html=True)
+    lines = wp.phoneme_lines(res)
+    if lines:
+        with st.expander("음소별 점수 보기 (점수가 낮은 단어)"):
+            st.caption("음소는 IPA 기호예요. '(ə로 들림)'은 기대한 음소 대신 가장 가깝게 들린 음소예요.")
+            st.text("\n".join(lines))
 
 
 def _show_error_spans(sp):
@@ -174,6 +209,7 @@ def practice_panel(text, key, tts_path=None, meaning_ko="", source="lyrics"):
             st.session_state.pop(f"{key}_read", None)
             st.session_state.pop(f"{key}_figs", None)
             st.session_state.pop(f"{key}_spans", None)
+            st.session_state.pop(f"{key}_azure", None)
             st.rerun()
         res = st.session_state.get(f"{key}_read")
         if res:
@@ -188,6 +224,7 @@ def practice_panel(text, key, tts_path=None, meaning_ko="", source="lyrics"):
                     st.audio(rec)
             if not res["error"]:
                 _show_error_spans(st.session_state.get(f"{key}_spans"))
+                _show_azure(key, prep, rec, nonce)
                 _show_sound_shapes(st.session_state.get(f"{key}_figs"), bool(tts_path))
         st.caption("점수는 발음 점수가 아니라 문장 인식 일치도예요. 주변 소리가 크면 오류율이 올라갈 수 있어요.")
 
