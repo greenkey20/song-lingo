@@ -45,4 +45,6 @@ st.html(f"""<style>
 [data-testid="stSidebarHeader"] {{ height: auto; padding: 1rem 1rem 0.5rem 1rem; }}
 [data-testid="stSidebarLogo"], [data-testid="stSidebar"] img.stLogo {{ height: {LOGO_HEIGHT} !important; max-width: 100%; width: auto; }}
 </style>""")
+import explain  # noqa: E402  (sys.path 설정 뒤에 import)
+st.html(explain.CSS)      # "어떻게 동작하나요?" 상자를 라임색으로(부가 요소 구분)
 st.navigation([home_page, text_page, song_page, history_page]).run()

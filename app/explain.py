@@ -8,6 +8,8 @@
 """
 import streamlit as st
 
+import theme
+
 # 키 → 설명(마크다운). 형식: 누르면 → 호출되는 것 → 하는 일 → 수업 연결.
 TEXTS = {
     "song_input": """
@@ -63,7 +65,19 @@ TEXTS = {
 }
 
 
+# 설명 상자는 연습 흐름(주 기능)이 아닌 **부가 요소**라서 보조색 라임으로 구분한다(11-06 사용자 요청). 라임은 바탕·테두리로만 쓰고 글자는 짙은 색이다(theme.LIME 설명).
+# 상자를 `st.container(key="explain-…")`로 감싸면 Streamlit이 그 컨테이너에 `st-key-explain-…` 클래스를 붙여서, 이 클래스 안의 expander만 골라 칠할 수 있다(다른 expander는 그대로).
+# **Streamlit 내부 요소 이름(`stExpander`)에 기대므로 Streamlit을 올리면 깨질 수 있다.** 그때는 이 CSS만 지우면 기본 모양으로 돌아간다.
+CSS = f"""<style>
+[class*="st-key-explain-"] [data-testid="stExpander"] {{ border: 1px solid {theme.LIME}; border-radius: 0.5rem; background: {theme.LIME}1f; }}
+[class*="st-key-explain-"] [data-testid="stExpander"] summary {{ background: {theme.LIME}; color: {theme.FOREST}; font-weight: 600; border-radius: 0.5rem; }}
+[class*="st-key-explain-"] [data-testid="stExpander"] summary:hover {{ background: {theme.LIME}cc; }}
+[class*="st-key-explain-"] [data-testid="stExpander"] summary * {{ color: {theme.FOREST}; }}
+</style>"""
+
+
 def show(key, title="어떻게 동작하나요?"):
-    """키에 해당하는 설명을 접는 상자로 그린다. 키가 없으면 KeyError(오타를 빨리 알아채려고 조용히 넘기지 않는다)."""
-    with st.expander(title):
-        st.markdown(TEXTS[key].strip())
+    """키에 해당하는 설명을 라임색 접는 상자로 그린다. 키가 없으면 KeyError(오타를 빨리 알아채려고 조용히 넘기지 않는다)."""
+    with st.container(key=f"explain-{key}"):
+        with st.expander(title):
+            st.markdown(TEXTS[key].strip())
