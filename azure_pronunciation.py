@@ -159,6 +159,23 @@ def _credentials(key=None, region=None):
     return key, region
 
 
+def _pronunciation_config(speechsdk, reference_text, prosody):
+    """발음 평가 요청 설정을 만든다(네트워크 없음, SDK만 필요). 기준 문장, 0~100점, 음소 단위까지, 빠짐·끼어듦 계산, 음소 후보 5개, **IPA 기호**.
+
+    음소 기호를 지정하지 않으면 영어(en-US)는 SAPI 기호(iy·ax·eh 같은 영문자)로 나온다. 화면은 IPA(ɛ·ə)라고 안내하므로 IPA로 요청한다
+    (11-05 첫 화면에서 SAPI 기호가 나와 안내와 달랐던 것을 고침). 설정이 JSON에 실제로 들어갔는지는 config.to_json()으로 확인한다."""
+    config = speechsdk.PronunciationAssessmentConfig(
+        reference_text=reference_text,
+        grading_system=speechsdk.PronunciationAssessmentGradingSystem.HundredMark,
+        granularity=speechsdk.PronunciationAssessmentGranularity.Phoneme,
+        enable_miscue=True)                                  # True면 빠진 단어(Omission)·끼어든 단어(Insertion)를 오류 종류로 표시
+    config.phoneme_alphabet = "IPA"
+    config.nbest_phoneme_count = 5                           # 음소마다 "가장 가깝게 들린 음소 후보" 5개(파서의 heard)
+    if prosody:
+        config.enable_prosody_assessment()                   # 운율(억양·강세·속도·리듬), en-US만
+    return config
+
+
 def _azure_recognize(pcm, reference_text, locale, key, region, prosody):
     """Azure Speech SDK로 발음 평가를 한 번 요청해 **결과 JSON 글**을 돌려준다(네트워크 호출, 키·SDK 필요). 테스트에서는 이 함수를 가짜로 바꾼다.
 
@@ -174,14 +191,7 @@ def _azure_recognize(pcm, reference_text, locale, key, region, prosody):
     stream.close()                                           # 닫아야 인식기가 "소리가 끝났다"고 안다
     recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, language=locale,
                                             audio_config=speechsdk.audio.AudioConfig(stream=stream))
-    config = speechsdk.PronunciationAssessmentConfig(
-        reference_text=reference_text,
-        grading_system=speechsdk.PronunciationAssessmentGradingSystem.HundredMark,
-        granularity=speechsdk.PronunciationAssessmentGranularity.Phoneme,
-        enable_miscue=True)                                  # True면 빠진 단어(Omission)·끼어든 단어(Insertion)를 오류 종류로 표시
-    config.nbest_phoneme_count = 5                           # 음소마다 "가장 가깝게 들린 음소 후보" 5개(파서의 heard)
-    if prosody:
-        config.enable_prosody_assessment()                   # 운율(억양·강세·속도·리듬), en-US만
+    config = _pronunciation_config(speechsdk, reference_text, prosody)
     config.apply_to(recognizer)
     result = recognizer.recognize_once()
     reason = speechsdk.ResultReason

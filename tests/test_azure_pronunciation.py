@@ -202,6 +202,16 @@ class Assess(unittest.TestCase):
         with self.assertRaises(ap.AssessmentError):
             ap.assess(self.wav, "x", key="k", region="r", recognize=failing)
 
+    def test_request_config_asks_for_ipa_and_nbest(self):
+        # SDK가 있는 환경(앱)에서만: 요청 설정 JSON에 IPA·음소 후보 5개·빠짐 계산이 실제로 들어가는지. 네트워크는 쓰지 않는다.
+        try:
+            import azure.cognitiveservices.speech as speechsdk
+        except ImportError:
+            self.skipTest("azure SDK 없음(voice-ai)")
+        cfg = json.loads(ap._pronunciation_config(speechsdk, "hello", prosody=True).to_json())
+        self.assertEqual((cfg["phonemeAlphabet"], cfg["nbestPhonemeCount"], cfg["enableMiscue"], cfg["referenceText"]), ("IPA", 5, True, "hello"))
+        self.assertEqual((cfg["gradingSystem"], cfg["granularity"]), ("HundredMark", "Phoneme"))
+
     def test_sdk_is_importable_in_app_env_or_clear_message(self):
         # SDK가 없는 환경(voice-ai)에서는 실제 호출 함수가 NotConfigured로 안내해야 한다. 있으면(앱 환경) 이 검사는 통과로 본다.
         try:
