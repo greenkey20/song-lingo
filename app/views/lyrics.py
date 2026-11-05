@@ -12,7 +12,7 @@ import streamlit as st
 import languages
 import web_practice as wp
 import explain
-from ui_practice import meaning_box, practice_panel
+from ui_practice import meaning_group, notes_box, practice_panel
 
 CONF = {"high": "확신 높음", "medium": "확신 보통", "low": "확신 낮음", "none": ""}
 SOURCE = {"script": "문자 체계로 본 것", "words": "자주 쓰는 낱말로 본 것", "none": ""}
@@ -109,13 +109,10 @@ no = st.segmented_control("연습할 줄", ready, default=ready[0], key="lyr_lin
                           format_func=lambda n: f"{n}번째 줄 · {languages.name(answers[n]['lang'])}")
 a = answers[no if no in answers else ready[0]]
 no, line, lang = (no if no in answers else ready[0]), a["line"], a["lang"]
-meaning_box(line, lang, f"lyr_{a['key']}")                    # 고른 줄의 한글 뜻(예시는 직접 쓴 뜻, 그 밖에는 버튼으로 AI 번역)
-if lang == "ja":
-    rc = wp.reading_caption(line)                               # 한자·가타카나를 히라가나 읽기와 로마자로
-    if rc:
-        st.caption(rc)
+meaning_group(line, lang, f"lyr_{a['key']}")                  # 한글 뜻(예시는 직접 쓴 뜻, 그 밖에는 버튼으로 AI 번역) + 일본어면 읽기·로마자
 if not languages.uses_spaces(lang):
     st.caption("공백 없이 쓰는 언어라서 점수는 단어가 아니라 **글자 오류율(CER)** 이 중심이에요. 한자·가타카나는 히라가나 읽기로 바꿔 비교해요.")
+notes_box(line, lang, f"lyr_{a['key']}")                      # 표현 설명(버튼, 단어·발음 기호·표현·문법·예문): '듣기' 바로 위
 
 # ---------- 4. 듣기 ----------
 st.subheader("듣기")

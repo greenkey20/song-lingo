@@ -4,12 +4,15 @@
 - 사용자가 붙여 넣은 문장·내 노래 가사는 `translate_ko`가 OpenAI 채팅 모델로 번역한다. **외부 API 호출이라 과금**(문장 하나에 아주 작음)되고, 가사를 외부 API로
   보내는 것은 11-04에 허용했다. 결과는 `data/meaning_cache/`(git 제외)에 문장 내용의 해시로 캐시해 같은 문장은 다시 부르지 않는다.
 - 화면에는 항상 "AI 번역 · 참고용"으로 표시한다(오역할 수 있다).
+- **표현 설명(`explain_sentence`, 이슈 #58)**: 같은 방식(버튼 → OpenAI → 디스크 캐시)으로 문장의 단어·표현/숙어·문법 포인트·예문 2개를 JSON으로 받아 보여 준다.
+  예문은 모델이 새로 지은 문장이다(원문 가사를 옮기지 않는다). 결과도 `data/meaning_cache/`(git 제외)에만 남고, 틀릴 수 있어 "AI 설명 · 참고용"으로 표시한다.
 
 수업과의 관계
 - [수업과 같음] OpenAI 클라이언트로 API를 부르는 방식은 013(OpenAI API)과 같다(키는 tts.py의 `_get_client`가 `.env`에서 읽음).
 - [수업에 없음] 채팅 모델로 번역하기, 디스크 캐시. 모델 이름은 `MODEL`로 한곳에 두었고 **이 환경에서 호출해 확인하지 않았다 [미확인]**: 안 되면 오류 문구가 화면에 나온다.
 """
 import hashlib
+import json
 from pathlib import Path
 
 CACHE_DIR = Path("data/meaning_cache")
@@ -61,3 +64,96 @@ def lookup(text, lang="", examples=None, cache_dir=None):
         return examples[t], "직접 작성"
     hit = cached(t, lang, cache_dir)
     return (hit, "AI 번역") if hit else (None, None)
+
+
+# ---------- 표현 설명 (이슈 #58) ----------
+NOTES_SYSTEM = (
+    "You help a Korean speaker study one foreign-language sentence or one line of song lyrics. "
+    "Reply with JSON only, with exactly these keys: "
+    '"words": up to 6 important words, each {"word": the word as written, "ipa": its pronunciation in IPA without slashes '
+    '(for Japanese, the IPA of the reading), "meaning": Korean meaning in this sentence}; '
+    '"expressions": idioms, phrasal verbs or set phrases found in the sentence, each {"expression": ..., "ipa": IPA of the whole phrase, "meaning": Korean}; use [] if none; '
+    '"grammar": one short Korean note about the most useful grammar point, or "" if none; '
+    '"examples": exactly 2 NEW simple sentences in the same language that reuse the key words or expressions, each {"sentence": ..., "meaning": Korean translation}. '
+    "Do not quote the original sentence in the examples. Keep every Korean explanation short."
+)
+
+
+def _clean_notes(data):
+    """모델이 준 dict를 화면에 필요한 모양으로 정리한다(없는 칸은 빈 목록·빈 글, 글자가 아닌 값은 버림). 모양이 아예 틀리면 ValueError."""
+    if not isinstance(data, dict):
+        raise ValueError("설명 형식이 올바르지 않습니다.")
+
+    def pairs(key, a, *others):
+        out = []
+        for it in data.get(key) or []:
+            if isinstance(it, dict) and str(it.get(a, "")).strip():
+                out.append({a: str(it[a]).strip(), **{o: str(it.get(o, "")).strip() for o in others}})
+        return out
+
+    # ipa는 단어·표현에만 있다(없으면 빈 글: 예전 형식이나 모델이 빼먹은 경우)
+    notes = {"words": pairs("words", "word", "ipa", "meaning"), "expressions": pairs("expressions", "expression", "ipa", "meaning"),
+             "grammar": str(data.get("grammar") or "").strip(), "examples": pairs("examples", "sentence", "meaning")[:2]}
+    if not (notes["words"] or notes["expressions"] or notes["grammar"] or notes["examples"]):
+        raise ValueError("설명 결과가 비어 있습니다.")
+    return notes
+
+
+def cached_notes(text, lang="", cache_dir=None):
+    """캐시에 있는 표현 설명(없거나 깨졌으면 None). 호출하지 않는다."""
+    path = Path(cache_dir or CACHE_DIR) / f"{_key(text, lang)}.notes2.json"      # 발음 기호(ipa) 칸을 넣으면서 이름을 바꿈: 옛 설명은 무시하고 새로 받는다
+    if not path.exists():
+        return None
+    try:
+        return _clean_notes(json.loads(path.read_text(encoding="utf-8")))
+    except ValueError:                  # json.JSONDecodeError도 ValueError의 하위 클래스: 깨진 캐시는 없는 것으로 보고 다시 받는다
+        return None
+
+
+def explain_sentence(text, lang="", client=None, cache_dir=None):
+    """문장 → 표현 설명 dict {"words","expressions","grammar","examples"}. 캐시에 있으면 호출하지 않는다.
+
+    [수업에 없음] `response_format={"type": "json_object"}`: 채팅 모델이 반드시 JSON 객체로만 답하게 하는 옵션(프롬프트에도 JSON이라고 적어야 한다).
+    빈 글은 ValueError, 응답이 JSON이 아니거나 비어 있으면 ValueError, API 오류는 그대로 올린다(화면이 안내 문구로 바꿈).
+    client: 테스트용 가짜 클라이언트(translate_ko와 같다)."""
+    text = str(text).strip()
+    if not text:
+        raise ValueError("설명할 문장이 비어 있습니다.")
+    hit = cached_notes(text, lang, cache_dir)
+    if hit:
+        return hit
+    if client is None:
+        import tts
+        client = tts._get_client()
+    res = client.chat.completions.create(model=MODEL, temperature=0.3, response_format={"type": "json_object"},
+                                         messages=[{"role": "system", "content": NOTES_SYSTEM},
+                                                   {"role": "user", "content": f"[{lang or 'auto'}] {text}"}])
+    raw = (res.choices[0].message.content or "").strip() if res.choices else ""
+    notes = _clean_notes(json.loads(raw))        # 깨진 JSON이면 JSONDecodeError(ValueError)
+    folder = Path(cache_dir or CACHE_DIR)
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{_key(text, lang)}.notes2.json").write_text(json.dumps(notes, ensure_ascii=False), encoding="utf-8")
+    return notes
+
+
+def _ipa(item):
+    """발음 기호가 있으면 '/…/ ' 모양(뒤에 공백 포함)으로, 없으면 빈 글. 모델이 슬래시를 붙여 와도 한 겹만 남긴다."""
+    ipa = item.get("ipa", "").strip().strip("/[] ").strip()
+    return f"/{ipa}/ " if ipa else ""
+
+
+def notes_markdown(notes):
+    """표현 설명 dict → 화면용 마크다운(HTML 태그는 만들지 않는다: 모델이 준 글을 `unsafe_allow_html` 없이 st.markdown으로만 그리려는 것)."""
+    lines = []
+    if notes["words"]:
+        lines.append("**단어**")
+        lines += [f"- **{w['word']}** {_ipa(w)}— {w['meaning']}" for w in notes["words"]]
+    if notes["expressions"]:
+        lines.append("\n**표현·숙어**")
+        lines += [f"- **{e['expression']}** {_ipa(e)}— {e['meaning']}" for e in notes["expressions"]]
+    if notes["grammar"]:
+        lines.append(f"\n**문법 포인트** · {notes['grammar']}")
+    if notes["examples"]:
+        lines.append("\n**예문**")
+        lines += [f"- {x['sentence']}  \n  {x['meaning']}" for x in notes["examples"]]
+    return "\n".join(lines)
