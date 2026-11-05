@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="app/assets/logo.svg" alt="song lingo" width="360">
+</p>
+
 # song-lingo
 
 외국어 노래에서 떠올린 문장을 **듣고 → 따라 읽거나 받아쓰고 → 오류율(WER/CER)과 틀린 부분을 확인**하는 음성 학습 프로토타입입니다. ICT 혁신 스퀘어 Voice-AI 부트캠프 개인 프로젝트(2026-10-30 ~ 11-12, 발표 11-12)입니다.
