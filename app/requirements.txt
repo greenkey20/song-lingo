@@ -11,3 +11,4 @@ av==18.1.0           # faster-whisper 1.2.1이 av 19.x에서 오류(open() 옵�
 openai==3.35.1
 python-dotenv==1.2.4
 azure-cognitiveservices-speech==1.53.0   # Azure 발음 평가(azure_pronunciation.py, 이슈 #48). numpy는 안 바뀜(pip install --dry-run으로 확인)
+pykakasi==2.3.0       # 일본어 한자·가타카나 → 히라가나 읽기·로마자(japanese.py, 이슈 #50). numpy 불변(--dry-run 확인)

@@ -157,7 +157,7 @@ def recognize_words(path, language="en", model_size=None, vad_filter=True, tempe
     return " ".join(w["word"] for w in words), words, time.time() - t0
 
 
-def recognize_segments(path, language="en", model_size=None, vad_filter=False, temperature=None, word_timestamps=False):
+def recognize_segments(path, language="en", model_size=None, vad_filter=False, temperature=None, word_timestamps=False, multilingual=False):
     """소리 하나를 인식해 **구간(segment)별 시각과 글**을 돌려준다: (구간 목록, 걸린 시간). 이슈 #31(노래 구간 → 줄 나누기)용.
 
     구간 목록: [{"start", "end", "text", "avg_logprob", "no_speech_prob", "compression_ratio", "words"}] (시간은 초).
@@ -174,6 +174,11 @@ def recognize_segments(path, language="en", model_size=None, vad_filter=False, t
     recognize는 글만 이어 붙여 돌려주고, 이 함수는 시각과 지표를 버리지 않고 돌려준다."""
     t0 = time.time()
     extra = {} if temperature is None else {"temperature": temperature}
+    if multilingual:
+        # [수업에 없음] multilingual=True: faster-whisper가 **30초 창마다** 언어를 100개 중에서 다시 감지해 `language` 인자를 **덮어쓴다**(설치된 1.2.1의
+        # 소스에서 확인, 검토 문서 16.14). language를 같이 줘도 오류는 없지만 디코딩에는 쓰이지 않는다(처음 한 번의 전체 감지만 건너뜀).
+        # 그리고 30초 이하의 소리는 창이 하나라서 language=None(자동)과 같다. 줄·단어 단위로 언어를 바꾸는 기능이 아니다.
+        extra["multilingual"] = True
     segments, _info = load_model(model_size).transcribe(transcribe_input(path), language=language, beam_size=BEAM_SIZE,
                                                         word_timestamps=word_timestamps, vad_filter=vad_filter, **extra)
     out = []
@@ -185,3 +190,17 @@ def recognize_segments(path, language="en", model_size=None, vad_filter=False, t
                     "avg_logprob": seg.avg_logprob, "no_speech_prob": seg.no_speech_prob,
                     "compression_ratio": seg.compression_ratio, "words": words})
     return out, time.time() - t0
+
+
+def detect_language(path, model_size=None):
+    """소리의 **언어를 감지**해 (1등 코드, 확률, 언어별 확률 목록 [(코드, 확률), …])를 돌려준다. 앞 30초만 본다(Whisper의 방식).
+
+    [수업에 없음] `WhisperModel.detect_language(audio)`: 모델의 인코더로 앞부분을 보고 언어별 확률을 계산한다(글자를 받아 적지 않아 인식보다 빠르다).
+    입력은 16 kHz 모노 파형이라 `audio.load_audio`로 바꿔서 넣는다(인식과 달리 감지는 변환 배열을 써도 된다: 언어 확률만 보므로).
+    100개 언어 중에서 1등을 고르므로 비슷한 다른 언어로 갈 수 있어서(검토 문서 16.12) 화면에서는 `languages.suggest_from_probs`로 후보 안에서 다시 고른다.
+    path: 파일 경로·bytes·BytesIO. 소리가 너무 짧으면(한 프레임 미만) ValueError."""
+    x, _sr, _ch = audio.load_audio(path)
+    if len(x) < 512:
+        raise ValueError("소리가 너무 짧아 언어를 감지할 수 없습니다.")
+    code, prob, all_probs = load_model(model_size).detect_language(x)
+    return code, float(prob), [(c, float(p)) for c, p in all_probs]

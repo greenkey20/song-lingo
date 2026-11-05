@@ -161,6 +161,40 @@ class TieBreak(unittest.TestCase):
             self.assertEqual([o[2] for o in r["ops"] if o[2] is not None], hyp)
             self.assertEqual(r["distance"], scoring.edit_matrix(ref, hyp)[-1][-1])
 
+class LanguageRules(unittest.TestCase):
+    """이슈 #50: 언어별 정규화·주 지표."""
+
+    def test_no_space_languages_use_cer_as_main(self):
+        for lang in ("ja", "zh"):
+            r = scoring.evaluate("今日は 晴れ", "今日は晴れ", lang)
+            self.assertEqual(r["main"], r["cer"])
+            self.assertEqual(r["cer"]["rate"], 0.0)                      # 공백 차이는 오류가 아님
+        self.assertEqual(scoring.evaluate("a b", "a b", "en")["main"]["N"], 2)   # 영어는 단어 기준
+
+    def test_lowercase_for_cased_scripts_only(self):
+        self.assertEqual(scoring.normalize("¿Dónde ESTÁ?", "es"), "dónde está")    # 스페인어·독일어·스웨덴어 등도 소문자화
+        self.assertEqual(scoring.normalize("ЗДРАВСТВУЙТЕ", "ru"), "здравствуйте")
+        self.assertEqual(scoring.normalize("안녕 Hello", "ko"), "안녕 hello")        # 한·일·중 글자는 그대로, 섞인 영어는 소문자
+        self.assertEqual(scoring.normalize("まだ終わらない Tonight", "ja"), "まだ終わらないtonight")   # 일본어 줄에 섞인 영어 단어도 소문자로 맞춘다
+
+    def test_french_accents_kept_by_default(self):
+        self.assertNotEqual(scoring.wer("été", "ete", "fr")["rate"], 0.0)          # 엄격(기본): é와 e는 다른 글자
+        self.assertEqual(scoring.wer("été", "ete", "fr", strip_accents=True)["rate"], 0.0)
+
+
+
+class JapaneseKana(unittest.TestCase):
+    def test_katakana_is_folded_to_hiragana(self):
+        self.assertEqual(scoring.normalize("コーヒー", "ja"), "こーひー")
+        self.assertEqual(scoring.cer("こーひー", "コーヒー", "ja")["rate"], 0.0)       # 같은 소리를 다른 문자로 적은 것은 오류가 아님
+        self.assertEqual(scoring.normalize("コーヒー", "ja", fold_kana=False), "コーヒー")
+        self.assertEqual(scoring.normalize("コーヒー", "en"), "コーヒー")               # 일본어에서만
+
+    def test_wer_of_japanese_is_one_token(self):
+        r = scoring.wer("朝の光が部屋を満たしている", "朝の光が部屋を満たす", "ja")
+        self.assertEqual(r["N"], 1)                                                    # 공백이 없어 문장 전체가 단어 1개 → WER은 0 또는 1뿐
+        self.assertEqual(r["rate"], 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()
