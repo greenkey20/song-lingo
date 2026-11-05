@@ -12,7 +12,7 @@ import streamlit as st
 import languages
 import web_practice as wp
 import explain
-from ui_practice import meaning_box, practice_panel
+from ui_practice import meaning_box, notes_box, practice_panel
 
 CONF = {"high": "확신 높음", "medium": "확신 보통", "low": "확신 낮음", "none": ""}
 SOURCE = {"script": "문자 체계로 본 것", "words": "자주 쓰는 낱말로 본 것", "none": ""}
@@ -110,6 +110,7 @@ no = st.segmented_control("연습할 줄", ready, default=ready[0], key="lyr_lin
 a = answers[no if no in answers else ready[0]]
 no, line, lang = (no if no in answers else ready[0]), a["line"], a["lang"]
 meaning_box(line, lang, f"lyr_{a['key']}")                    # 고른 줄의 한글 뜻(예시는 직접 쓴 뜻, 그 밖에는 버튼으로 AI 번역)
+notes_box(line, lang, f"lyr_{a['key']}")                      # 표현 설명(버튼, 단어·표현·문법·예문)
 if lang == "ja":
     rc = wp.reading_caption(line)                               # 한자·가타카나를 히라가나 읽기와 로마자로
     if rc:
