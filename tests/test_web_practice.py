@@ -160,5 +160,28 @@ class AzureHtml(unittest.TestCase):
         self.assertEqual((wp.LOCALES["en"], wp.LOCALES["ja"], wp.LOCALES["fr"]), ("en-US", "ja-JP", "fr-FR"))
 
 
+
+class AzureProsodyAndLocales(unittest.TestCase):
+    def test_break_labels_on_words(self):
+        res = {"words": [{"word": "together", "accuracy": 90.0, "level": "good", "error_type": "None", "phonemes": [],
+                          "prosody": {"break": ["UnexpectedBreak"], "intonation": []}}]}
+        out = wp.azure_words_html(res)
+        self.assertIn("쉼 많음", out)
+        self.assertNotIn("sl-wrong", out)                      # 점수가 높고 오류 종류가 없으면 보라 밑줄은 아님(쉼 이름표만)
+
+    def test_monotone_note_once(self):
+        res = {"words": [{"word": "a", "accuracy": 90.0, "level": "good", "error_type": "None", "phonemes": [],
+                          "prosody": {"break": [], "intonation": ["Monotone"]}} for _ in range(3)]}
+        self.assertEqual(len(wp.azure_prosody_notes(res)), 1)   # 모든 단어에 같은 태그가 붙어도 한 번만
+        res["words"][0]["prosody"]["intonation"] = []
+        self.assertEqual(len(wp.azure_prosody_notes(res)), 1)   # 한 단어라도 있으면 알림
+        self.assertEqual(wp.azure_prosody_notes({"words": []}), [])
+
+    def test_phoneme_lines_skip_unnamed_phonemes(self):
+        res = {"words": [{"word": "日本", "accuracy": 55.0, "level": "poor", "error_type": "None",
+                          "phonemes": [{"phoneme": None, "accuracy": 40.0, "heard": None}]}]}
+        self.assertEqual(wp.phoneme_lines(res), [])             # 음소 이름이 없는 로캘은 줄을 만들지 않는다
+
+
 if __name__ == "__main__":
     unittest.main()

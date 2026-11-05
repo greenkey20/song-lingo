@@ -76,8 +76,10 @@ class Parse(unittest.TestCase):
         out = ap.parse_assessment(r)
         self.assertEqual(out["scores"]["prosody"], 71.5)
         self.assertTrue(out["locale_has_prosody"])
-        self.assertEqual(out["words"][0]["prosody"], {"break": ["UnexpectedBreak"], "intonation": ["Monotone"]})
-        self.assertEqual(ap.parse_assessment(hello_result())["words"][0]["prosody"], {"break": [], "intonation": []})   # 피드백이 없으면 빈 목록
+        self.assertEqual(out["words"][0]["prosody"]["break"], ["UnexpectedBreak"])
+        self.assertEqual(out["words"][0]["prosody"]["intonation"], ["Monotone"])
+        self.assertEqual(ap.parse_assessment(hello_result())["words"][0]["prosody"],
+                         {"break": [], "break_confidence": {"unexpected": None, "missing": None}, "intonation": []})   # 피드백이 없으면 빈 값
 
     def test_accepts_json_text_and_bytes(self):
         text = json.dumps(hello_result(), ensure_ascii=False)
@@ -86,6 +88,52 @@ class Parse(unittest.TestCase):
 
     def test_status_success_string(self):
         self.assertEqual(ap.parse_assessment(hello_result(RecognitionStatus="Success"))["text"], "Hello.")
+
+
+class BreakConfidence(unittest.TestCase):
+    def _with_break(self, unexpected=None, missing=None, error_types=None):
+        r = hello_result()
+        brk = {}
+        if unexpected is not None:
+            brk["UnexpectedBreak"] = {"Confidence": unexpected}
+        if missing is not None:
+            brk["MissingBreak"] = {"Confidence": missing}
+        if error_types is not None:
+            brk["ErrorTypes"] = error_types
+        r["NBest"][0]["Words"][0]["Feedback"] = {"Prosody": {"Break": brk}}
+        return ap.parse_assessment(r)["words"][0]["prosody"]
+
+    def test_confidence_above_threshold_becomes_break_kind(self):
+        # 공식 문서의 권장 임계값 0.75: 0.75보다 크면 쉼 오류로 본다(0.75 자체는 아님)
+        self.assertEqual(self._with_break(unexpected=0.83, missing=0.01)["break"], ["UnexpectedBreak"])
+        self.assertEqual(self._with_break(unexpected=0.1, missing=0.9)["break"], ["MissingBreak"])
+        self.assertEqual(self._with_break(unexpected=0.75, missing=0.75)["break"], [])
+        self.assertEqual(self._with_break(unexpected=0.83)["break_confidence"], {"unexpected": 0.83, "missing": None})
+
+    def test_error_types_in_json_are_kept_without_duplicates(self):
+        self.assertEqual(self._with_break(unexpected=0.9, error_types=["UnexpectedBreak"])["break"], ["UnexpectedBreak"])
+
+
+class PronScoreFormula(unittest.TestCase):
+    """Azure 공식 종합 점수 공식이 실제 결과(11-05, 사용자 호출 5건)의 PronScore와 맞는지."""
+    CASES = [  # (정확도, 유창성, 완성도, 운율, Azure가 돌려준 종합)
+        (91.0, 99.0, 100.0, 88.3, 93.3),   # 첫 호출 s01_take1
+        (81, 90, 71, 81, 79),              # ① 정상
+        (32, 77, 14, 69, 41),              # ② 단어 생략
+        (45, 49, 14, 66, 38),              # ③ 끊어 읽기
+        (56, 88, 43, 74, 61),              # ④ 틀린 발음
+    ]
+
+    def test_reading_formula_with_prosody_matches_azure(self):
+        for acc, flu, comp, pros, pron in self.CASES:
+            self.assertAlmostEqual(ap.expected_pron_score(acc, flu, comp, pros), pron, delta=0.5, msg=(acc, flu, comp, pros))
+
+    def test_lowest_score_has_the_biggest_weight(self):
+        self.assertAlmostEqual(ap.expected_pron_score(100, 100, 0, 100), 60.0)       # 한 항목이 0이면 종합은 평균(75)이 아니라 60: 가장 낮은 점수의 가중치가 0.4
+        self.assertAlmostEqual(ap.expected_pron_score(90, 90, 90), 90.0)             # 운율 없으면 셋의 가중 평균
+
+    def test_without_prosody(self):
+        self.assertAlmostEqual(ap.expected_pron_score(80, 100, 60), 0.6 * 60 + 0.2 * 80 + 0.2 * 100)
 
 
 class Failures(unittest.TestCase):

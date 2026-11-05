@@ -31,10 +31,15 @@ import audio
 
 TICKS_PER_SECOND = 1e7          # Azure의 Offset·Duration은 100 나노초(1e-7초) 단위
 
-# 점수를 "좋음·보통·낮음"으로 나누는 기준. Azure 문서가 정한 값이 아니라 Speech Studio 화면의 색 구분을 따른 값이다 [일반 지식, 미확인].
-# 학습자에게 보여 주는 라벨일 뿐이므로 화면에서 "참고용"으로 표시하고 필요하면 여기만 고친다.
+# 점수를 "좋음·보통·낮음"으로 나누는 기준.
+# - FAIR_AT=60: Azure 공식 문서(ko-kr, 결과 매개 변수 표)에 "AccuracyScore가 60 미만이면 단어의 오류 유형이 Mispronunciation일 수 있다"고 적혀 있다 [확인].
+# - GOOD_AT=80: 공식 기준이 **아니다**. Speech Studio 화면의 색 구분을 따른 값이다 [일반 지식, 미확인]. 학습자에게 보여 주는 라벨일 뿐이다.
 GOOD_AT = 80
 FAIR_AT = 60
+
+# 쉼 오류 판정 기준. 공식 문서: 현재 버전은 쉼 오류 종류를 따로 주지 않고, UnexpectedBreak·MissingBreak의 신뢰도(Confidence)가 0.75보다 크면
+# 각각 "예기치 않은 쉼"·"누락된 쉼"으로 보라고 권장한다(시나리오에 맞게 조정 가능) [확인: 문서].
+BREAK_THRESHOLD = 0.75
 
 OK_STATUS = (0, "0", "Success")  # RecognitionStatus: 예시 JSON은 숫자 0, SDK의 JSON은 "Success" 글자로 나올 수 있어 둘 다 받는다
 
@@ -87,10 +92,35 @@ def _parse_phonemes(raw_phonemes):
 
 
 def _parse_prosody_feedback(word):
-    """단어의 운율 피드백(쉼·억양 오류 종류)을 {"break": [...], "intonation": [...]}로. 영어가 아니거나 요청하지 않았으면 빈 목록. 키 이름은 문서 표 기준이라 없으면 빈 목록."""
+    """단어의 운율 피드백을 {"break": [...], "break_confidence": {...}, "intonation": [...]}로. 영어가 아니거나 요청하지 않았으면 빈 값.
+
+    - break: JSON에 `Break.ErrorTypes`가 있으면 그대로 쓰고, 없으면 `UnexpectedBreak.Confidence`·`MissingBreak.Confidence`가 BREAK_THRESHOLD(0.75)보다 클 때 해당 이름을 넣는다.
+    - intonation: `Intonation.ErrorTypes`(지금은 Monotone만; 발화 전체에서 한 번 판정해 모든 단어에 같은 태그가 붙는다).
+    안쪽 키 이름은 공식 문서의 표를 따른 것이고 **실제 응답으로는 아직 확인하지 못했다 [미확인]** 그래서 `.get`으로 없어도 깨지지 않게 읽는다."""
     prosody = ((word.get("Feedback") or {}).get("Prosody")) or {}
-    return {"break": list((prosody.get("Break") or {}).get("ErrorTypes") or []),
+    brk = prosody.get("Break") or {}
+    conf = {"unexpected": (brk.get("UnexpectedBreak") or {}).get("Confidence"),
+            "missing": (brk.get("MissingBreak") or {}).get("Confidence")}
+    kinds = list(brk.get("ErrorTypes") or [])
+    for name, key in (("UnexpectedBreak", "unexpected"), ("MissingBreak", "missing")):
+        if name not in kinds and conf[key] is not None and conf[key] > BREAK_THRESHOLD:
+            kinds.append(name)
+    return {"break": kinds, "break_confidence": conf,
             "intonation": list((prosody.get("Intonation") or {}).get("ErrorTypes") or [])}
+
+
+def expected_pron_score(accuracy, fluency, completeness, prosody=None):
+    """Azure 공식 문서의 **읽기(스크립트) 시나리오 종합 점수 공식**으로 종합 점수를 직접 계산한다(검증·설명용).
+
+    네 점수(운율이 없으면 셋)를 낮은 순서로 s0 ≤ s1 ≤ s2 ≤ s3라 할 때
+      운율 있음: 0.4·s0 + 0.2·s1 + 0.2·s2 + 0.2·s3     운율 없음: 0.6·s0 + 0.2·s1 + 0.2·s2
+    즉 **가장 낮은 점수에 가장 큰 가중치**를 준다. 그래서 한 항목(예: 완성도)이 낮으면 종합이 크게 내려간다.
+    11-05 실제 결과 5건(첫 호출과 정상·생략·끊어 읽기·틀린 발음)에서 Azure가 돌려준 PronScore와 소수 첫째 자리까지 맞았다(단위 테스트)."""
+    if prosody is None:
+        s0, s1, s2 = sorted((accuracy, fluency, completeness))
+        return 0.6 * s0 + 0.2 * s1 + 0.2 * s2
+    s0, s1, s2, s3 = sorted((accuracy, fluency, completeness, prosody))
+    return 0.4 * s0 + 0.2 * s1 + 0.2 * s2 + 0.2 * s3
 
 
 def parse_assessment(result):

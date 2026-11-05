@@ -58,11 +58,26 @@ def _span_figure(prep, res):
         return {"error": f"틀린 구간을 표시하지 못했어요 ({type(e).__name__})"}
 
 
+# Azure 발음 평가 점수의 의미와 계산. 출처: Microsoft Learn 「발음 평가 사용」(ko-kr)을 2026-11-05에 읽고 정리(검토 문서 14.7의 10절).
+AZURE_GUIDE = """
+**점수 5개 (0~100)**
+- **정확도**: 음소가 원어민 발음과 얼마나 일치하는가(음소 점수를 모아 음절·단어·문장 점수를 냄).
+- **유창성**: 단어 사이 쉼이 원어민의 쉼과 얼마나 비슷한가.
+- **완성도**: 기준 문장 중 **발음된 단어의 비율**. 우리 실험에서는 정확도가 약 60 미만인 단어도 "발음하지 않은 것"처럼 세는 것으로 보였어요(가설).
+- **운율**: 억양·강세·말하기 속도·리듬이 얼마나 자연스러운가(**영어에서만**).
+- **종합**: 위 점수를 낮은 순서로 s0 ≤ s1 ≤ s2 ≤ s3라 할 때 **0.4·s0 + 0.2·s1 + 0.2·s2 + 0.2·s3**(운율이 없으면 0.6·s0 + 0.2·s1 + 0.2·s2). 가장 낮은 점수의 가중치가 가장 커서, 한 항목이 낮으면 종합이 크게 내려가요.
+
+**단어 표시**: 단어 점수가 **60 미만**이면 `발음`(Mispronunciation) 오류가 될 수 있어요(공식 기준). 빠짐·더해짐은 기준 문장과 비교한 결과예요. 80 이상을 '좋음'으로 보는 것은 공식 기준이 아니라 참고용 구분이에요.
+
+**음소**: IPA 기호로 보여 줘요. 음소 이름·음절 점수·'들린 음소'는 영어(en-US)에서만 제공돼요.
+"""
+
+
 def _show_azure(key, prep, rec, nonce):
     """따라읽기 결과 아래 '표준 평가(Azure)'. 버튼을 눌렀을 때만 녹음이 Microsoft Azure로 전송된다(자동 전송 없음). 결과는 세션에 보관해 화면이 다시 그려져도 다시 보내지 않는다."""
     st.markdown("**표준 평가 · Azure 발음 평가** · 참고용 · 외부 서비스")
     st.caption("누르면 이 녹음이 Microsoft Azure Speech로 전송돼요. 정확도·유창성·완성도·운율은 Azure가 쓰는 표준 항목이고, 위의 오류율(문장 인식 일치도)과는 다른 방식이에요. "
-               "TTS는 기계 목소리라 원어민 기준이 아니고, 사람과 마이크가 달라도 점수가 달라져요.")
+               "Azure는 내 녹음과 **기준 문장(글)** 만 받아 자체 발음 모델(원어민 발음 기준)과 비교해요. 표준 발음(TTS) 소리는 보내지 않아요. 마이크·방 소리에 따라 점수가 달라질 수 있어요.")
     state = f"{key}_azure"
     if st.button("Azure로 평가하기", key=f"{key}_az_go_{nonce}", disabled=rec is None):
         with st.spinner("Azure에서 평가하는 중…"):
@@ -83,6 +98,12 @@ def _show_azure(key, prep, rec, nonce):
         return
     res = az["result"]
     st.markdown(wp.azure_cards_html(res), unsafe_allow_html=True)
+    for note in wp.azure_prosody_notes(res):
+        st.caption(note)
+    if res.get("locale") and not res["locale"].startswith("en"):
+        st.caption("영어가 아닌 언어는 운율·음절·음소 이름이 제공되지 않을 수 있어요(Azure 문서).")
+    with st.expander("점수는 어떻게 계산되나요? · Azure 공식 문서"):
+        st.markdown(AZURE_GUIDE)
     st.markdown("**단어별 정확도** · 보라 물결 밑줄은 점수가 낮거나 오류가 있는 단어, 연한 라임은 보통")
     st.markdown(wp.azure_words_html(res), unsafe_allow_html=True)
     lines = wp.phoneme_lines(res)

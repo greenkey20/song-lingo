@@ -161,9 +161,10 @@ def chips_html(chips):
 # ---------- Azure 발음 평가 결과 → 화면용 조각 (이슈 #48) ----------
 LOCALES = {"en": "en-US", "ja": "ja-JP", "fr": "fr-FR"}      # prep["lang"] → Azure 로캘. 일본어·프랑스어의 발음 평가 지원은 확인 전(미확인)
 AZURE_LABELS = [("accuracy", "정확도", "음소가 원어민 발음과 얼마나 가까운가"), ("fluency", "유창성", "단어 사이 쉼이 자연스러운가"),
-                ("completeness", "완성도", "기준 문장의 단어를 모두 읽었는가"), ("prosody", "운율", "억양·강세·속도·리듬(영어만)"),
+                ("completeness", "완성도", "기준 문장 중 발음된 단어의 비율"), ("prosody", "운율", "억양·강세·속도·리듬(영어만)"),
                 ("pronunciation", "종합", "위 항목을 합친 참고 점수")]
 ERROR_LABELS = {"Mispronunciation": "발음", "Omission": "빠짐", "Insertion": "더해짐", "UnexpectedBreak": "쉼 많음", "MissingBreak": "쉼 없음", "Monotone": "단조로움"}
+BREAK_LABELS = {"UnexpectedBreak": "쉼 많음", "MissingBreak": "쉼 없음"}      # 운율 피드백의 단어 앞 쉼(영어만)
 
 
 def azure_cards_html(result):
@@ -186,8 +187,9 @@ def azure_words_html(result):
     for w in result["words"]:
         kind = ERROR_LABELS.get(w["error_type"], "" if w["error_type"] in (None, "None") else w["error_type"])
         score = "" if w["accuracy"] is None else f'{w["accuracy"]:.0f}'
+        breaks = [BREAK_LABELS[b] for b in (w.get("prosody") or {}).get("break", []) if b in BREAK_LABELS]
         weak = w["level"] == "poor" or bool(kind)
-        label = f"<small>{html.escape(kind)}</small>" if kind else ""
+        label = "".join(f"<small>{html.escape(x)}</small>" for x in ([kind] if kind else []) + breaks)
         cls = "sl-cell sl-wrong" if weak else ("sl-cell sl-fair" if w["level"] == "fair" else "sl-cell")
         word = html.escape(w["word"] or "")
         cells.append(f'<span class="{cls}"><span class="{"sl-und" if weak else ""}">{word}</span><span class="sl-az-score">{score}</span>{label}</span>')
@@ -198,10 +200,11 @@ def phoneme_lines(result, levels=("poor", "fair")):
     """점수가 낮은 단어(poor·fair)의 음소 점수를 글 한 줄씩으로: 'explore: ɛ 47 (ə로 들림) · k 90 …'. 음소 정보가 없는 단어는 건너뛴다."""
     lines = []
     for w in result["words"]:
-        if w["level"] not in levels or not w["phonemes"]:
+        named = [ph for ph in w["phonemes"] if ph.get("phoneme")]      # 일본어·프랑스어는 음소 점수만 오고 음소 이름이 없을 수 있다(공식 문서)
+        if w["level"] not in levels or not named:
             continue
         parts = []
-        for ph in w["phonemes"]:
+        for ph in named:
             score = "?" if ph["accuracy"] is None else f'{ph["accuracy"]:.0f}'
             parts.append(f'{ph["phoneme"]} {score}' + (f' ({ph["heard"]}로 들림)' if ph["heard"] else ""))
         lines.append(f'{w["word"]}: ' + " · ".join(parts))
@@ -239,3 +242,11 @@ def css():
   background:rgba(255,255,255,.1); color:#fff; border:1px solid rgba(255,255,255,.25); }}
 .sl-chip.warn {{ background:{theme.LIME}; color:{theme.FOREST}; border-color:{theme.LIME}; font-weight:700; }}
 </style>"""
+
+
+def azure_prosody_notes(result):
+    """운율 피드백에서 학습자에게 알릴 문장들. 단조로움(Monotone)은 발화 전체를 한 번 판정해 모든 단어에 같은 태그가 붙으므로 **한 번만** 알린다."""
+    notes = []
+    if any("Monotone" in (w.get("prosody") or {}).get("intonation", []) for w in result["words"]):
+        notes.append("억양이 단조롭게 들렸어요(발화 전체에 대한 판정이에요).")
+    return notes
