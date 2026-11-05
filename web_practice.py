@@ -158,6 +158,59 @@ def chips_html(chips):
     return "".join(f'<span class="sl-chip {"ok" if ok else "warn"}">{"✓" if ok else "!"} {html.escape(t)}</span>' for t, ok in chips)
 
 
+# ---------- Azure 발음 평가 결과 → 화면용 조각 (이슈 #48) ----------
+LOCALES = {"en": "en-US", "ja": "ja-JP", "fr": "fr-FR"}      # prep["lang"] → Azure 로캘. 일본어·프랑스어의 발음 평가 지원은 확인 전(미확인)
+AZURE_LABELS = [("accuracy", "정확도", "음소가 원어민 발음과 얼마나 가까운가"), ("fluency", "유창성", "단어 사이 쉼이 자연스러운가"),
+                ("completeness", "완성도", "기준 문장 중 발음된 단어의 비율"), ("prosody", "운율", "억양·강세·속도·리듬(영어만)"),
+                ("pronunciation", "종합", "위 항목을 합친 참고 점수")]
+ERROR_LABELS = {"Mispronunciation": "발음", "Omission": "빠짐", "Insertion": "더해짐", "UnexpectedBreak": "쉼 많음", "MissingBreak": "쉼 없음", "Monotone": "단조로움"}
+BREAK_LABELS = {"UnexpectedBreak": "쉼 많음", "MissingBreak": "쉼 없음"}      # 운율 피드백의 단어 앞 쉼(영어만)
+
+
+def azure_cards_html(result):
+    """Azure 점수 카드(정확도·유창성·완성도·운율·종합). 점수가 없는 항목(영어가 아니면 운율)은 '해당 없음'으로 흐리게 표시한다.
+    점수가 낮으면(poor) 글자색을 보라로 한다(빨강은 쓰지 않는 규칙)."""
+    import azure_pronunciation as ap
+    cards = []
+    for key, name, desc in AZURE_LABELS:
+        score = result["scores"].get(key)
+        if score is None:
+            cards.append(f'<div class="sl-az-card sl-az-na"><span>{name}</span><b>—</b><small>{html.escape(desc)} · 이 언어는 제공되지 않아요</small></div>')
+        else:
+            cards.append(f'<div class="sl-az-card lvl-{ap.level(score)}"><span>{name}</span><b>{score:.0f}</b><small>{html.escape(desc)}</small></div>')
+    return f'<div class="sl-az-grid">{"".join(cards)}</div>'
+
+
+def azure_words_html(result):
+    """단어별 정확도. 점수가 낮거나(poor) 오류 종류가 있는 단어는 보라 + 물결 밑줄 + 이름표(색만으로 구분하지 않음), 보통(fair)은 점수만 흐리게."""
+    cells = []
+    for w in result["words"]:
+        kind = ERROR_LABELS.get(w["error_type"], "" if w["error_type"] in (None, "None") else w["error_type"])
+        score = "" if w["accuracy"] is None else f'{w["accuracy"]:.0f}'
+        breaks = [BREAK_LABELS[b] for b in (w.get("prosody") or {}).get("break", []) if b in BREAK_LABELS]
+        weak = w["level"] == "poor" or bool(kind)
+        label = "".join(f"<small>{html.escape(x)}</small>" for x in ([kind] if kind else []) + breaks)
+        cls = "sl-cell sl-wrong" if weak else ("sl-cell sl-fair" if w["level"] == "fair" else "sl-cell")
+        word = html.escape(w["word"] or "")
+        cells.append(f'<span class="{cls}"><span class="{"sl-und" if weak else ""}">{word}</span><span class="sl-az-score">{score}</span>{label}</span>')
+    return f'<div class="sl-diff">{"".join(cells)}</div>'
+
+
+def phoneme_lines(result, levels=("poor", "fair")):
+    """점수가 낮은 단어(poor·fair)의 음소 점수를 글 한 줄씩으로: 'explore: ɛ 47 (ə로 들림) · k 90 …'. 음소 정보가 없는 단어는 건너뛴다."""
+    lines = []
+    for w in result["words"]:
+        named = [ph for ph in w["phonemes"] if ph.get("phoneme")]      # 일본어·프랑스어는 음소 점수만 오고 음소 이름이 없을 수 있다(공식 문서)
+        if w["level"] not in levels or not named:
+            continue
+        parts = []
+        for ph in named:
+            score = "?" if ph["accuracy"] is None else f'{ph["accuracy"]:.0f}'
+            parts.append(f'{ph["phoneme"]} {score}' + (f' ({ph["heard"]}로 들림)' if ph["heard"] else ""))
+        lines.append(f'{w["word"]}: ' + " · ".join(parts))
+    return lines
+
+
 def css():
     """결과 카드·단어 대조·칩의 스타일(`<style>` 블록). 색은 theme.py의 브랜드 색을 쓴다."""
     return f"""<style>
@@ -175,7 +228,25 @@ def css():
 .sl-wrong {{ background:#ece9fb; color:#4a3bb0; }}
 .sl-und {{ text-decoration:underline wavy {theme.PURPLE}; text-underline-offset:4px; font-weight:700; }}
 .sl-cell small {{ font-size:.65rem; font-weight:700; color:{theme.PURPLE}; }}
+.sl-az-grid {{ display:grid; grid-template-columns:repeat(5,1fr); gap:10px; margin:8px 0; }}
+.sl-az-card {{ border:1px solid #cfe0d3; border-radius:14px; padding:10px 12px; background:#fff; }}
+.sl-az-card span {{ display:block; font-size:.8rem; opacity:.8; }}
+.sl-az-card b {{ display:block; font-size:1.8rem; line-height:1.3; color:{theme.BUTTON_GREEN}; }}
+.sl-az-card small {{ font-size:.68rem; opacity:.65; }}
+.sl-az-card.lvl-fair b {{ color:{theme.FOREST}; }}
+.sl-az-card.lvl-poor b {{ color:{theme.PURPLE}; }}
+.sl-az-na {{ background:#f4f4f2; }} .sl-az-na b {{ color:#9a9a96; }}
+.sl-fair {{ background:#f1fbc8; }}
+.sl-az-score {{ font-size:.7rem; opacity:.7; }}
 .sl-chip {{ display:inline-block; border-radius:999px; padding:2px 10px; margin:0 6px 4px 0; font-size:.8rem;
   background:rgba(255,255,255,.1); color:#fff; border:1px solid rgba(255,255,255,.25); }}
 .sl-chip.warn {{ background:{theme.LIME}; color:{theme.FOREST}; border-color:{theme.LIME}; font-weight:700; }}
 </style>"""
+
+
+def azure_prosody_notes(result):
+    """운율 피드백에서 학습자에게 알릴 문장들. 단조로움(Monotone)은 발화 전체를 한 번 판정해 모든 단어에 같은 태그가 붙으므로 **한 번만** 알린다."""
+    notes = []
+    if any("Monotone" in (w.get("prosody") or {}).get("intonation", []) for w in result["words"]):
+        notes.append("억양이 단조롭게 들렸어요(발화 전체에 대한 판정이에요).")
+    return notes

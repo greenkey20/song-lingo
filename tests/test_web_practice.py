@@ -128,5 +128,60 @@ class ErrorSpans(unittest.TestCase):
         self.assertEqual(out["sounds"], ["s"])
 
 
+
+class AzureHtml(unittest.TestCase):
+    RES = {"scores": {"accuracy": 91.0, "fluency": 99.0, "completeness": 100.0, "prosody": None, "pronunciation": 93.3},
+           "words": [
+               {"word": "want", "accuracy": 100.0, "level": "good", "error_type": "None", "phonemes": []},
+               {"word": "explore", "accuracy": 68.0, "level": "fair", "error_type": "None",
+                "phonemes": [{"phoneme": "ɛ", "accuracy": 47.0, "heard": "ə"}, {"phoneme": "k", "accuracy": 90.0, "heard": None}]},
+               {"word": "the<b>", "accuracy": 40.0, "level": "poor", "error_type": "Mispronunciation", "phonemes": []},
+               {"word": "universe", "accuracy": 95.0, "level": "good", "error_type": "Omission", "phonemes": []}]}
+
+    def test_cards_show_scores_and_missing_prosody(self):
+        out = wp.azure_cards_html(self.RES)
+        self.assertIn("<b>91</b>", out)
+        self.assertIn("sl-az-na", out)                           # 운율 점수 없음 → 해당 없음 카드
+        self.assertEqual(out.count("sl-az-card"), 5)             # 카드 5개(운율은 점수가 없어도 카드는 있다)
+
+    def test_words_mark_weak_with_underline_and_label(self):
+        out = wp.azure_words_html(self.RES)
+        self.assertIn("발음", out)                                # Mispronunciation → 이름표
+        self.assertIn("빠짐", out)                                # 점수가 높아도 Omission이면 약한 단어
+        self.assertEqual(out.count("sl-und"), 2)                  # 밑줄: the<b>(poor), universe(오류 종류)
+        self.assertIn("sl-fair", out)                             # 보통(fair)은 연하게
+        self.assertNotIn("<b>", out.replace("&lt;b&gt;", ""))     # 단어 글은 escape된다
+
+    def test_phoneme_lines_for_low_words_only(self):
+        lines = wp.phoneme_lines(self.RES)
+        self.assertEqual(lines, ["explore: ɛ 47 (ə로 들림) · k 90"])   # fair 단어만 음소가 있고, 들린 음소가 다를 때만 표시
+
+    def test_locale_mapping(self):
+        self.assertEqual((wp.LOCALES["en"], wp.LOCALES["ja"], wp.LOCALES["fr"]), ("en-US", "ja-JP", "fr-FR"))
+
+
+
+class AzureProsodyAndLocales(unittest.TestCase):
+    def test_break_labels_on_words(self):
+        res = {"words": [{"word": "together", "accuracy": 90.0, "level": "good", "error_type": "None", "phonemes": [],
+                          "prosody": {"break": ["UnexpectedBreak"], "intonation": []}}]}
+        out = wp.azure_words_html(res)
+        self.assertIn("쉼 많음", out)
+        self.assertNotIn("sl-wrong", out)                      # 점수가 높고 오류 종류가 없으면 보라 밑줄은 아님(쉼 이름표만)
+
+    def test_monotone_note_once(self):
+        res = {"words": [{"word": "a", "accuracy": 90.0, "level": "good", "error_type": "None", "phonemes": [],
+                          "prosody": {"break": [], "intonation": ["Monotone"]}} for _ in range(3)]}
+        self.assertEqual(len(wp.azure_prosody_notes(res)), 1)   # 모든 단어에 같은 태그가 붙어도 한 번만
+        res["words"][0]["prosody"]["intonation"] = []
+        self.assertEqual(len(wp.azure_prosody_notes(res)), 1)   # 한 단어라도 있으면 알림
+        self.assertEqual(wp.azure_prosody_notes({"words": []}), [])
+
+    def test_phoneme_lines_skip_unnamed_phonemes(self):
+        res = {"words": [{"word": "日本", "accuracy": 55.0, "level": "poor", "error_type": "None",
+                          "phonemes": [{"phoneme": None, "accuracy": 40.0, "heard": None}]}]}
+        self.assertEqual(wp.phoneme_lines(res), [])             # 음소 이름이 없는 로캘은 줄을 만들지 않는다
+
+
 if __name__ == "__main__":
     unittest.main()
