@@ -39,10 +39,10 @@ _ASSETS = Path(__file__).resolve().parent / "assets"
 st.logo(str(_ASSETS / "logo.svg"), icon_image=str(_ASSETS / "icon.svg"), size="large")
 # st.logo의 size는 small(1.25rem)·medium(1.5rem)·large(2rem) 높이뿐이라 large(약 32px)가 한계여서 사이드바 너비(기본 약 21rem)의 절반도 안 된다.
 # 로고를 더 키우려면 CSS로 높이를 덮어써야 한다(아래: 5.5rem ≈ 88px, 가로:세로 비율 약 2.7:1이라 너비 약 237px ≈ 사이드바의 2/3).
-# **Streamlit 내부 요소 이름(data-testid)에 기대므로 Streamlit을 올리면 깨질 수 있다.** 그때는 이 블록만 지우면 기본 크기로 돌아간다.
+# **사이드바 로고의 data-testid는 stLogo가 아니라 stSidebarLogo다(처음에 stLogo로 써서 CSS가 적용되지 않아 계속 작았음, 11-06). Streamlit 내부 요소 이름에 기대므로 Streamlit을 올리면 깨질 수 있다.** 그때는 이 블록만 지우면 기본 크기로 돌아간다.
 LOGO_HEIGHT = "5.5rem"
 st.html(f"""<style>
 [data-testid="stSidebarHeader"] {{ height: auto; padding: 1rem 1rem 0.5rem 1rem; }}
-[data-testid="stLogo"] {{ height: {LOGO_HEIGHT} !important; max-width: 100%; width: auto; }}
+[data-testid="stSidebarLogo"], [data-testid="stSidebar"] img.stLogo {{ height: {LOGO_HEIGHT} !important; max-width: 100%; width: auto; }}
 </style>""")
 st.navigation([home_page, text_page, song_page, history_page]).run()
