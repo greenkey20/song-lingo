@@ -10,3 +10,4 @@ faster-whisper==1.2.1
 av==18.1.0           # faster-whisper 1.2.1이 av 19.x에서 오류(open() 옵션 metadata_errors) → 고정 (검토 문서 16.3)
 openai==3.35.1
 python-dotenv==1.2.4
+azure-cognitiveservices-speech==1.53.0   # Azure 발음 평가(azure_pronunciation.py, 이슈 #48). numpy는 안 바뀜(pip install --dry-run으로 확인)
