@@ -33,10 +33,12 @@ def _home():
 
 home_page = st.Page(_home, title="시작", default=True, visibility="hidden")
 
-# 로고(A안 "Beam": 빔 안의 여러 언어 + sOng·lingO의 O가 음표 머리). 원본은 시안 PNG에서 잘라 배경을 투명하게 만든 app/assets/logo.png
-st.logo(str(Path(__file__).resolve().parent / "assets" / "logo.png"), size="large")
+# 로고(A안 "Beam": 빔 안의 여러 언어 + sOng·lingO의 O가 음표 머리). 벡터 SVG(글자는 윤곽선, 배경 투명)라 크게 키워도 선명하다.
+# icon.svg는 정사각형 아이콘(파비콘·슬라이드용), logo.png·icon.png는 같은 그림의 PNG 보관본이다.
+_ASSETS = Path(__file__).resolve().parent / "assets"
+st.logo(str(_ASSETS / "logo.svg"), icon_image=str(_ASSETS / "icon.svg"), size="large")
 # st.logo의 size는 small(1.25rem)·medium(1.5rem)·large(2rem) 높이뿐이라 large(약 32px)가 한계여서 사이드바 너비(기본 약 21rem)의 절반도 안 된다.
-# 로고를 더 키우려면 CSS로 높이를 덮어써야 한다(아래: 5.5rem ≈ 88px, 가로 세로 비율 742:287이라 너비 약 228px ≈ 사이드바의 2/3).
+# 로고를 더 키우려면 CSS로 높이를 덮어써야 한다(아래: 5.5rem ≈ 88px, 가로:세로 비율 약 2.7:1이라 너비 약 237px ≈ 사이드바의 2/3).
 # **Streamlit 내부 요소 이름(data-testid)에 기대므로 Streamlit을 올리면 깨질 수 있다.** 그때는 이 블록만 지우면 기본 크기로 돌아간다.
 LOGO_HEIGHT = "5.5rem"
 st.html(f"""<style>
