@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import streamlit as st
 
 import azure_pronunciation
+import explain
 import languages
 import meaning
 import practice
@@ -78,6 +79,7 @@ AZURE_GUIDE = """
 def _show_azure(key, prep, rec, nonce):
     """따라읽기 결과 아래 '표준 평가(Azure)'. 버튼을 눌렀을 때만 녹음이 Microsoft Azure로 전송된다(자동 전송 없음). 결과는 세션에 보관해 화면이 다시 그려져도 다시 보내지 않는다."""
     st.markdown("**표준 평가 · Azure 발음 평가** · 참고용 · 외부 서비스")
+    explain.show("azure")
     st.caption("누르면 이 녹음이 Microsoft Azure Speech로 전송돼요. 정확도·유창성·완성도·운율은 Azure가 쓰는 표준 항목이고, 위의 오류율(문장 인식 일치도)과는 다른 방식이에요. "
                "Azure는 내 녹음과 **기준 문장(글)** 만 받아 자체 발음 모델(원어민 발음 기준)과 비교해요. 표준 발음(TTS) 소리는 보내지 않아요. 마이크·방 소리에 따라 점수가 달라질 수 있어요.")
     state = f"{key}_azure"
@@ -120,6 +122,7 @@ def _show_azure(key, prep, rec, nonce):
 def _show_error_spans(sp):
     """따라읽기 결과 아래 '틀린 구간 표시'. 위 단어 대조에서 보라로 표시된 틀린 단어가 소리의 어디인지 같은 번호 [k]로 보여 준다."""
     st.markdown("**틀린 구간 표시** · 참고용 · 평가 아님")
+    explain.show("error_spans")
     if not sp:
         st.caption("표준 발음이 있어야 틀린 구간을 소리 위에 표시할 수 있어요.")
     elif "error" in sp:
@@ -244,6 +247,7 @@ def practice_panel(text, key, tts_path=None, meaning_ko="", source="lyrics", lan
         if meaning_ko:
             st.caption(meaning_ko)
         rec = st.audio_input("눌러서 녹음 시작, 다시 눌러서 끝내기", key=f"{key}_rec_{nonce}")
+        explain.show("read")
         c1, c2 = st.columns([1, 1])
         if c1.button("채점하기", type="primary", key=f"{key}_read_go_{nonce}", disabled=rec is None):
             with st.spinner("인식하고 채점하는 중… (틀린 구간을 찾느라 몇 초 더 걸려요)"):
@@ -284,6 +288,7 @@ def practice_panel(text, key, tts_path=None, meaning_ko="", source="lyrics", lan
     with tab_dict:
         st.caption("소리를 들으면서 들은 문장을 적어 보세요. 재생은 몇 번이든 괜찮고, 대소문자와 문장부호는 채점할 때 정리돼요.")
         ans = st.text_area("들은 문장 적기", key=f"{key}_ans_{nonce}", height=100)
+        explain.show("dictation")
         c1, c2 = st.columns([1, 1])
         if c1.button("채점하기", type="primary", key=f"{key}_dict_go_{nonce}"):
             st.session_state[f"{key}_dict"] = wp.apply_japanese_reading(prep, practice.dictation(prep, ans))

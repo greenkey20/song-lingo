@@ -15,6 +15,7 @@ import theme
 import visualisation
 import web_practice as wp
 import web_song
+import explain
 from ui_practice import meaning_box, practice_panel
 
 st.title("내 노래")
@@ -49,6 +50,7 @@ if st.session_state.get("song_mode_prev", mode) != mode and "ws" in st.session_s
     reset_song()                                          # 입력 방식을 바꾸면 이전 입력의 작업 폴더를 지운다
 st.session_state["song_mode_prev"] = mode
 is_rec = mode == MODE_REC
+explain.show("song_input")
 
 if is_rec:
     st.caption("스피커로 노래를 틀어 두고, 마이크가 그 소리를 듣도록 녹음하세요(10~30초 정도가 좋아요). "
@@ -103,6 +105,7 @@ if is_rec:
 else:
     # ---------- 2. 구간 고르기 ----------
     st.subheader("구간 고르기")
+    explain.show("song_cut")
     duration = st.segmented_control("구간 길이", [f"{d}초" for d in web_song.DURATIONS], default="15초", key="dur")
     duration = int((duration or "15초").rstrip("초"))
     total = int(ov["seconds"])
@@ -154,6 +157,7 @@ st.caption("가사가 들리는 부분이 맞는지 들어 보세요. 반주만 
 
 # ---------- 3. 언어 확인 → 가사 인식 ----------
 st.subheader("언어 확인")
+explain.show("song_lang")
 g = st.session_state["gen"]
 det_key = f"lang_det_{g}"
 if st.button("언어 알아보기", key=f"det_btn_{g}"):
@@ -192,6 +196,7 @@ opts = languages.stt_options(answer, chosen, mixed=mixed_mode)
 rec_langs = opts["languages"] or ([sug["top"][0]] if sug and sug.get("top") else [])   # '모르겠어요'여도 제안된 언어를 줄의 언어로 기록
 
 st.subheader("가사 인식")
+explain.show("song_recog")
 doc = web_song.load_doc(ws)
 if st.button("가사 인식하기" if doc is None else "다시 인식하기(고친 가사는 사라져요)", key="recog_btn", disabled=sug is None):
     with st.spinner("인식하는 중… (medium 모델, CPU에서 20초 구간에 약 20~60초. 서버를 켠 뒤 처음 한 번은 모델을 읽느라 더 걸려요)"):
@@ -238,6 +243,7 @@ c3.caption({"confirmed": "고쳐서 저장함", "dropped": "연습에서 뺌", "
 
 # ---------- 5. 듣기 ----------
 st.subheader("듣기")
+explain.show("song_listen")
 line_lang = ln.get("lang") or (doc.get("languages") or ["en"])[0]       # 이슈 #50 이전에 만든 줄 데이터는 언어 칸이 없어 영어
 meaning_box(ln["text"], line_lang, f"song_{gen}_{ln['no']}")             # 들을 문장의 한글 뜻
 if line_lang == "ja" and wp.reading_caption(ln["text"]):

@@ -11,6 +11,7 @@ import streamlit as st
 
 import languages
 import web_practice as wp
+import explain
 from ui_practice import meaning_box, practice_panel
 
 CONF = {"high": "확신 높음", "medium": "확신 보통", "low": "확신 낮음", "none": ""}
@@ -43,6 +44,7 @@ keys = [f"{abs(hash(ln)) % 10**8}" for ln in lines]          # 줄 내용으로 
 
 # ---------- 2. 언어 알아보기 ----------
 st.subheader("언어 확인")
+explain.show("lyr_lang")
 det_for = st.session_state.get("lyr_det_for")
 if st.button("언어 알아보기", key="lyr_det_btn"):
     st.session_state["lyr_det"] = {k: languages.suggest_line_language(ln) for k, ln in zip(keys, lines)}
@@ -117,6 +119,7 @@ if not languages.uses_spaces(lang):
 
 # ---------- 4. 듣기 ----------
 st.subheader("듣기")
+explain.show("lyr_tts")
 path, cached = wp.tts_target(line)
 if cached:
     st.audio(path, format="audio/wav")
