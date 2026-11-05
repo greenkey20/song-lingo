@@ -15,6 +15,7 @@
   `tempfile.mkdtemp`: 파이썬 표준 라이브러리로 임시 폴더를 만든다(운영체제가 재부팅 때 정리하기도 하지만 우리가 직접도 지운다).
 """
 import shutil
+import subprocess
 import tempfile
 import time
 from pathlib import Path
@@ -22,12 +23,14 @@ from pathlib import Path
 import numpy as np
 
 import audio
+import languages
 import separate
 import song_practice
+import stt
 
 WORKSPACE_PREFIX = "songlingo_"
 CLIP_ID = "clip"                 # 웹 세션에서는 한 번에 구간 하나만 다룬다
-DURATIONS = (10, 15, 20)         # 사용자가 고르는 구간 길이(초)
+DURATIONS = (10, 15, 20, 30)     # 사용자가 고르는 구간 길이(초). 30초는 Whisper의 한 처리 창(감지·인식 단위)과 같다
 
 
 # ---------- 작업 폴더 ----------
@@ -53,6 +56,7 @@ def delete_workspace(ws):
     ws = Path(ws)
     if not ws.name.startswith(WORKSPACE_PREFIX):
         raise ValueError(f"작업 폴더가 아닙니다: {ws.name}")
+    _stop_job(ws)                                  # 돌고 있는 보컬 분리가 있으면 먼저 멈춘다(지운 폴더에 파일을 쓰려고 하지 않게)
     shutil.rmtree(ws, ignore_errors=True)
 
 
@@ -111,6 +115,7 @@ def song_overview(source, n_bins=600):
 # ---------- 구간 → 줄 ----------
 def cut(ws, song_path, start, duration):
     """곡의 구간을 잘라 작업 폴더에 저장한다(예전 구간·보컬·줄 목록은 지움). separate.cut_clip의 결과 dict를 돌려준다."""
+    _stop_job(ws)                                  # 구간이 바뀌면 옛 구간의 보컬 분리는 필요 없다
     out = separate.cut_clip(song_path, start, duration, CLIP_ID, work_dir=work_dir(ws), overwrite=True)
     lines = song_practice.lines_path(CLIP_ID, practice_dir(ws))
     if lines.exists():
@@ -118,11 +123,26 @@ def cut(ws, song_path, start, duration):
     return out
 
 
-def recognize_lines(ws, model_size=song_practice.SONG_MODEL, recognize=None):
-    """잘라 둔 구간을 인식해 줄 후보를 만들어 저장하고 doc(dict)을 돌려준다. recognize: 테스트용 가짜 인식 함수."""
+def detect_clip_language(ws, model_size=song_practice.SONG_MODEL, detect=None):
+    """잘라 둔 구간(원곡)의 언어를 감지해 **제안**을 돌려준다(이슈 #50, 검토 문서 16.14).
+
+    돌려주는 dict: {"top": (코드, 후보 안의 비율) 또는 None, "ranked": [(코드, 비율) 상위 3개], "mixed": 섞여 있을 수 있는 2등 언어 또는 None,
+    "raw_top": (Whisper의 100개 언어 중 1등 코드, 확률)}. 후보는 앱이 지원하는 언어(languages.COMMON)로 좁힌다(비슷한 다른 언어로 가는 오류를 줄이려고, 16.12).
+    detect: 테스트용 가짜 감지 함수 (경로, 모델 크기) → (코드, 확률, 확률 목록)."""
+    mix, _voc = separate.clip_paths(CLIP_ID, work_dir(ws))
+    code, prob, probs = (detect or stt.detect_language)(mix, model_size)
+    ranked = languages.suggest_from_probs(probs)
+    return {"top": ranked[0] if ranked else None, "ranked": ranked[:3], "mixed": languages.mixed_hint(ranked), "raw_top": (code, prob)}
+
+
+def recognize_lines(ws, model_size=song_practice.SONG_MODEL, recognize=None, language="en", multilingual=False, languages=None):
+    """잘라 둔 구간을 인식해 줄 후보를 만들어 저장하고 doc(dict)을 돌려준다. recognize: 테스트용 가짜 인식 함수.
+
+    language: STT 언어 코드(None이면 자동 감지), multilingual: 구간마다 언어 재감지(자동일 때만 의미), languages: 사용자가 확인한 언어 목록(줄 데이터에 기록).
+    기본 language="en"은 이슈 #50 이전의 동작과 같다."""
     kw = {} if recognize is None else {"recognize": recognize}
     return song_practice.prepare_lines(CLIP_ID, work_dir=work_dir(ws), out_dir=practice_dir(ws), model_size=model_size,
-                                       overwrite=True, **kw)
+                                       overwrite=True, language=language, multilingual=multilingual, languages=languages, **kw)
 
 
 def load_doc(ws):
@@ -143,6 +163,59 @@ def drop_line(ws, no):
     return song_practice.apply_edits(CLIP_ID, drop=[no], out_dir=practice_dir(ws))
 
 
+# ---------- 보컬 분리: 화면을 막지 않는 백그라운드 작업 ----------
+# 보컬 분리는 CPU에서 구간 하나에 1~3분 걸린다. 예전에는 분리가 끝날 때까지 화면의 스크립트가 기다려서(`subprocess.run`), 그동안 다른 버튼을 누르면
+# 화면은 "보컬만 만들기"로 되돌아가 마치 시작하지 않은 것처럼 보였다(분리는 뒤에서 계속 도는데도). 이제는 분리를 **별도 프로세스로 시작만 하고**(Popen) 화면은 바로 돌아오며,
+# 진행 상태(vocals_status)를 화면이 주기적으로 물어본다. 서버 프로세스 안의 작업 목록(_JOBS)과 보컬 파일의 존재로 상태를 안다.
+_JOBS = {}            # str(작업 폴더) -> {"proc": Popen, "t0": 시작 시각, "err": 오류 기록 파일 경로}
+
+
+def _stop_job(ws):
+    """이 작업 폴더의 보컬 분리 프로세스가 돌고 있으면 멈추고 목록에서 뺀다."""
+    job = _JOBS.pop(str(ws), None)
+    if job and job["proc"].poll() is None:
+        job["proc"].terminate()
+
+
+def start_vocals(ws, python=None, worker=separate.WORKER):
+    """잘라 둔 구간의 보컬 분리를 **백그라운드로 시작**하고 바로 돌아온다. 이미 있거나 돌고 있으면 새로 시작하지 않는다. 상태 문자열("done"|"running")을 돌려준다.
+
+    분리는 별도 파이썬 프로세스(scripts/separate_worker.py)로 돈다(쓸 파이썬은 SONGLINGO_SEPARATE_PYTHON, 이슈노트 #24). 오류 출력은 작업 폴더의 vocals.err에 남긴다.
+    [수업에 없음] `subprocess.Popen`: 프로그램을 시작만 하고 기다리지 않는다(`subprocess.run`은 끝날 때까지 기다림)."""
+    _mix, voc = separate.clip_paths(CLIP_ID, work_dir(ws))
+    if voc.exists():
+        return "done"
+    job = _JOBS.get(str(ws))
+    if job and job["proc"].poll() is None:
+        return "running"
+    work_dir(ws).mkdir(parents=True, exist_ok=True)
+    err = work_dir(ws) / "vocals.err"
+    proc = subprocess.Popen([separate.separate_python(python), str(worker), CLIP_ID, str(work_dir(ws))], cwd=separate.ROOT,
+                            stdout=subprocess.DEVNULL, stderr=open(err, "w", encoding="utf-8"))
+    _JOBS[str(ws)] = {"proc": proc, "t0": time.time(), "err": err}
+    return "running"
+
+
+def vocals_status(ws):
+    """보컬 분리의 상태: {"state": "none"|"running"|"done"|"error", "elapsed": 경과 초(running일 때), "error": 오류 요약(error일 때)}.
+    보컬 파일이 있으면 done(서버를 다시 띄운 뒤에도 파일로 안다). 프로세스가 끝났는데 파일이 없으면 error."""
+    _mix, voc = separate.clip_paths(CLIP_ID, work_dir(ws))
+    if voc.exists():
+        return {"state": "done"}
+    job = _JOBS.get(str(ws))
+    if job is None:
+        return {"state": "none"}
+    rc = job["proc"].poll()
+    if rc is None:
+        return {"state": "running", "elapsed": time.time() - job["t0"]}
+    tail = ""
+    try:
+        tail = (Path(job["err"]).read_text(encoding="utf-8").strip().splitlines() or [""])[-1][:300]
+    except OSError:
+        pass
+    return {"state": "error", "error": f"분리 프로세스가 끝났지만 보컬 파일이 없어요(종료 코드 {rc}). {tail}".strip()}
+
+
 def make_vocals(ws, separate_fn=None, python=None):
     """잘라 둔 구간의 보컬을 분리한다(CPU에서 20초에 1~2분). 이미 있으면 다시 하지 않는다. 결과 경로를 돌려준다.
 
@@ -158,14 +231,17 @@ def make_vocals(ws, separate_fn=None, python=None):
     return voc
 
 
-def tts_summary(ws):
-    """확정한 줄의 표준 발음 음성을 만들 때의 계획(새로 부를 호출 수·글자 수)을 파일·API 없이 돌려준다."""
-    return song_practice.make_tts(CLIP_ID, out_dir=practice_dir(ws), generate=False)
+PRACTICE_STATUSES = ("candidate", "confirmed")      # 연습·표준 발음 대상: 확인 전 줄도 포함(자동 변환 + 선택적 검수, 방식 C). 뺀 줄(dropped)만 제외
 
 
-def make_tts(ws, synth=None):
-    """확정한 줄의 표준 발음 음성을 만든다(**OpenAI TTS 과금**, 캐시에 있는 문장은 부르지 않음)."""
-    return song_practice.make_tts(CLIP_ID, out_dir=practice_dir(ws), generate=True, synth=synth)
+def tts_summary(ws, only=None):
+    """표준 발음 음성을 만들 때의 계획(새로 부를 호출 수·글자 수)을 파일·API 없이 돌려준다. only: 줄 번호 집합이면 그 줄만."""
+    return song_practice.make_tts(CLIP_ID, out_dir=practice_dir(ws), generate=False, statuses=PRACTICE_STATUSES, only=only)
+
+
+def make_tts(ws, synth=None, only=None):
+    """표준 발음 음성을 만든다(**OpenAI TTS 과금**, 캐시에 있는 문장은 부르지 않음). only: 줄 번호 집합이면 그 줄만."""
+    return song_practice.make_tts(CLIP_ID, out_dir=practice_dir(ws), generate=True, synth=synth, statuses=PRACTICE_STATUSES, only=only)
 
 
 def line_range(line, clip_seconds, pad=0.1):

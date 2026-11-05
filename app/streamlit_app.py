@@ -1,6 +1,6 @@
 """song-lingo 웹 앱의 시작점: 사이드바 메뉴(페이지 3개)를 정하고 선택된 페이지를 실행한다. 검토 문서 16.10.
 
-메뉴: 가사 입력 / 내 노래 / 기록. 각 페이지의 화면 코드는 app/views/*.py, 계산·파일 처리는 프로젝트 루트의 모듈(web_song.py 등)에 있다.
+메뉴: 내 문장 / 내 노래 / 기록(11-05에 "가사 입력"에서 "내 문장"으로 이름을 바꿈). 각 페이지의 화면 코드는 app/views/*.py, 계산·파일 처리는 프로젝트 루트의 모듈(web_song.py 등)에 있다.
 [수업에 없음] Streamlit: 파이썬 파일이 위에서 아래로 실행되면서 화면이 만들어지는 웹 앱 도구(검토 문서 16.4).
 `st.navigation`·`st.Page`: 페이지 파일마다 주소와 메뉴 항목을 만들어 주는 Streamlit의 다중 페이지 기능.
 
@@ -20,9 +20,29 @@ load_dotenv(ROOT / ".env")                  # OPENAI_API_KEY, (선택) SONGLINGO
 
 st.set_page_config(page_title="song lingo", page_icon="🎵", layout="wide")
 
-pages = [
-    st.Page("views/lyrics.py", title="가사 입력", icon=":material/edit_note:", default=True),
-    st.Page("views/song.py", title="내 노래", icon=":material/library_music:"),
-    st.Page("views/history.py", title="기록", icon=":material/show_chart:"),
-]
-st.navigation(pages).run()
+# 주소: 내 문장 /text, 내 노래 /song, 기록 /history. Streamlit은 **기본 페이지의 주소를 항상 "/"로 고정**하고 url_path를 무시하므로,
+# 주소가 "/"일 때는 메뉴에 보이지 않는 기본 페이지가 내 문장으로 보낸다(visibility="hidden", 이슈 #50 후속).
+text_page = st.Page("views/lyrics.py", title="내 문장", icon=":material/edit_note:", url_path="text")
+song_page = st.Page("views/song.py", title="내 노래", icon=":material/library_music:", url_path="song")
+history_page = st.Page("views/history.py", title="기록", icon=":material/show_chart:", url_path="history")
+
+
+def _home():
+    st.switch_page(text_page)
+
+
+home_page = st.Page(_home, title="시작", default=True, visibility="hidden")
+
+# 로고(A안 "Beam": 빔 안의 여러 언어 + sOng·lingO의 O가 음표 머리). 벡터 SVG(글자는 윤곽선, 배경 투명)라 크게 키워도 선명하다.
+# icon.svg는 정사각형 아이콘(파비콘·슬라이드용), logo.png·icon.png는 같은 그림의 PNG 보관본이다.
+_ASSETS = Path(__file__).resolve().parent / "assets"
+st.logo(str(_ASSETS / "logo.svg"), icon_image=str(_ASSETS / "icon.svg"), size="large")
+# st.logo의 size는 small(1.25rem)·medium(1.5rem)·large(2rem) 높이뿐이라 large(약 32px)가 한계여서 사이드바 너비(기본 약 21rem)의 절반도 안 된다.
+# 로고를 더 키우려면 CSS로 높이를 덮어써야 한다(아래: 5.5rem ≈ 88px, 가로:세로 비율 약 2.7:1이라 너비 약 237px ≈ 사이드바의 2/3).
+# **사이드바 로고의 data-testid는 stLogo가 아니라 stSidebarLogo다(처음에 stLogo로 써서 CSS가 적용되지 않아 계속 작았음, 11-06). Streamlit 내부 요소 이름에 기대므로 Streamlit을 올리면 깨질 수 있다.** 그때는 이 블록만 지우면 기본 크기로 돌아간다.
+LOGO_HEIGHT = "5.5rem"
+st.html(f"""<style>
+[data-testid="stSidebarHeader"] {{ height: auto; padding: 1rem 1rem 0.5rem 1rem; }}
+[data-testid="stSidebarLogo"], [data-testid="stSidebar"] img.stLogo {{ height: {LOGO_HEIGHT} !important; max-width: 100%; width: auto; }}
+</style>""")
+st.navigation([home_page, text_page, song_page, history_page]).run()

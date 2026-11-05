@@ -18,6 +18,7 @@ import os
 import time
 from pathlib import Path
 
+import languages as languages_mod
 import separate
 import song_lines
 import stt
@@ -42,7 +43,7 @@ def _write_json(path, doc):
 
 
 def prepare_lines(clip_id, work_dir=separate.WORK_DIR, out_dir=SONG_DIR, model_size=SONG_MODEL, recognize=stt.recognize_segments,
-                  overwrite=False, language="en", **split_kwargs):
+                  overwrite=False, language="en", multilingual=False, languages=None, **split_kwargs):
     """구간 하나를 인식해 줄 후보를 만들고 lines.json으로 저장한 뒤 그 내용(dict)을 돌려준다.
 
     clip_id: 구간 id(예: "c05"). work_dir의 `<id>_mix.wav`(원곡 구간)를 쓴다. 없으면 FileNotFoundError.
@@ -55,15 +56,21 @@ def prepare_lines(clip_id, work_dir=separate.WORK_DIR, out_dir=SONG_DIR, model_s
     target = lines_path(clip_id, out_dir)
     if target.exists() and not overwrite:
         raise FileExistsError(f"이미 있습니다: {target} (고친 가사를 지키려고 덮어쓰지 않습니다. 다시 만들려면 overwrite=True)")
-    segs, seconds = recognize(str(mix_path), language, model_size=model_size, vad_filter=False, word_timestamps=True)
+    extra = {"multilingual": True} if multilingual else {}      # 가짜 인식 함수(테스트)가 모르는 인자를 안 받도록 켤 때만 넘긴다
+    segs, seconds = recognize(str(mix_path), language, model_size=model_size, vad_filter=False, word_timestamps=True, **extra)
+    primary = language or (languages[0] if languages else None)  # 줄에 적을 주 언어(자동이면 모름)
+    if "sep" not in split_kwargs and primary is not None and not languages_mod.uses_spaces(primary):
+        split_kwargs["sep"] = ""                                 # 일본어·중국어는 단어를 공백 없이 잇는다
     lines = song_lines.split_into_lines(segs, **split_kwargs)
     meta = separate.manifest_row(clip_id, work_dir) or {}
     doc = {
         "clip_id": clip_id, "start": _num(meta.get("start")), "duration": _num(meta.get("duration")),
-        "stt": {"model": model_size, "vad_filter": False, "temperature": "default", "seconds": round(seconds, 1), "n_segments": len(segs)},
+        "stt": {"model": model_size, "vad_filter": False, "temperature": "default", "seconds": round(seconds, 1), "n_segments": len(segs),
+                "language": language, "multilingual": bool(multilingual)},
+        "languages": list(languages or ([language] if language else [])),      # 사용자가 확인·선택한 언어들(줄 데이터의 언어 칸, 검토 문서 16.14)
         "lines": [{"no": l["no"], "start": l["start"], "end": l["end"], "stt_text": l["text"], "text": l["text"], "edited": False,
                    "status": "candidate", "source": l["source"], "low_confidence": l["low_confidence"], "too_long": l["too_long"],
-                   "n_words": l["n_words"], "segment_ids": l["segment_ids"], "tts_path": None} for l in lines],
+                   "n_words": l["n_words"], "segment_ids": l["segment_ids"], "tts_path": None, "lang": primary} for l in lines],
         "segments": segs,      # 줄을 다시 나누거나 보컬 조각을 자를 때 쓰려고 원본 구간(단어 시간 포함)도 남긴다
     }
     if target.exists():
@@ -133,15 +140,17 @@ def status_summary(clip_id, out_dir=SONG_DIR):
     return out
 
 
-def tts_plan(clip_id, out_dir=SONG_DIR, lookup=None):
+def tts_plan(clip_id, out_dir=SONG_DIR, lookup=None, statuses=("confirmed",), only=None):
     """확정된 줄(confirmed) 중 **표준 발음 음성이 아직 없거나 가사가 바뀐** 줄을 찾아 [{"no", "text", "path", "cached"}]로 돌려준다.
     cached=True면 같은 문장의 음성 파일이 이미 있어 API를 부르지 않는다(tts.py는 문장 내용의 해시로 캐시 파일 이름을 정함). 파일은 만들지 않는다.
+    statuses: 대상 줄의 상태(기본은 확정한 줄만). **자동 변환 + 선택적 검수(방식 C, 이슈 #50)** 에서는 ("candidate", "confirmed")로 확인 전의 줄도 대상이 된다.
+    only: 줄 번호 집합이면 그 줄만(예: 지금 보고 있는 한 줄의 표준 발음만 만들어 과금을 줄인다).
     lookup: tts.lookup_sentence처럼 (문장, []) → (행, 경로)를 돌려주는 함수(테스트에서 가짜로 바꿈)."""
     import tts
     lookup = lookup or tts.lookup_sentence
     plan = []
     for ln in load_lines(clip_id, out_dir)["lines"]:
-        if ln["status"] != "confirmed":
+        if ln["status"] not in statuses or (only is not None and ln["no"] not in only):
             continue
         _row, path = lookup(ln["text"], [])
         if ln.get("tts_text") == ln["text"] and ln.get("tts_path") and Path(ln["tts_path"]).exists():
@@ -150,7 +159,7 @@ def tts_plan(clip_id, out_dir=SONG_DIR, lookup=None):
     return plan
 
 
-def make_tts(clip_id, out_dir=SONG_DIR, generate=False, lookup=None, synth=None):
+def make_tts(clip_id, out_dir=SONG_DIR, generate=False, lookup=None, synth=None, statuses=("confirmed",), only=None):
     """확정된 줄마다 **표준 발음 기준 음성**(OpenAI TTS, 기존 tts.py)을 만든다. 기본은 **계획만 보여 주는 안전 모드**다.
 
     generate=False(기본): 파일도 API 호출도 없이 {"n_lines", "n_api_calls"(캐시에 없어 새로 부를 줄 수), "n_cached", "chars"(새로 보낼 글자 수), "done": False}만 돌려준다.
@@ -159,7 +168,7 @@ def make_tts(clip_id, out_dir=SONG_DIR, generate=False, lookup=None, synth=None)
     synth: tts.tts_wav처럼 (문장, 경로)로 음성 파일을 만드는 함수(테스트에서 가짜로 바꿈)."""
     import tts
     synth = synth or tts.tts_wav
-    plan = tts_plan(clip_id, out_dir, lookup)
+    plan = tts_plan(clip_id, out_dir, lookup, statuses=statuses, only=only)
     new = [p for p in plan if not p["cached"]]
     summary = {"n_lines": len(plan), "n_api_calls": len(new), "n_cached": len(plan) - len(new),
                "chars": sum(len(p["text"]) for p in new), "done": False}

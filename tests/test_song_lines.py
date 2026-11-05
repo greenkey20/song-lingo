@@ -109,6 +109,24 @@ class LowConfidence(unittest.TestCase):
     def test_threshold_values_are_the_observed_ones(self):
         self.assertEqual((song_lines.LOW_LOGPROB, song_lines.LOW_COMPRESSION), (-0.6, 1.8))
 
+class JoinSeparator(unittest.TestCase):
+    """이슈 #50: 공백 없는 언어(일본어·중국어)는 줄을 나눌 때 단어를 공백 없이 잇는다."""
+
+    def _long_segment(self):
+        words = [{"word": w, "start": i * 1.0, "end": i * 1.0 + 0.8, "prob": 0.9} for i, w in enumerate(["あ", "い", "う", "え", "お", "か", "き", "く"])]
+        return {"start": 0.0, "end": 7.8, "text": "あいうえおかきく", "avg_logprob": -0.3, "no_speech_prob": 0.01, "compression_ratio": 1.2, "words": words}
+
+    def test_default_sep_is_space(self):
+        lines = song_lines.split_into_lines([self._long_segment()])                 # 7.8초라 6초 규칙으로 둘로 나뉨
+        self.assertGreater(len(lines), 1)
+        self.assertTrue(all(" " in ln["text"] for ln in lines if ln["n_words"] > 1))
+
+    def test_empty_sep_joins_without_spaces(self):
+        lines = song_lines.split_into_lines([self._long_segment()], sep="")
+        self.assertGreater(len(lines), 1)
+        self.assertTrue(all(" " not in ln["text"] for ln in lines))
+        self.assertEqual("".join(ln["text"] for ln in lines), "あいうえおかきく")        # 나눠도 글자는 그대로 이어진다
+
 
 if __name__ == "__main__":
     unittest.main()

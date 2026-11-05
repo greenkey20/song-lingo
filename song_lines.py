@@ -42,7 +42,7 @@ def _from_segment(i, seg):
             "segment_ids": [i], "source": "segment", "parts": [seg]}
 
 
-def _split_once(line):
+def _split_once(line, sep=" "):
     """단어 사이 가장 큰 쉼에서 줄을 둘로 나눈다. 단어가 2개 미만이거나 단어 시간이 없으면 None. 가운데 30~70% 위치의 쉼 중에서 고른다."""
     words = line["words"]
     if not words or len(words) < 2:
@@ -53,28 +53,28 @@ def _split_once(line):
     k = max(cands, key=lambda i: (words[i]["start"] - words[i - 1]["end"], -abs(i - n / 2)))   # 쉼이 같으면 가운데에 가까운 쪽
     out = []
     for part in (words[:k], words[k:]):
-        out.append({"start": part[0]["start"], "end": part[-1]["end"], "text": " ".join(w["word"] for w in part), "words": part,
+        out.append({"start": part[0]["start"], "end": part[-1]["end"], "text": sep.join(w["word"] for w in part), "words": part,
                     "segment_ids": list(line["segment_ids"]), "source": "split", "parts": line["parts"]})
     return out
 
 
-def _split_long(line, max_sec, max_words):
+def _split_long(line, max_sec, max_words, sep=" "):
     if not _too_long(line, max_sec, max_words):
         return [line]
-    halves = _split_once(line)
+    halves = _split_once(line, sep)
     if halves is None:
         return [dict(line, too_long=True)]       # 쪼갤 수 없음: 그대로 두고 표시
-    return [p for h in halves for p in _split_long(h, max_sec, max_words)]
+    return [p for h in halves for p in _split_long(h, max_sec, max_words, sep)]
 
 
-def _merge(a, b):
+def _merge(a, b, sep=" "):
     words = (a["words"] or []) + (b["words"] or []) if a["words"] is not None and b["words"] is not None else None
-    return {"start": a["start"], "end": b["end"], "text": (a["text"] + " " + b["text"]).strip(), "words": words,
+    return {"start": a["start"], "end": b["end"], "text": (a["text"] + sep + b["text"]).strip(), "words": words,
             "segment_ids": a["segment_ids"] + [i for i in b["segment_ids"] if i not in a["segment_ids"]],
             "source": "merged", "parts": a["parts"] + [p for p in b["parts"] if p not in a["parts"]]}
 
 
-def _merge_short(lines, min_sec, min_words, max_sec, max_words, max_merge_gap):
+def _merge_short(lines, min_sec, min_words, max_sec, max_words, max_merge_gap, sep=" "):
     lines = list(lines)
     i = 0
     while i < len(lines):
@@ -90,7 +90,7 @@ def _merge_short(lines, min_sec, min_words, max_sec, max_words, max_merge_gap):
         done = False
         for gap, j in sorted(options):                # 쉼이 짧은 이웃부터 시도
             a, b = (lines[j], ln) if j < i else (ln, lines[j])
-            merged = _merge(a, b)
+            merged = _merge(a, b, sep)
             if gap <= max_merge_gap and not _too_long(merged, max_sec, max_words):
                 lines[min(i, j):max(i, j) + 1] = [merged]
                 i = max(min(i, j) - 1, 0)             # 합쳐진 줄을 다시 검사(앞 줄과 또 합칠 수 있음)
@@ -106,16 +106,17 @@ def _low_confidence(parts):
                for p in parts)
 
 
-def split_into_lines(segments, max_sec=6.0, max_words=14, min_sec=1.2, min_words=3, max_merge_gap=1.5):
+def split_into_lines(segments, max_sec=6.0, max_words=14, min_sec=1.2, min_words=3, max_merge_gap=1.5, sep=" "):
     """구간 목록(stt.recognize_segments의 결과) → 줄 목록. 시간순이고 겹치지 않는다.
 
     돌려주는 줄: {"no"(1부터), "start", "end", "text", "n_words", "source"("segment"|"split"|"merged"), "segment_ids", "low_confidence", "too_long"}.
-    인자의 뜻은 파일 맨 위 규칙 참고(길이·시간은 초). 빈 글의 구간은 버린다."""
+    인자의 뜻은 파일 맨 위 규칙 참고(길이·시간은 초). 빈 글의 구간은 버린다.
+    sep: 단어를 이어 줄 글을 만들 때 쓰는 글자. 기본은 공백이고, **일본어·중국어처럼 공백이 없는 언어는 ""** 를 준다(이슈 #50: 공백을 넣으면 인식된 글과 달라진다)."""
     segs = [s for s in segments if s.get("text", "").strip()]
     lines = []
     for i, seg in enumerate(segs):
-        lines += _split_long(_from_segment(i, seg), max_sec, max_words)
-    lines = _merge_short(lines, min_sec, min_words, max_sec, max_words, max_merge_gap)
+        lines += _split_long(_from_segment(i, seg), max_sec, max_words, sep)
+    lines = _merge_short(lines, min_sec, min_words, max_sec, max_words, max_merge_gap, sep)
     out = []
     for no, ln in enumerate(lines, 1):
         out.append({"no": no, "start": round(ln["start"], 2), "end": round(ln["end"], 2), "text": ln["text"], "n_words": _n_words(ln),

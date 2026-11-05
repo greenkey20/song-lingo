@@ -55,20 +55,24 @@ def _unify_tokens(tokens):
     return out
 
 
-def normalize(text, lang="en", strip_accents=False, unify=True):
+def normalize(text, lang="en", strip_accents=False, unify=True, fold_kana=True):
     """비교 전에 문장 형식을 같은 규칙으로 맞춘다. (자습 노트북 `normalize_en`을 일본어·프랑스어까지 넓힌 것)
 
     공통: 유니코드 NFC → (영어·프랑스어는 소문자화) → 구두점 제거(아포스트로피는 유지) → 공백 정리
-    일본어(ja): 공백이 없는 언어라 구두점과 공백을 모두 제거
+    일본어(ja)·중국어(zh): 공백이 없는 언어라 구두점과 공백을 모두 제거(이슈 #50: 중국어 추가, 영어·프랑스어 외 라틴·키릴 문자 언어도 소문자화)
     strip_accents: 프랑스어 악센트를 지울지 (기본 False, 방침은 1일차에 결정)
+    fold_kana: 일본어(ja)만. True(기본)면 가타카나를 히라가나로 맞춘다(같은 소리를 다른 문자로 적은 차이를 오류로 세지 않으려는 것).
     unify: 영어(en)만. True(기본)면 축약형을 펼치고(we're → we are, don't → do not, can't/cannot → can not, gonna → going to)
            0~99의 숫자 단어를 숫자로 바꾼다(twenty → 20, twenty-one → 21). False면 이 통일 없이 엄격하게 비교한다.
     """
     # NFC: 같은 글자를 만드는 여러 유니코드 표현(예: é 한 글자 vs e + 악센트 기호)을 한 가지로 맞춘다.
     # ’(둥근 아포스트로피)를 '(곧은 것)로 바꾸는 이유: 같은 문장인데 기호만 달라서 틀린 것으로 세지 않으려는 것.
     text = unicodedata.normalize("NFC", text).replace("’", "'")
-    if lang in ("en", "fr"):
-        text = text.lower()
+    if lang == "ja" and fold_kana:
+        # 가타카나를 히라가나로 맞춘다(U+30A1~30F6 → U+3041~3096). Whisper가 외래어·영어 단어를 가타카나로 적어도 같은 소리의 히라가나와 같은 글자로 비교하려는 것이다.
+        # 한자는 읽는 법이 달라 이 방식으로 맞출 수 없다(한자 → 읽기 변환은 별도 도구가 필요, 검토 문서 16.14).
+        text = "".join(chr(ord(c) - 0x60) if "ァ" <= c <= "ヶ" else c for c in text)
+    text = text.lower()               # 모든 언어에 소문자화: 한·일·중 글자는 대소문자가 없어 그대로이고, 일본어 줄에 섞인 영어 단어(Tonight)는 소문자로 맞춘다(이슈 #50)
     if lang == "en" and unify:
         text = _unify_en(text)
     if strip_accents:
@@ -78,8 +82,8 @@ def normalize(text, lang="en", strip_accents=False, unify=True):
         text = unicodedata.normalize("NFC", text)
     # 정규식 [^\w\s']: 글자·숫자(\w, 한글·일본어 포함), 공백(\s), 아포스트로피(')가 "아닌" 것을 모두 지운다.
     text = re.sub(r"[^\w\s']", "", text)
-    if lang == "ja":
-        return re.sub(r"\s+", "", text)
+    if lang in ("ja", "zh"):
+        return re.sub(r"\s+", "", text)   # 단어 사이에 공백이 없는 언어: 공백을 모두 지운다(CER 중심)
     text = re.sub(r"\s+", " ", text).strip()   # 연속 공백을 하나로, 앞뒤 공백은 제거
     if lang == "en" and unify:
         text = " ".join(_unify_tokens(text.split()))
@@ -197,10 +201,10 @@ def cer(ref, hyp, lang="en", **kw):
 def evaluate(ref, hyp, lang="en", **kw):
     """한 문장의 채점 결과를 한 번에 돌려준다: {"wer": wer 결과, "cer": cer 결과, "main": 틀린 부분 표시에 쓸 쪽}.
 
-    main은 일본어처럼 공백으로 단어를 나눌 수 없는 언어면 cer, 그 밖에는 wer이다.
+    main은 일본어·중국어처럼 공백으로 단어를 나눌 수 없는 언어면 cer, 그 밖에는 wer이다.
     (practice.ipynb의 show_result에 있던 판단을 채점 모듈로 옮긴 것.)"""
     w, c = wer(ref, hyp, lang, **kw), cer(ref, hyp, lang, **kw)
-    return {"wer": w, "cer": c, "main": c if lang == "ja" else w}
+    return {"wer": w, "cer": c, "main": c if lang in ("ja", "zh") else w}
 
 
 def format_diff(ops):

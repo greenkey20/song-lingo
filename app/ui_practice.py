@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 import streamlit as st
 
 import azure_pronunciation
+import languages
+import meaning
 import practice
 import practice_log
 import visualisation
@@ -83,7 +85,7 @@ def _show_azure(key, prep, rec, nonce):
         with st.spinner("Azure에서 평가하는 중…"):
             try:
                 st.session_state[state] = {"result": azure_pronunciation.assess(
-                    rec.getvalue(), prep["text"], wp.LOCALES.get(prep["lang"], "en-US"))}
+                    rec.getvalue(), prep["text"], languages.azure_locale(prep["lang"]))}
             except azure_pronunciation.NotConfigured as e:
                 st.session_state[state] = {"error": str(e)}
             except (azure_pronunciation.AssessmentError, ValueError) as e:
@@ -107,6 +109,8 @@ def _show_azure(key, prep, rec, nonce):
     st.markdown("**단어별 정확도** · 보라 물결 밑줄은 점수가 낮거나 오류가 있는 단어, 연한 라임은 보통")
     st.markdown(wp.azure_words_html(res), unsafe_allow_html=True)
     lines = wp.phoneme_lines(res)
+    if not lines and res.get("locale") and not res["locale"].startswith("en"):
+        st.caption("이 언어는 Azure가 **음소 이름**을 주지 않아 음소별 점수 펼침은 없어요(공식 문서: 음소 이름·음절·들린 음소는 영어(en-US)에서만 제공). 단어별 점수는 위에 있어요.")
     if lines:
         with st.expander("음소별 점수 보기 (점수가 낮은 단어)"):
             st.caption("음소는 IPA 기호예요. '(ə로 들림)'은 기대한 음소 대신 가장 가깝게 들린 음소예요.")
@@ -169,6 +173,24 @@ SOUND_SHAPE_GUIDE = """
 """
 
 
+def meaning_box(text, lang, key):
+    """문장의 **한글 뜻**을 보여 준다(이슈 #50). 예시 문장은 직접 쓴 뜻, 이미 번역한 문장은 캐시된 뜻을 바로 보여 주고, 없으면 **버튼을 눌러야** AI로 번역한다
+    (OpenAI 호출이라 과금이 아주 작게 있다). 번역은 틀릴 수 있어 "AI 번역 · 참고용"으로 표시한다."""
+    text = str(text).strip()
+    m, src = meaning.lookup(text, lang, wp.example_meanings())
+    if m:
+        st.markdown(f"**한글 뜻** · {m}  \n<small>{src}{' · 참고용' if src == 'AI 번역' else ''}</small>", unsafe_allow_html=True)
+        return
+    if st.button("한글 뜻 보기 (AI 번역 · 참고용 · 과금 작음)", key=f"mean_{key}"):
+        with st.spinner("번역하는 중…"):
+            try:
+                meaning.translate_ko(text, lang)
+            except Exception as e:
+                st.error(f"번역하지 못했어요 ({type(e).__name__}: {e})")
+                return
+        st.rerun()
+
+
 def _result_html(res, prep):
     """채점 결과를 화면 HTML로(결과 카드 + 입력 상태 칩 + 단어 대조)."""
     score = res["score"]
@@ -186,20 +208,30 @@ def _show_result(res, prep, mode):
     if res.get("quality") and res["quality"]["warnings"]:
         for w in res["quality"]["warnings"]:
             st.caption("⚠ " + w)           # 경고는 안내일 뿐, 채점은 그대로 진행했다
-    st.markdown("**단어 대조** · 위는 기준 문장, 아래는 " + ("인식한 내 녹음" if mode == "read" else "내가 적은 글") +
-                " · 보라 물결 밑줄은 다른 단어", help="낮을수록 좋은 오류율이고, 틀린 단어는 색과 밑줄·이름표로 표시해요.")
+    unit = "단어" if languages.uses_spaces(prep["lang"]) else "글자"       # 공백 없는 언어는 글자 단위로 대조한다
+    st.markdown(f"**{unit} 대조** · 위는 기준 문장, 아래는 " + ("인식한 내 녹음" if mode == "read" else "내가 적은 글") +
+                f" · 보라 물결 밑줄은 다른 {unit}", help="낮을수록 좋은 오류율이고, 틀린 부분은 색과 밑줄·이름표로 표시해요.")
+    if prep["lang"] == "ja":
+        st.caption("일본어는 같은 말도 한자·히라가나·가타카나로 다르게 적을 수 있어요(가타카나는 히라가나로 맞춰 비교해요). 인식 결과가 한자나 외래어 표기로 나오면 "
+                   "글자 대조가 어려우니 **Azure 평가(소리를 기준 문장과 비교)** 를 함께 보세요.")
     st.markdown(wp.diff_html(res["score"]["main"]["ops"]), unsafe_allow_html=True)
+    if res.get("reading"):
+        rd = res["reading"]
+        st.caption("일본어는 한자·가타카나를 **히라가나 읽기**로 바꿔서 비교했어요(표기가 달라도 소리가 같으면 같은 것으로 봐요).")
+        st.markdown(f"기준 · 읽기 **{rd['ref']}** · 로마자 {rd['ref_romaji']}  \n"
+                    f"{'인식' if mode == 'read' else '내가 적은 글'} · 읽기 **{rd['hyp']}** · 로마자 {rd['hyp_romaji']}")
     if mode == "read":
         st.caption(f"인식한 문장: {res['hyp']}  ·  인식 {res['seconds']:.1f}초")
 
 
-def practice_panel(text, key, tts_path=None, meaning_ko="", source="lyrics"):
+def practice_panel(text, key, tts_path=None, meaning_ko="", source="lyrics", lang="en"):
     """문장 text 하나의 따라읽기·받아쓰기를 그린다. key는 페이지 안에서 겹치지 않는 문자열(문장·줄마다 다르게).
 
-    source: 기록의 출처 표시("lyrics" 가사 입력 / "song" 내 노래; 예시 문장이면 자동으로 "sample").
+    source: 기록의 출처 표시("lyrics" 내 문장 / "song" 내 노래; 예시 문장이면 자동으로 "sample").
+    lang: 문장의 언어 코드(STT 언어·채점 규칙·Azure 로캘에 쓰임, 이슈 #50). 기본 "en".
     tts_path: 표준 발음 음성 파일(있으면 결과 아래 '다시 듣기'에 쓴다). 받아쓰기는 정답을 숨겨야 하므로 이 함수는 받아쓰기 탭에서
     채점하기 전에는 text를 보여 주지 않는다(따라읽기 탭에서는 읽을 문장을 보여 준다)."""
-    prep = wp.make_prep(text, tts_path=tts_path, meaning_ko=meaning_ko)
+    prep = wp.make_prep(text, lang=lang or "en", tts_path=tts_path, meaning_ko=meaning_ko)
     if prep["error"]:
         st.info("연습할 문장을 먼저 정하세요.")
         return
@@ -216,7 +248,7 @@ def practice_panel(text, key, tts_path=None, meaning_ko="", source="lyrics"):
         if c1.button("채점하기", type="primary", key=f"{key}_read_go_{nonce}", disabled=rec is None):
             with st.spinner("인식하고 채점하는 중… (틀린 구간을 찾느라 몇 초 더 걸려요)"):
                 try:
-                    st.session_state[f"{key}_read"] = practice.read(prep, rec.getvalue())
+                    st.session_state[f"{key}_read"] = wp.apply_japanese_reading(prep, practice.read(prep, rec.getvalue()))
                     _log(source, prep["text"], "read", st.session_state[f"{key}_read"])
                     ok = tts_path and not st.session_state[f"{key}_read"]["error"]
                     st.session_state[f"{key}_figs"] = _sound_figs(tts_path, rec.getvalue()) if ok else None
@@ -254,7 +286,7 @@ def practice_panel(text, key, tts_path=None, meaning_ko="", source="lyrics"):
         ans = st.text_area("들은 문장 적기", key=f"{key}_ans_{nonce}", height=100)
         c1, c2 = st.columns([1, 1])
         if c1.button("채점하기", type="primary", key=f"{key}_dict_go_{nonce}"):
-            st.session_state[f"{key}_dict"] = practice.dictation(prep, ans)
+            st.session_state[f"{key}_dict"] = wp.apply_japanese_reading(prep, practice.dictation(prep, ans))
             _log(source, prep["text"], "dictation", st.session_state[f"{key}_dict"])
         if c2.button("건너뛰기", key=f"{key}_dict_skip_{nonce}"):
             st.session_state[f"{key}_nonce"] = nonce + 1

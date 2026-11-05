@@ -13,13 +13,53 @@ import html
 import numpy as np
 
 import audio
+import japanese
+import languages
 import practice
 import report
 import scoring
 import theme
 import tts
 
-EXAMPLE_IDS = ("1", "2", "3", "6")        # "예시 문장 불러오기"에 쓰는 sentences.csv의 문장 번호(이미 TTS 캐시가 있음)
+EXAMPLE_IDS = ("1", "2", "3", "6")
+
+# 언어별 예시 묶음(내 문장의 "예시 문장 불러오기", 이슈 #50). **모두 이 프로젝트에서 직접 쓴 문장**이다(출처·라이선스: 직접 작성(본인)).
+# 영어는 sentences.csv의 문장 4개(표준 발음 캐시가 있어 과금 없음), 나머지는 새 문장이라 표준 발음을 처음 만들 때 OpenAI TTS 과금이 있다.
+# 상업 노래의 가사는 코드·예시에 넣지 않는다(CLAUDE.md Privacy): 섞인 예도 일본어와 영어가 한 줄에 섞이는 **모양**만 보여 주는 직접 쓴 문장이다.
+EXAMPLE_SETS = {
+    "영어": None,                                           # example_lyrics()의 sentences.csv 문장
+    "일본어": ["朝の光が部屋を満たしている。", "明日の天気を教えてください。", "駅までの道を教えてもらえますか。", "一緒に歌えば、きっと楽しいよ。"],
+    "프랑스어": ["Je voudrais un café, s'il vous plaît.", "Où est la gare, s'il vous plaît ?",
+              "Nous allons chanter ensemble ce soir.", "Il fait beau aujourd'hui, allons nous promener."],
+    "일본어+영어 섞인 예": ["今夜は Moonlight の下で踊ろう", "Hold my hand 少しだけ待って", "甘い Coffee 苦い Memory", "Just smile ねえ、笑って"],
+}
+EXAMPLE_NAMES = list(EXAMPLE_SETS)
+
+# 일본어·프랑스어·섞인 예의 한글 뜻(직접 씀). 영어 예시의 뜻은 sentences.csv의 meaning_ko를 쓴다(example_meanings).
+_MEANINGS_KO = {
+    "朝の光が部屋を満たしている。": "아침 햇살이 방을 가득 채우고 있어요.", "明日の天気を教えてください。": "내일 날씨를 알려 주세요.",
+    "駅までの道を教えてもらえますか。": "역까지 가는 길을 알려 주시겠어요?", "一緒に歌えば、きっと楽しいよ。": "함께 노래하면 분명 즐거울 거예요.",
+    "Je voudrais un café, s'il vous plaît.": "커피 한 잔 주세요.", "Où est la gare, s'il vous plaît ?": "기차역이 어디예요?",
+    "Nous allons chanter ensemble ce soir.": "우리는 오늘 저녁에 함께 노래할 거예요.",
+    "Il fait beau aujourd'hui, allons nous promener.": "오늘은 날씨가 좋아요, 산책하러 가요.",
+    "今夜は Moonlight の下で踊ろう": "오늘 밤은 달빛 아래에서 춤추자.", "Hold my hand 少しだけ待って": "내 손을 잡아, 잠깐만 기다려 줘.",
+    "甘い Coffee 苦い Memory": "달콤한 커피, 쓴 기억.", "Just smile ねえ、笑って": "그냥 웃어 봐, 있잖아, 웃어 줘.",
+}
+
+
+def example_meanings(sentences=None):
+    """예시 문장(글) → 한글 뜻. 영어는 sentences.csv의 meaning_ko, 나머지는 직접 쓴 뜻."""
+    sentences = tts.load_sentences() if sentences is None else sentences
+    out = {s["sentence"]: s["meaning_ko"] for s in sentences if s.get("meaning_ko")}
+    out.update(_MEANINGS_KO)
+    return out
+
+
+def example_set(name, sentences=None):
+    """예시 묶음 이름 → 한 줄에 하나씩 이은 글. "영어"는 sentences.csv의 문장(example_lyrics)."""
+    if name not in EXAMPLE_SETS:
+        raise ValueError(f"알 수 없는 예시 묶음: {name!r}")
+    return example_lyrics(sentences=sentences) if EXAMPLE_SETS[name] is None else "\n".join(EXAMPLE_SETS[name])        # "예시 문장 불러오기"에 쓰는 sentences.csv의 문장 번호(이미 TTS 캐시가 있음)
 
 
 def split_lyrics(text):
@@ -97,6 +137,29 @@ def error_spans(prep, res, locate=None):
     return {"blocks": len(blocks), "text": report.error_blocks(prep, out["loc"]), "sounds": out["sounds"], "loc": out["loc"]}
 
 
+def apply_japanese_reading(prep, res):
+    """일본어(ja) 채점 결과를 **히라가나 읽기 기준**으로 다시 계산한다(이슈 #50): 기준 문장과 인식·입력 글을 둘 다 읽기로 바꿔 비교하므로
+    한자·가타카나·히라가나 표기 차이가 오류로 세어지지 않는다. res를 제자리에서 고쳐 돌려준다.
+
+    res["score_raw"]에 원문 기준 점수를 남기고 res["score"]를 읽기 기준 점수로 바꾸며, res["reading"]에 화면에 보여 줄 읽기·로마자를 넣는다:
+    {"ref": 기준 읽기, "ref_romaji", "hyp": 인식·입력 읽기, "hyp_romaji"}. 일본어가 아니거나 오류 결과이거나 pykakasi가 없으면 아무것도 바꾸지 않는다.
+    한계: 영어 단어는 읽기로 바뀌지 않아(Coffee ≠ こーひー) 섞인 줄은 영어 부분이 계속 다르게 셈된다."""
+    if prep.get("lang") != "ja" or res.get("error") or not res.get("score") or not japanese.available():
+        return res
+    ref_r, ref_ro = japanese.readings(prep["text"])
+    hyp_r, hyp_ro = japanese.readings(res.get("hyp") or "")
+    res["score_raw"] = res["score"]
+    res["score"] = scoring.evaluate(ref_r, hyp_r, "ja")
+    res["reading"] = {"ref": ref_r, "ref_romaji": ref_ro, "hyp": hyp_r, "hyp_romaji": hyp_ro}
+    return res
+
+
+def reading_caption(text):
+    """일본어 한 줄 밑에 보여 줄 '읽기 · 로마자' 글(pykakasi가 없거나 읽을 것이 없으면 빈 글)."""
+    r, ro = japanese.readings(text)
+    return f"읽기: {r} · 로마자: {ro}" if r and ro else ""
+
+
 # ---------- 채점 결과 → 화면용 조각 ----------
 def word_cells(ops):
     """scoring의 ops([(종류, 정답, 인식), …])를 단어 대조용 칸 목록 [{"ref", "hyp", "kind"}]으로 바꾼다.
@@ -129,14 +192,20 @@ def pct(rate):
 
 def result_card_html(score):
     """채점 결과 카드 HTML(짙은 초록 바탕에 라임 숫자). score는 scoring.evaluate의 결과.
-    '일치율'이 아니라 오류율과 바뀜·빠짐·더해짐 개수로 보여 준다(WER은 1을 넘을 수 있어서)."""
+    '일치율'이 아니라 오류율과 바뀜·빠짐·더해짐 개수로 보여 준다(WER은 1을 넘을 수 있어서).
+    일본어·중국어처럼 **공백 없이 쓰는 언어**는 글 전체가 단어 하나로 세어져 WER이 0% 또는 100%뿐이라, WER 칸은 "—"와 이유로 바꾸고 글자 오류율(CER)을 본다(이슈 #50)."""
     w, c = score["wer"], score["cer"]
     main = score["main"]
+    if main is c:                                        # evaluate가 main으로 CER 결과를 그대로 돌려준 경우(공백 없는 언어)
+        wer_box = ('<div><span>단어 오류율 · WER</span><b>—</b>'
+                   '<small>공백 없이 쓰는 언어라 단어로 나눌 수 없어요. 글자 오류율을 봐요</small></div>')
+    else:
+        wer_box = f'<div><span>단어 오류율 · WER</span><b>{pct(w["rate"])}</b><small>{w["N"]}단어 중 {w["distance"]}개가 달라요</small></div>'
     return (
         '<div class="sl-result">'
         '<div class="sl-result-head">채점 결과 <small>발음 점수가 아니라 문장 인식 오류율이에요</small></div>'
         '<div class="sl-result-grid">'
-        f'<div><span>단어 오류율 · WER</span><b>{pct(w["rate"])}</b><small>{w["N"]}단어 중 {w["distance"]}개가 달라요</small></div>'
+        + wer_box +
         f'<div><span>글자 오류율 · CER</span><b>{pct(c["rate"])}</b><small>{c["N"]}글자 중 {c["distance"]}개 (공백 제외)</small></div>'
         f'<div><span>오류 종류</span><b>{main["S"]} · {main["D"]} · {main["I"]}</b><small>바뀜 · 빠짐 · 더해짐</small></div>'
         '</div>'
@@ -159,7 +228,7 @@ def chips_html(chips):
 
 
 # ---------- Azure 발음 평가 결과 → 화면용 조각 (이슈 #48) ----------
-LOCALES = {"en": "en-US", "ja": "ja-JP", "fr": "fr-FR"}      # prep["lang"] → Azure 로캘. 일본어·프랑스어의 발음 평가 지원은 확인 전(미확인)
+LOCALES = {code: v[1] for code, v in languages.LANGS.items()}   # prep["lang"] → Azure 로캘(표는 languages.py). 영어 외의 발음 평가 지원은 확인 전(미확인)
 AZURE_LABELS = [("accuracy", "정확도", "음소가 원어민 발음과 얼마나 가까운가"), ("fluency", "유창성", "단어 사이 쉼이 자연스러운가"),
                 ("completeness", "완성도", "기준 문장 중 발음된 단어의 비율"), ("prosody", "운율", "억양·강세·속도·리듬(영어만)"),
                 ("pronunciation", "종합", "위 항목을 합친 참고 점수")]

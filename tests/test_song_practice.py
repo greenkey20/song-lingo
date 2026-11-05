@@ -164,6 +164,40 @@ class Tts(Base):
         r = song_practice.make_tts("c01", self.out, lookup=self.lookup, synth=self.synth)
         self.assertEqual((r["n_api_calls"], r["n_cached"]), (1, 1))                    # 캐시에 있는 문장은 API를 부르지 않음
 
+class TtsStatusesAndOnly(Base):
+    """이슈 #50 방식 C(자동 변환 + 선택적 검수): 확인 전 줄도 표준 발음 대상이 될 수 있고, 한 줄만 만들 수도 있다."""
+
+    def setUp(self):
+        super().setUp()
+        self.prepare()                                                   # 줄 두 개가 모두 candidate(확인 전)
+        self.cache = Path(self.tmp.name, "tts_cache"); self.cache.mkdir()
+        self.made = []
+
+        def lookup(text, sentences):
+            return {}, self.cache / (str(abs(hash(text)) % 10**8) + ".wav")
+
+        def synth(text, path):
+            self.made.append(text); Path(path).write_bytes(b"x"); return path
+        self.lookup, self.synth = lookup, synth
+
+    def test_default_ignores_unconfirmed_lines(self):
+        r = song_practice.make_tts("c01", self.out, lookup=self.lookup, synth=self.synth)
+        self.assertEqual(r["n_lines"], 0)                                # 기본(확정한 줄만)은 그대로
+
+    def test_candidate_lines_included_when_asked_and_only_one_line(self):
+        both = song_practice.make_tts("c01", self.out, lookup=self.lookup, statuses=("candidate", "confirmed"))
+        self.assertEqual(both["n_lines"], 2)
+        one = song_practice.make_tts("c01", self.out, generate=True, lookup=self.lookup, synth=self.synth,
+                                     statuses=("candidate", "confirmed"), only={2})
+        self.assertEqual((one["n_lines"], len(self.made)), (1, 1))       # 지금 보는 한 줄만 만들어 과금을 줄인다
+        lines = song_practice.load_lines("c01", self.out)["lines"]
+        self.assertEqual([bool(l["tts_path"]) for l in lines], [False, True])
+
+    def test_dropped_lines_are_never_included(self):
+        song_practice.apply_edits("c01", drop=[1], out_dir=self.out)
+        r = song_practice.make_tts("c01", self.out, lookup=self.lookup, statuses=("candidate", "confirmed"))
+        self.assertEqual(r["n_lines"], 1)
+
 
 class Review(Base):
     def setUp(self):

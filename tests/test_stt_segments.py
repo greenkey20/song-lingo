@@ -72,6 +72,61 @@ class Segments(unittest.TestCase):
         self.use([])
         self.assertEqual(stt.recognize_segments("silence.wav")[0], [])
 
+class Multilingual(unittest.TestCase):
+    def setUp(self):
+        self.orig = stt.load_model
+        self.addCleanup(lambda: setattr(stt, "load_model", self.orig))
+        self.fake = FakeModel([Seg(0.0, 1.0, "x")])
+        stt.load_model = lambda size=None: self.fake
+
+    def test_multilingual_flag_is_passed_only_when_true(self):
+        stt.recognize_segments(b"", language=None)                       # 기본: transcribe에 multilingual을 넘기지 않아 기존 동작 그대로
+        self.assertNotIn("multilingual", self.fake.kw)
+        stt.recognize_segments(b"", language=None, multilingual=True)
+        self.assertTrue(self.fake.kw["multilingual"])
+        self.assertIsNone(self.fake.kw["language"])                      # 자동 감지
+
+    def test_language_is_passed_through(self):
+        stt.recognize_segments(b"", language="ja")
+        self.assertEqual(self.fake.kw["language"], "ja")
+
+
+class DetectLanguage(unittest.TestCase):
+    def setUp(self):
+        self.orig = stt.load_model
+        self.addCleanup(lambda: setattr(stt, "load_model", self.orig))
+
+    def test_returns_code_prob_and_all_probs_as_floats(self):
+        import numpy as np
+
+        class M:
+            def detect_language(self, x):
+                self.n = len(x)
+                return "ja", np.float32(0.9), [("ja", np.float32(0.9)), ("en", np.float32(0.05))]
+        m = M()
+        stt.load_model = lambda size=None: m
+        sr = 16000
+        import recorder
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            wav = recorder.save_wav(Path(d) / "x.wav", np.zeros((sr, 2), dtype="float32") + 0.1, sr)
+            code, prob, probs = stt.detect_language(wav)
+        self.assertEqual((code, type(prob)), ("ja", float))
+        self.assertEqual(probs, [("ja", 0.8999999761581421), ("en", 0.05000000074505806)])
+        self.assertEqual(m.n, sr)                                        # 16 kHz 모노 1초가 모델에 들어감
+
+    def test_too_short_sound_is_rejected(self):
+        import numpy as np
+        import recorder
+        import tempfile
+        from pathlib import Path
+        stt.load_model = lambda size=None: None
+        with tempfile.TemporaryDirectory() as d:
+            wav = recorder.save_wav(Path(d) / "x.wav", np.zeros((100, 2), dtype="float32"), 16000)
+            with self.assertRaises(ValueError):
+                stt.detect_language(wav)
+
 
 if __name__ == "__main__":
     unittest.main()
