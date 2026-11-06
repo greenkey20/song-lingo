@@ -46,7 +46,7 @@ keys = [f"{abs(hash(ln)) % 10**8}" for ln in lines]          # 줄 내용으로 
 st.subheader("언어 확인")
 explain.show("lyr_lang")
 det_for = st.session_state.get("lyr_det_for")
-if st.button("언어 알아보기", key="lyr_det_btn"):
+if st.button("언어 알아보기", type="primary", key="lyr_det_btn"):
     st.session_state["lyr_det"] = {k: languages.suggest_line_language(ln) for k, ln in zip(keys, lines)}
     st.session_state["lyr_det_for"] = True
 dets = st.session_state.get("lyr_det", {})
@@ -62,7 +62,7 @@ def confirm_all():
             st.session_state[f"lyr_ans_{k}"] = "네"
 
 
-st.button("제안이 있는 줄은 모두 맞아요", on_click=confirm_all, key="lyr_all")
+st.button("제안이 있는 줄은 모두 맞아요", type="primary", on_click=confirm_all, key="lyr_all")
 answers = {}
 for n, (ln, k) in enumerate(zip(lines, keys), 1):
     sug = dets.get(k) or languages.suggest_line_language(ln)
@@ -123,7 +123,7 @@ if cached:
     st.caption("표준 발음(TTS)이에요. 또박또박 읽는 기계 음성이라 실제 노래·대화와 다를 수 있어요.")
 else:
     st.caption("이 줄의 표준 발음은 아직 없어요. 만들면 OpenAI TTS를 한 번 불러서 **과금**돼요(같은 문장은 다시 만들지 않아요).")
-    if st.button("표준 발음 만들기", key=f"mk_{a['key']}"):
+    if st.button("표준 발음 만들기", type="primary", key=f"mk_{a['key']}"):
         with st.spinner("음성을 만드는 중…"):
             try:
                 wp.make_tts(line)

@@ -83,7 +83,7 @@ def _show_azure(key, prep, rec, nonce):
     st.caption("누르면 이 녹음이 Microsoft Azure Speech로 전송돼요. 정확도·유창성·완성도·운율은 Azure가 쓰는 표준 항목이고, 위의 오류율(문장 인식 일치도)과는 다른 방식이에요. "
                "Azure는 내 녹음과 **기준 문장(글)** 만 받아 자체 발음 모델(원어민 발음 기준)과 비교해요. 표준 발음(TTS) 소리는 보내지 않아요. 마이크·방 소리에 따라 점수가 달라질 수 있어요.")
     state = f"{key}_azure"
-    if st.button("Azure로 평가하기", key=f"{key}_az_go_{nonce}", disabled=rec is None):
+    if st.button("Azure로 평가하기", type="primary", key=f"{key}_az_go_{nonce}", disabled=rec is None):
         with st.spinner("Azure에서 평가하는 중…"):
             try:
                 st.session_state[state] = {"result": azure_pronunciation.assess(
@@ -184,7 +184,7 @@ def meaning_box(text, lang, key):
     if m:
         st.markdown(f"**한글 뜻** · {m}  \n<small>{src}{' · 참고용' if src == 'AI 번역' else ''}</small>", unsafe_allow_html=True)
         return
-    if st.button("한글 뜻 보기 (AI 번역 · 참고용 · 과금 작음)", key=f"mean_{key}"):
+    if st.button("한글 뜻 보기 (AI 번역 · 참고용 · 과금 작음)", type="primary", key=f"mean_{key}"):
         with st.spinner("번역하는 중…"):
             try:
                 meaning.translate_ko(text, lang)
@@ -214,7 +214,7 @@ def notes_box(text, lang, key):
             st.markdown(meaning.notes_markdown(notes))
             st.caption("AI 설명 · 참고용 · 틀릴 수 있어요. 예문은 AI가 새로 만든 문장이에요.")
         return
-    if st.button("표현 설명 보기 (AI · 참고용 · 과금 조금)", key=f"notes_{key}"):
+    if st.button("표현 설명 보기 (AI · 참고용 · 과금 조금)", type="primary", key=f"notes_{key}"):
         with st.spinner("설명을 만드는 중…"):
             try:
                 meaning.explain_sentence(text, lang)
