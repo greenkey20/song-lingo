@@ -160,7 +160,7 @@ st.subheader("언어 확인")
 explain.show("song_lang")
 g = st.session_state["gen"]
 det_key = f"lang_det_{g}"
-if st.button("언어 알아보기", key=f"det_btn_{g}"):
+if st.button("언어 알아보기", type="primary", key=f"det_btn_{g}"):
     with st.spinner("언어를 알아보는 중… (서버를 켠 뒤 처음 한 번은 medium 모델을 읽느라 몇십 초 더 걸려요)"):
         try:
             st.session_state[det_key] = web_song.detect_clip_language(ws)
@@ -198,7 +198,7 @@ rec_langs = opts["languages"] or ([sug["top"][0]] if sug and sug.get("top") else
 st.subheader("가사 인식")
 explain.show("song_recog")
 doc = web_song.load_doc(ws)
-if st.button("가사 인식하기" if doc is None else "다시 인식하기(고친 가사는 사라져요)", key="recog_btn", disabled=sug is None):
+if st.button("가사 인식하기" if doc is None else "다시 인식하기(고친 가사는 사라져요)", type="primary" if doc is None else "secondary", key="recog_btn", disabled=sug is None):
     with st.spinner("인식하는 중… (medium 모델, CPU에서 20초 구간에 약 20~60초. 서버를 켠 뒤 처음 한 번은 모델을 읽느라 더 걸려요)"):
         try:
             web_song.recognize_lines(ws, language=opts["language"], multilingual=opts["multilingual"], languages=rec_langs)
@@ -243,10 +243,10 @@ c3.caption({"confirmed": "고쳐서 저장함", "dropped": "연습에서 뺌", "
 
 # ---------- 5. 듣기 ----------
 line_lang = ln.get("lang") or (doc.get("languages") or ["en"])[0]       # 이슈 #50 이전에 만든 줄 데이터는 언어 칸이 없어 영어
-notes_box(ln["text"], line_lang, f"song_{gen}_{ln['no']}")               # 표현 설명(버튼): '듣기' 제목 바로 위
 st.subheader("듣기")
 explain.show("song_listen")
 meaning_group(ln["text"], line_lang, f"song_{gen}_{ln['no']}")           # 들을 문장의 한글 뜻 + 일본어면 읽기·로마자
+notes_box(ln["text"], line_lang, f"song_{gen}_{ln['no']}")               # 표현 설명(버튼): 한글 뜻 바로 아래
 sources = ["원본 음악", "보컬만", "표준 발음"]
 src = st.segmented_control("들을 소리", sources, default="원본 음악", key="listen_src")
 a, b = web_song.line_range(ln, clip_seconds)
@@ -276,7 +276,7 @@ if src == "보컬만":
             st.error(vs["error"])
         st.caption("보컬만 듣기는 **이 구간 전체에 대해 한 번만** 만들면 돼요(줄마다 만드는 게 아니에요). 만든 뒤에는 줄마다 해당 부분만 재생해요. "
                    "만드는 동안에도 다른 화면을 쓸 수 있어요.")
-        if st.button("보컬만 만들기 (이 구간 전체, 보통 1~3분)" if vs["state"] != "error" else "다시 만들기", key="voc_btn"):
+        if st.button("보컬만 만들기 (이 구간 전체, 보통 1~3분)" if vs["state"] != "error" else "다시 만들기", type="primary", key="voc_btn"):
             web_song.start_vocals(ws)
             st.rerun()
 elif src == "표준 발음":
@@ -289,7 +289,7 @@ elif src == "표준 발음":
         plan = web_song.tts_summary(ws, only={ln["no"]})
         st.caption(f"이 줄의 표준 발음은 아직 없어요. 만들면 OpenAI TTS를 부르고({plan['chars']}글자) **과금**돼요"
                    + (" (같은 문장이 이미 있어 무료예요)." if plan["n_api_calls"] == 0 else "."))
-        if st.button("이 줄의 표준 발음 만들기", key=f"tts_btn_{ln['no']}"):
+        if st.button("이 줄의 표준 발음 만들기", type="primary", key=f"tts_btn_{ln['no']}"):
             with st.spinner("음성을 만드는 중…"):
                 try:
                     web_song.make_tts(ws, only={ln["no"]})
