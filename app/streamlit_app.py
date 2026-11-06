@@ -7,6 +7,7 @@
 실행(프로젝트 루트에서): ~/venvs/song-lingo-app/bin/python -m streamlit run app/streamlit_app.py
 """
 import sys
+import time
 from pathlib import Path
 
 import streamlit as st
@@ -19,6 +20,28 @@ sys.path.insert(0, str(ROOT / "app"))      # app/ui_practice.py 같은 화면 �
 load_dotenv(ROOT / ".env")                  # OPENAI_API_KEY, (선택) SONGLINGO_SEPARATE_PYTHON을 읽는다. 값은 화면에 보이지 않는다
 
 st.set_page_config(page_title="song lingo", page_icon=str(Path(__file__).resolve().parent / "assets" / "icon.png"), layout="wide")   # 브라우저 탭 아이콘(정사각형 아이콘 PNG)
+
+# 접근 제한(이슈 #52): 환경변수 SONGLINGO_PASSWORD가 있을 때만 비밀번호를 묻는다(없으면 개발용으로 바로 열림). 이 파일은 사용자가 어느 주소로 들어와도
+# 맨 먼저 실행되므로 st.stop()으로 여기서 멈추면 모든 페이지(/text·/song·/history)가 가려진다. 판단은 access.py, 여기는 화면만.
+import access  # noqa: E402  (sys.path 설정 뒤에 import)
+if access.enabled() and not st.session_state.get("authed"):
+    st.title("song lingo")
+    st.caption("접근 제한이 걸려 있어요. 비밀번호를 입력하세요.")
+    left = access.lock_remaining(st.session_state.get("fails", 0), st.session_state.get("last_fail", 0.0), time.time())
+    with st.form("gate"):
+        typed = st.text_input("비밀번호", type="password")
+        go = st.form_submit_button("들어가기", type="primary", disabled=left > 0)
+    if go:
+        if access.check(typed):
+            st.session_state.update(authed=True, fails=0)
+            st.rerun()
+        st.session_state.update(fails=st.session_state.get("fails", 0) + 1, last_fail=time.time())
+        if access.lock_remaining(st.session_state["fails"], st.session_state["last_fail"], time.time()) > 0:
+            st.rerun()                       # 방금 잠금 한도에 닿았으면 다시 그려서 버튼을 바로 비활성화하고 경고를 보여 준다
+        st.error("비밀번호가 맞지 않아요.")
+    elif left > 0:
+        st.warning(f"여러 번 틀려서 {left}초 뒤에 다시 시도할 수 있어요.")
+    st.stop()
 
 # 주소: 내 문장 /text, 내 노래 /song, 기록 /history. Streamlit은 **기본 페이지의 주소를 항상 "/"로 고정**하고 url_path를 무시하므로,
 # 주소가 "/"일 때는 메뉴에 보이지 않는 기본 페이지가 내 문장으로 보낸다(visibility="hidden", 이슈 #50 후속).
