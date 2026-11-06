@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "app"))      # app/ui_practice.py 같은 화면 부품을 import하려고
 load_dotenv(ROOT / ".env")                  # OPENAI_API_KEY, (선택) SONGLINGO_SEPARATE_PYTHON을 읽는다. 값은 화면에 보이지 않는다
 
-st.set_page_config(page_title="song lingo", page_icon="🎵", layout="wide")
+st.set_page_config(page_title="song lingo", page_icon=str(Path(__file__).resolve().parent / "assets" / "icon.png"), layout="wide")   # 브라우저 탭 아이콘(정사각형 아이콘 PNG)
 
 # 주소: 내 문장 /text, 내 노래 /song, 기록 /history. Streamlit은 **기본 페이지의 주소를 항상 "/"로 고정**하고 url_path를 무시하므로,
 # 주소가 "/"일 때는 메뉴에 보이지 않는 기본 페이지가 내 문장으로 보낸다(visibility="hidden", 이슈 #50 후속).
