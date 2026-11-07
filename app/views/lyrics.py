@@ -33,9 +33,8 @@ def restore_sentences(saved):
     entries = saved.get("lines") or []
     st.session_state["lyrics"] = "\n".join(e["text"] for e in entries)
     dets = {}
-    for e in entries:
+    for e, k in zip(entries, wp.line_keys([e["text"] for e in entries])):      # 아래 keys와 같은 공식(같은 글이 반복되면 열쇠에 번호가 붙는다)
         ln = e["text"]
-        k = f"{abs(hash(ln)) % 10**8}"                                       # 아래 keys와 같은 공식(같은 프로세스 안에서는 같은 값)
         sug = languages.suggest_line_language(ln)
         dets[k] = sug
         langs = e.get("languages") or []
@@ -70,7 +69,7 @@ e3.caption("직접 쓴 문장이에요. 영어는 표준 발음이 이미 있어
 lines = wp.split_lyrics(text)
 if not lines:
     st.stop()
-keys = [f"{abs(hash(ln)) % 10**8}" for ln in lines]          # 줄 내용으로 만든 열쇠: 줄을 고치면 그 줄의 답은 사라진다
+keys = wp.line_keys(lines)          # 줄 내용으로 만든 열쇠: 줄을 고치면 그 줄의 답은 사라진다. 같은 글이 반복돼도(후렴) 열쇠가 겹치지 않는다
 
 # ---------- 2. 언어 알아보기 ----------
 st.subheader("언어 확인")

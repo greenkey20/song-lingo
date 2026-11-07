@@ -67,6 +67,19 @@ def split_lyrics(text):
     return [ln.strip() for ln in str(text).splitlines() if ln.strip()]
 
 
+def line_keys(lines):
+    """줄 목록 → 줄마다 화면 위젯의 열쇠(같은 길이의 문자열 목록). 줄 내용의 해시로 만들어 줄을 고치면 그 줄의 답이 사라지고,
+    **같은 글이 여러 번 나오면(반복되는 후렴 등) 두 번째부터 `_1`, `_2`를 붙여** 위젯 열쇠가 겹치지 않게 한다
+    (겹치면 Streamlit이 StreamlitDuplicateElementKey를 낸다, 11-08 서버에서 발견). 같은 입력이면 같은 열쇠다(같은 프로세스 안에서; 파이썬 해시는 실행마다 달라진다)."""
+    seen, keys = {}, []
+    for ln in lines:
+        base = f"{abs(hash(ln)) % 10**8}"
+        n = seen.get(base, 0)
+        seen[base] = n + 1
+        keys.append(base if n == 0 else f"{base}_{n}")
+    return keys
+
+
 def example_lyrics(ids=EXAMPLE_IDS, sentences=None):
     """sentences.csv의 예시 문장들을 한 줄에 하나씩 이은 글을 돌려준다."""
     sentences = tts.load_sentences() if sentences is None else sentences

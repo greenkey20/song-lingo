@@ -212,6 +212,15 @@ class SavesSentences(Base):
         self.assertEqual(at2.session_state["lyrics"], text_before)
         self.assertTrue(at2.session_state["lyr_det"])                                    # 언어 확인 단계가 이미 끝난 상태로 복원
 
+    def test_repeated_lines_do_not_crash_language_check(self):
+        """같은 줄이 여러 번 나와도(후렴) '언어 알아보기'가 위젯 열쇠 중복으로 죽지 않는다(11-08 서버에서 발견한 오류)."""
+        at = self.signup(self.app())
+        find(at.text_area, "문장").set_value("Hello there.\nWe sing together.\nHello there.\nHello there.")
+        at = at.run()
+        at = find(at.button, "언어 알아보기").click().run()
+        self.assertFalse(at.exception, [e.value for e in at.exception])
+        self.assertEqual(len(at.radio), 4)                                              # 줄마다 따로 확인할 수 있다
+
     def test_guest_cannot_save_or_see_restore_button(self):
         at = self.app()
         [t for t in at.text_input if t.label == "초대 코드"][-1].set_value(INVITE)
