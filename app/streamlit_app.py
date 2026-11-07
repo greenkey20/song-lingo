@@ -35,10 +35,10 @@ if (!document.querySelector('link[rel="apple-touch-icon"]')) {
 import auth_gate  # noqa: E402  (sys.path 설정 뒤에 import)
 auth_gate.run()
 
-# 주소: 내 문장 /text, 내 노래 /song, 기록 /history. Streamlit은 **기본 페이지의 주소를 항상 "/"로 고정**하고 url_path를 무시하므로,
+# 주소: 내 문장 /text, 내 노래 /clip(곡의 구간을 입력으로 연습하는 화면이라 11-08에 /song에서 변경), 기록 /history. Streamlit은 **기본 페이지의 주소를 항상 "/"로 고정**하고 url_path를 무시하므로,
 # 주소가 "/"일 때는 메뉴에 보이지 않는 기본 페이지가 내 문장으로 보낸다(visibility="hidden", 이슈 #50 후속).
 text_page = st.Page("views/lyrics.py", title="내 문장", icon=":material/edit_note:", url_path="text")
-song_page = st.Page("views/song.py", title="내 노래", icon=":material/library_music:", url_path="song")
+song_page = st.Page("views/song.py", title="내 노래", icon=":material/library_music:", url_path="clip")
 history_page = st.Page("views/history.py", title="기록", icon=":material/show_chart:", url_path="history")
 
 
