@@ -15,19 +15,25 @@ import meaning
 import practice
 import practice_log
 import visualisation
+import persist
+import storage
 import web_practice as wp
 
 
-def _log(source, text, mode, res):
-    """채점이 성공했으면 기록 CSV에 한 줄 남긴다(문장 글은 저장하지 않음). 화면에 보여 줄 글은 이번 세션 메모리에만 key로 묻어 둔다.
-    기록 실패가 연습을 막지 않게 오류는 안내만 한다."""
+def _log(source, text, mode, res, lang=None):
+    """채점이 성공했으면 ① 기록 CSV에 한 줄(문장 글 없이) ② 로그인한 사용자면 서버 DB에 시도 한 번(문장·인식문·점수 포함, persist.py)을 남긴다.
+    화면에 보여 줄 글은 이번 세션 메모리에도 key로 묻어 둔다. 기록 실패가 연습을 막지 않게 오류는 안내만 한다."""
+    persist.save_attempt(source, text, mode, res, lang)
     try:
         rec = practice_log.make_record(source, text, mode, res)
         if rec is None:
             return
         if rec["key"].startswith("s") and not rec["key"].startswith("h_"):
             rec["source"] = "sample"                      # sentences.csv의 예시 문장
-        practice_log.append(rec)
+        if storage.enabled():                         # 서버(DB 모드): 사용자끼리 섞이지 않게 공유 CSV에는 쓰지 않고 이 세션의 목록에만 둔다(게스트용)
+            st.session_state.setdefault("session_rows", []).append(rec)
+        else:
+            practice_log.append(rec)
         st.session_state.setdefault("log_texts", {})[rec["key"]] = text
     except Exception as e:
         st.caption(f"기록을 저장하지 못했어요 ({type(e).__name__})")
@@ -76,7 +82,7 @@ AZURE_GUIDE = """
 """
 
 
-def _show_azure(key, prep, rec, nonce):
+def _show_azure(key, prep, rec, nonce, source="sample"):
     """따라읽기 결과 아래 '표준 평가(Azure)'. 버튼을 눌렀을 때만 녹음이 Microsoft Azure로 전송된다(자동 전송 없음). 결과는 세션에 보관해 화면이 다시 그려져도 다시 보내지 않는다."""
     st.markdown("**표준 평가 · Azure 발음 평가** · 참고용 · 외부 서비스")
     explain.show("azure")
@@ -88,6 +94,7 @@ def _show_azure(key, prep, rec, nonce):
             try:
                 st.session_state[state] = {"result": azure_pronunciation.assess(
                     rec.getvalue(), prep["text"], languages.azure_locale(prep["lang"]))}
+                persist.save_azure(source, prep["text"], prep["lang"], st.session_state[state]["result"])     # 로그인한 사용자만 서버에 저장
             except azure_pronunciation.NotConfigured as e:
                 st.session_state[state] = {"error": str(e)}
             except (azure_pronunciation.AssessmentError, ValueError) as e:
@@ -283,7 +290,7 @@ def practice_panel(text, key, tts_path=None, meaning_ko="", source="lyrics", lan
             with st.spinner("인식하고 채점하는 중… (틀린 구간을 찾느라 몇 초 더 걸려요)"):
                 try:
                     st.session_state[f"{key}_read"] = wp.apply_japanese_reading(prep, practice.read(prep, rec.getvalue()))
-                    _log(source, prep["text"], "read", st.session_state[f"{key}_read"])
+                    _log(source, prep["text"], "read", st.session_state[f"{key}_read"], prep["lang"])
                     ok = tts_path and not st.session_state[f"{key}_read"]["error"]
                     st.session_state[f"{key}_figs"] = _sound_figs(tts_path, rec.getvalue()) if ok else None
                     wrong = ok and st.session_state[f"{key}_read"]["score"]["main"]["distance"] > 0
@@ -311,7 +318,7 @@ def practice_panel(text, key, tts_path=None, meaning_ko="", source="lyrics", lan
                     st.audio(rec)
             if not res["error"]:
                 _show_error_spans(st.session_state.get(f"{key}_spans"))
-                _show_azure(key, prep, rec, nonce)
+                _show_azure(key, prep, rec, nonce, source)
                 _show_sound_shapes(st.session_state.get(f"{key}_figs"), bool(tts_path))
         st.caption("점수는 발음 점수가 아니라 문장 인식 일치도예요. 주변 소리가 크면 오류율이 올라갈 수 있어요.")
 
@@ -322,7 +329,7 @@ def practice_panel(text, key, tts_path=None, meaning_ko="", source="lyrics", lan
         c1, c2 = st.columns([1, 1])
         if c1.button("채점하기", type="primary", key=f"{key}_dict_go_{nonce}"):
             st.session_state[f"{key}_dict"] = wp.apply_japanese_reading(prep, practice.dictation(prep, ans))
-            _log(source, prep["text"], "dictation", st.session_state[f"{key}_dict"])
+            _log(source, prep["text"], "dictation", st.session_state[f"{key}_dict"], prep["lang"])
         if c2.button("건너뛰기", key=f"{key}_dict_skip_{nonce}"):
             st.session_state[f"{key}_nonce"] = nonce + 1
             st.session_state.pop(f"{key}_dict", None)

@@ -6,6 +6,7 @@
 `st.audio(start_time, end_time)`: 파일 하나에서 일부 구간만 재생(줄마다 파일을 따로 만들지 않아도 됨).
 """
 import hashlib
+import os
 
 import streamlit as st
 
@@ -16,6 +17,8 @@ import visualisation
 import web_practice as wp
 import web_song
 import explain
+import auth_gate
+import persist
 from ui_practice import meaning_group, notes_box, practice_panel
 
 st.title("내 노래")
@@ -37,6 +40,181 @@ def reset_song():
         st.session_state.pop(k, None)
 
 
+def restore_saved(ws, song_path, row):
+    """'저장된 구간·가사 불러오기' 버튼의 on_click: 같은 구간을 다시 자르고 가사를 되살린다. 콜백은 위젯이 만들어지기 전에 실행되어
+    구간 슬라이더·길이 선택의 값을 바꿀 수 있다."""
+    cut_info = web_song.restore_song(ws, song_path, row)
+    if cut_info:
+        st.session_state["cut"] = cut_info
+        st.session_state["gen"] += 1
+        st.session_state["start"] = int(cut_info[0])
+        if f"{int(cut_info[1])}초" in [f"{d}초" for d in web_song.DURATIONS]:
+            st.session_state["dur"] = f"{int(cut_info[1])}초"
+
+
+def _tts_ready(ln):
+    """줄의 표준 발음 파일이 지금 쓸 수 있는지: 글이 같고 파일이 실제로 있어야 한다(저장본에서 불러온 줄은 파일이 없어졌을 수 있다)."""
+    return bool(ln.get("tts_path")) and ln.get("tts_text") == ln["text"] and os.path.exists(ln["tts_path"])
+
+
+def lines_section(ws, doc, clip_seconds, mix_path, voc_path, has_audio):
+    """줄 확인·수정 → 듣기 → 연습(4~6단계). 업로드·녹음한 곡(has_audio=True)과 서버에 저장된 곡(소리 없음, False)이 함께 쓴다."""
+    # ---------- 4. 줄 확인·수정 (선택) ----------
+    lines = doc["lines"]
+    gen = st.session_state["gen"]
+    st.subheader("줄 확인·수정 (선택)")
+    st.caption("인식된 가사가 맞으면 **그대로 연습해도 돼요.** 틀린 곳이 보이거나 점수가 이상하면 고쳐서 저장하세요. "
+               "인식이 틀리면 기준 문장도 틀려서 점수가 틀린 기준으로 매겨질 수 있어요.")
+    mark = {"confirmed": "✓", "dropped": "✕", "candidate": "·"}
+    no = st.segmented_control("줄", [l["no"] for l in lines], default=lines[0]["no"], key=f"line_{gen}",
+                              format_func=lambda n: f"{n}줄 {mark[next(l['status'] for l in lines if l['no'] == n)]}")
+    ln = next(l for l in lines if l["no"] == (no or lines[0]["no"]))
+    if doc["lines"] and any(l["low_confidence"] for l in lines):
+        st.caption("⚠ 이 구간은 인식이 불안정할 수 있어요(신뢰 지표가 낮음). 특히 꼼꼼히 들어 보세요.")
+    if ln["too_long"]:
+        st.caption("이 줄은 길어요(6초·14단어 초과). 나눠서 연습하고 싶다면 가사를 줄이거나 빼세요.")
+
+    text = st.text_input("가사 (고치면 아래에 저장 버튼이 나와요)", value=ln["text"], key=f"txt_{gen}_{ln['no']}")
+    changed = text.strip() != ln["text"]
+    c1, c2, c3 = st.columns([2, 1, 3], vertical_alignment="center")
+    if changed and c1.button("고친 가사 저장", type="primary", key=f"ok_{gen}_{ln['no']}"):
+        if text.strip():
+            web_song.confirm_line(ws, ln["no"], text)
+            st.rerun()
+        else:
+            st.warning("가사가 비어 있어요. 빼려면 '연습에서 빼기'를 누르세요.")
+    if c2.button("연습에서 빼기", key=f"drop_{gen}_{ln['no']}"):
+        web_song.drop_line(ws, ln["no"])
+        st.rerun()
+    c3.caption({"confirmed": "고쳐서 저장함", "dropped": "연습에서 뺌", "candidate": "자동 인식 그대로"}[ln["status"]]
+               + (" · 원문과 달라요" if ln["edited"] else ""))
+
+    # ---------- 5. 듣기 ----------
+    line_lang = ln.get("lang") or (doc.get("languages") or ["en"])[0]       # 이슈 #50 이전에 만든 줄 데이터는 언어 칸이 없어 영어
+    st.subheader("듣기")
+    explain.show("song_listen")
+    meaning_group(ln["text"], line_lang, f"song_{gen}_{ln['no']}")           # 들을 문장의 한글 뜻 + 일본어면 읽기·로마자
+    notes_box(ln["text"], line_lang, f"song_{gen}_{ln['no']}")               # 표현 설명(버튼): 한글 뜻 바로 아래
+    if has_audio:
+        sources = ["원본 음악", "보컬만", "표준 발음"]
+        src = st.segmented_control("들을 소리", sources, default="원본 음악", key="listen_src")
+    else:
+        src = "표준 발음"
+        st.caption("곡 소리는 저장하지 않아서 원본 음악·보컬만은 들을 수 없어요. 들으려면 '음원 파일 업로드'에서 같은 곡을 다시 올리세요.")
+    a, b = web_song.line_range(ln, clip_seconds)
+    vs = web_song.vocals_status(ws) if has_audio else {"state": "none"}
+    if vs["state"] == "running" and src != "보컬만":
+        st.caption(f"보컬 분리가 뒤에서 진행 중이에요({int(vs['elapsed'])}초 경과). '보컬만'을 고르면 상태를 볼 수 있어요.")
+
+
+    @st.fragment(run_every="3s")
+    def vocal_watch():
+        """보컬 분리 진행 상태를 3초마다 확인한다. 끝나면(성공·실패) 화면 전체를 다시 그려 결과를 보여 준다."""
+        cur = web_song.vocals_status(ws)
+        if cur["state"] == "running":
+            st.info(f"보컬을 분리하는 중이에요 · {int(cur['elapsed'])}초 경과 (보통 1~3분). 화면은 막히지 않아요. 다른 소리를 들어도 되고 끝나면 자동으로 바뀌어요.")
+        else:
+            st.rerun()
+
+
+    if src == "보컬만":
+        if vs["state"] == "done":
+            st.audio(voc_path, format="audio/wav", start_time=a, end_time=b)
+            st.caption("반주를 뺀 소리예요. 원어민이 실제로 어떻게 발음하는지 들어 보세요.")
+        elif vs["state"] == "running":
+            vocal_watch()
+        else:
+            if vs["state"] == "error":
+                st.error(vs["error"])
+            st.caption("보컬만 듣기는 **이 구간 전체에 대해 한 번만** 만들면 돼요(줄마다 만드는 게 아니에요). 만든 뒤에는 줄마다 해당 부분만 재생해요. "
+                       "만드는 동안에도 다른 화면을 쓸 수 있어요.")
+            if st.button("보컬만 만들기 (이 구간 전체, 보통 1~3분)" if vs["state"] != "error" else "다시 만들기", type="primary", key="voc_btn"):
+                web_song.start_vocals(ws)
+                st.rerun()
+    elif src == "표준 발음":
+        if _tts_ready(ln):
+            st.audio(ln["tts_path"], format="audio/wav")
+            st.caption("TTS가 읽는 또박또박한 발음이에요(기계 음성).")
+        elif ln["status"] == "dropped":
+            st.caption("연습에서 뺀 줄이에요.")
+        else:
+            plan = web_song.tts_summary(ws, only={ln["no"]})
+            st.caption(f"이 줄의 표준 발음은 아직 없어요. 만들면 OpenAI TTS를 부르고({plan['chars']}글자) **과금**돼요"
+                       + (" (같은 문장이 이미 있어 무료예요)." if plan["n_api_calls"] == 0 else "."))
+            if st.button("이 줄의 표준 발음 만들기", type="primary", key=f"tts_btn_{ln['no']}"):
+                with st.spinner("음성을 만드는 중…"):
+                    try:
+                        web_song.make_tts(ws, only={ln["no"]})
+                    except Exception as e:
+                        st.error(f"만들지 못했어요 ({type(e).__name__}: {e})")
+                st.rerun()
+        all_plan = web_song.tts_summary(ws)
+        if all_plan["n_lines"] and all_plan["n_api_calls"]:
+            st.caption(f"전체 {all_plan['n_lines']}줄 중 아직 없는 {all_plan['n_api_calls']}줄({all_plan['chars']}글자)을 한꺼번에 만들 수도 있어요(OpenAI TTS **과금**).")
+            if st.button(f"모든 줄의 표준 발음 만들기 ({all_plan['n_api_calls']}줄)", key="tts_all_btn"):
+                with st.spinner("음성을 만드는 중… (줄마다 몇 초씩 걸려요)"):
+                    try:
+                        web_song.make_tts(ws)
+                    except Exception as e:
+                        st.error(f"만들지 못했어요 ({type(e).__name__}: {e})")
+                st.rerun()
+    else:
+        st.audio(mix_path, format="audio/wav", start_time=a, end_time=b)
+        st.caption("원곡의 이 줄 부분이에요(앞뒤 0.1초 여유).")
+
+    # ---------- 6. 연습 ----------
+    st.subheader("연습")
+    if ln["status"] == "dropped":
+        st.caption("연습에서 뺀 줄이에요. 다시 쓰려면 같은 곡을 다시 올려 구간을 다시 인식해 주세요.")
+    else:
+        tts_ok = _tts_ready(ln)
+        st.caption(f"이 줄의 언어: {languages.name(line_lang)}" + ("" if languages.uses_spaces(line_lang) else " · 글자 오류율(CER) 중심으로 채점해요"))
+        practice_panel(ln["text"], key=f"song_{gen}_{ln['no']}", tts_path=ln["tts_path"] if tts_ok else None, source="song", lang=line_lang)
+
+
+def saved_songs_view():
+    """'저장된 곡' 입력 방식: 서버에 저장한 곡 목록에서 하나를 골라 **소리 없이** 가사·표준 발음·연습을 이어 간다(음원은 저장하지 않으므로).
+    고른 곡의 가사 doc을 새 작업 폴더에 되살리고(web_song.restore_lines), 이후는 업로드한 곡과 같은 lines_section을 쓴다."""
+    rows = [r for r in persist.song_list() if r["n_lines"]]
+    if not rows:
+        st.info("저장된 곡이 아직 없어요. '음원 파일 업로드'나 '주변 음악 녹음'으로 가사를 인식하면 자동으로 저장돼요(저장을 켜 둔 경우).")
+        return
+
+    def label(r):
+        when = r["updated_at"].astimezone().strftime("%m-%d %H:%M") if r.get("updated_at") else ""
+        where = (web_song.clip_range_label(r["clip_start"], r["clip_duration"]) + " · ") if r.get("clip_start") is not None and r.get("clip_duration") else ""
+        return f"{r.get('name') or '이름 없음'} · {where}{r['n_lines']}줄 · {when}"
+
+    by_digest = {r["digest"]: r for r in rows}
+    st.caption("곡 소리는 저장하지 않아서 가사와 표준 발음으로 연습해요. 원곡을 들으려면 같은 파일을 다시 올리세요.")
+    pick = st.selectbox("저장된 곡", list(by_digest), index=None, format_func=lambda d: label(by_digest[d]), placeholder="곡을 고르세요", key="saved_pick")
+    if pick is None:
+        if "ws" in st.session_state:
+            reset_song()
+        return
+    row = persist.saved_song(pick)
+    if row is None:
+        st.error("저장된 곡을 불러오지 못했어요.")
+        return
+    if st.session_state.get("song_digest") != pick:       # 곡을 바꿨을 때만 작업 폴더를 새로 만들어 가사를 되살린다
+        reset_song()
+        ws = web_song.new_workspace()
+        web_song.restore_lines(ws, row)
+        st.session_state.update(ws=ws, song_digest=pick, gen=0)
+    ws = st.session_state["ws"]
+    doc = web_song.load_doc(ws)
+    if doc is None:
+        st.error("이 곡에는 가사가 없어요.")
+        return
+    has_cut = row.get("clip_start") is not None and row.get("clip_duration")
+    persist.autosave_song(pick, ws, row.get("name"), row.get("seconds") or 0, row.get("input") or "file",
+                          cut=(float(row["clip_start"]), float(row["clip_duration"])) if has_cut else None)
+    if doc.get("languages"):
+        st.caption("인식에 쓴 언어: " + " + ".join(languages.name(c) for c in doc["languages"]))
+    clip_seconds = max([float(row["clip_duration"]) if has_cut else 0.0] + [l["end"] for l in doc["lines"]])
+    lines_section(ws, doc, clip_seconds, None, None, False)
+
+
 if "swept" not in st.session_state:                      # 세션당 한 번, 오래된 작업 폴더 정리
     web_song.cleanup_old_workspaces()
     st.session_state["swept"] = True
@@ -44,13 +222,17 @@ if "swept" not in st.session_state:                      # 세션당 한 번, �
 # ---------- 1. 입력: 음원 파일 업로드 또는 주변 음악 녹음 (이슈 #51) ----------
 # 두 입력은 (이름, bytes) 하나로 합쳐 아래의 같은 흐름(작업 폴더 → 구간 → 언어 확인 → 인식 → 연습)에 넣는다.
 # 탭 대신 segmented_control을 쓴다: 한 번에 한 입력만 그려서 st.stop()으로 흐름을 끊어도 다른 쪽 코드가 같이 실행되지 않는다.
-MODE_FILE, MODE_REC = "음원 파일 업로드", "주변 음악 녹음"
-mode = st.segmented_control("입력 방식", [MODE_FILE, MODE_REC], default=MODE_FILE, key="song_mode") or MODE_FILE
+MODE_FILE, MODE_REC, MODE_SAVED = "음원 파일 업로드", "주변 음악 녹음", "저장된 곡"
+modes = [MODE_FILE, MODE_REC] + ([MODE_SAVED] if auth_gate.is_user() else [])        # 저장된 곡은 로그인한 사용자만
+mode = st.segmented_control("입력 방식", modes, default=MODE_FILE, key="song_mode") or MODE_FILE
 if st.session_state.get("song_mode_prev", mode) != mode and "ws" in st.session_state:
     reset_song()                                          # 입력 방식을 바꾸면 이전 입력의 작업 폴더를 지운다
 st.session_state["song_mode_prev"] = mode
 is_rec = mode == MODE_REC
 explain.show("song_input")
+if mode == MODE_SAVED:
+    saved_songs_view()
+    st.stop()
 
 if is_rec:
     st.caption("스피커로 노래를 틀어 두고, 마이크가 그 소리를 듣도록 녹음하세요(10~30초 정도가 좋아요). "
@@ -84,6 +266,16 @@ head.write(f"길이 {web_song.format_hms(ov['seconds'])}")
 if clear.button("곡 지우기", key="clear"):
     reset_song()
     st.rerun()
+
+# ---------- 저장된 기록 불러오기 (로그인한 사용자, 이슈 #52) ----------
+saved = persist.saved_song(digest)
+if saved and web_song.load_doc(ws) is None and st.session_state.get("cut") is None:
+    n_saved = len((saved.get("doc") or {}).get("lines") or [])
+    with st.container(border=True):
+        st.markdown("**이 곡을 전에 저장했어요**")
+        where = (f"구간 {web_song.clip_range_label(saved['clip_start'], saved['clip_duration'])} · " if saved.get("clip_start") is not None and saved.get("clip_duration") else "")
+        st.caption(f"{where}가사 줄 {n_saved}개. 불러오면 같은 구간을 다시 자르고 가사를 되살려요(인식을 다시 하지 않아요).")
+        st.button("저장된 구간·가사 불러오기", type="primary", key="restore_btn", on_click=restore_saved, args=(ws, st.session_state["song_path"], saved))
 
 if is_rec:
     # 주변 음악 녹음은 **녹음 전체를 구간으로** 쓴다(슬라이더·파형 없음). 상태 점검은 안내일 뿐이라 경고가 있어도 계속할 수 있다.
@@ -198,6 +390,7 @@ rec_langs = opts["languages"] or ([sug["top"][0]] if sug and sug.get("top") else
 st.subheader("가사 인식")
 explain.show("song_recog")
 doc = web_song.load_doc(ws)
+persist.autosave_song(digest, ws, src_name, ov["seconds"], "record" if is_rec else "file")      # 구간·가사·언어가 바뀌었으면 서버에 저장(로그인+저장 켬일 때만)
 if st.button("가사 인식하기" if doc is None else "다시 인식하기(고친 가사는 사라져요)", type="primary" if doc is None else "secondary", key="recog_btn", disabled=sug is None):
     with st.spinner("인식하는 중… (medium 모델, CPU에서 20초 구간에 약 20~60초. 서버를 켠 뒤 처음 한 번은 모델을 읽느라 더 걸려요)"):
         try:
@@ -210,111 +403,4 @@ if doc is None:
     st.stop()
 if doc.get("languages"):
     st.caption("인식에 쓴 언어: " + " + ".join(languages.name(c) for c in doc["languages"]) + (" (구간마다 재감지)" if doc["stt"].get("multilingual") else ""))
-
-# ---------- 4. 줄 확인·수정 (선택) ----------
-lines = doc["lines"]
-gen = st.session_state["gen"]
-st.subheader("줄 확인·수정 (선택)")
-st.caption("인식된 가사가 맞으면 **그대로 연습해도 돼요.** 틀린 곳이 보이거나 점수가 이상하면 고쳐서 저장하세요. "
-           "인식이 틀리면 기준 문장도 틀려서 점수가 틀린 기준으로 매겨질 수 있어요.")
-mark = {"confirmed": "✓", "dropped": "✕", "candidate": "·"}
-no = st.segmented_control("줄", [l["no"] for l in lines], default=lines[0]["no"], key=f"line_{gen}",
-                          format_func=lambda n: f"{n}줄 {mark[next(l['status'] for l in lines if l['no'] == n)]}")
-ln = next(l for l in lines if l["no"] == (no or lines[0]["no"]))
-if doc["lines"] and any(l["low_confidence"] for l in lines):
-    st.caption("⚠ 이 구간은 인식이 불안정할 수 있어요(신뢰 지표가 낮음). 특히 꼼꼼히 들어 보세요.")
-if ln["too_long"]:
-    st.caption("이 줄은 길어요(6초·14단어 초과). 나눠서 연습하고 싶다면 가사를 줄이거나 빼세요.")
-
-text = st.text_input("가사 (고치면 아래에 저장 버튼이 나와요)", value=ln["text"], key=f"txt_{gen}_{ln['no']}")
-changed = text.strip() != ln["text"]
-c1, c2, c3 = st.columns([2, 1, 3], vertical_alignment="center")
-if changed and c1.button("고친 가사 저장", type="primary", key=f"ok_{gen}_{ln['no']}"):
-    if text.strip():
-        web_song.confirm_line(ws, ln["no"], text)
-        st.rerun()
-    else:
-        st.warning("가사가 비어 있어요. 빼려면 '연습에서 빼기'를 누르세요.")
-if c2.button("연습에서 빼기", key=f"drop_{gen}_{ln['no']}"):
-    web_song.drop_line(ws, ln["no"])
-    st.rerun()
-c3.caption({"confirmed": "고쳐서 저장함", "dropped": "연습에서 뺌", "candidate": "자동 인식 그대로"}[ln["status"]]
-           + (" · 원문과 달라요" if ln["edited"] else ""))
-
-# ---------- 5. 듣기 ----------
-line_lang = ln.get("lang") or (doc.get("languages") or ["en"])[0]       # 이슈 #50 이전에 만든 줄 데이터는 언어 칸이 없어 영어
-st.subheader("듣기")
-explain.show("song_listen")
-meaning_group(ln["text"], line_lang, f"song_{gen}_{ln['no']}")           # 들을 문장의 한글 뜻 + 일본어면 읽기·로마자
-notes_box(ln["text"], line_lang, f"song_{gen}_{ln['no']}")               # 표현 설명(버튼): 한글 뜻 바로 아래
-sources = ["원본 음악", "보컬만", "표준 발음"]
-src = st.segmented_control("들을 소리", sources, default="원본 음악", key="listen_src")
-a, b = web_song.line_range(ln, clip_seconds)
-vs = web_song.vocals_status(ws)
-if vs["state"] == "running" and src != "보컬만":
-    st.caption(f"보컬 분리가 뒤에서 진행 중이에요({int(vs['elapsed'])}초 경과). '보컬만'을 고르면 상태를 볼 수 있어요.")
-
-
-@st.fragment(run_every="3s")
-def vocal_watch():
-    """보컬 분리 진행 상태를 3초마다 확인한다. 끝나면(성공·실패) 화면 전체를 다시 그려 결과를 보여 준다."""
-    cur = web_song.vocals_status(ws)
-    if cur["state"] == "running":
-        st.info(f"보컬을 분리하는 중이에요 · {int(cur['elapsed'])}초 경과 (보통 1~3분). 화면은 막히지 않아요. 다른 소리를 들어도 되고 끝나면 자동으로 바뀌어요.")
-    else:
-        st.rerun()
-
-
-if src == "보컬만":
-    if vs["state"] == "done":
-        st.audio(voc_path, format="audio/wav", start_time=a, end_time=b)
-        st.caption("반주를 뺀 소리예요. 원어민이 실제로 어떻게 발음하는지 들어 보세요.")
-    elif vs["state"] == "running":
-        vocal_watch()
-    else:
-        if vs["state"] == "error":
-            st.error(vs["error"])
-        st.caption("보컬만 듣기는 **이 구간 전체에 대해 한 번만** 만들면 돼요(줄마다 만드는 게 아니에요). 만든 뒤에는 줄마다 해당 부분만 재생해요. "
-                   "만드는 동안에도 다른 화면을 쓸 수 있어요.")
-        if st.button("보컬만 만들기 (이 구간 전체, 보통 1~3분)" if vs["state"] != "error" else "다시 만들기", type="primary", key="voc_btn"):
-            web_song.start_vocals(ws)
-            st.rerun()
-elif src == "표준 발음":
-    if ln.get("tts_path") and ln.get("tts_text") == ln["text"]:
-        st.audio(ln["tts_path"], format="audio/wav")
-        st.caption("TTS가 읽는 또박또박한 발음이에요(기계 음성).")
-    elif ln["status"] == "dropped":
-        st.caption("연습에서 뺀 줄이에요.")
-    else:
-        plan = web_song.tts_summary(ws, only={ln["no"]})
-        st.caption(f"이 줄의 표준 발음은 아직 없어요. 만들면 OpenAI TTS를 부르고({plan['chars']}글자) **과금**돼요"
-                   + (" (같은 문장이 이미 있어 무료예요)." if plan["n_api_calls"] == 0 else "."))
-        if st.button("이 줄의 표준 발음 만들기", type="primary", key=f"tts_btn_{ln['no']}"):
-            with st.spinner("음성을 만드는 중…"):
-                try:
-                    web_song.make_tts(ws, only={ln["no"]})
-                except Exception as e:
-                    st.error(f"만들지 못했어요 ({type(e).__name__}: {e})")
-            st.rerun()
-    all_plan = web_song.tts_summary(ws)
-    if all_plan["n_lines"] and all_plan["n_api_calls"]:
-        st.caption(f"전체 {all_plan['n_lines']}줄 중 아직 없는 {all_plan['n_api_calls']}줄({all_plan['chars']}글자)을 한꺼번에 만들 수도 있어요(OpenAI TTS **과금**).")
-        if st.button(f"모든 줄의 표준 발음 만들기 ({all_plan['n_api_calls']}줄)", key="tts_all_btn"):
-            with st.spinner("음성을 만드는 중… (줄마다 몇 초씩 걸려요)"):
-                try:
-                    web_song.make_tts(ws)
-                except Exception as e:
-                    st.error(f"만들지 못했어요 ({type(e).__name__}: {e})")
-            st.rerun()
-else:
-    st.audio(mix_path, format="audio/wav", start_time=a, end_time=b)
-    st.caption("원곡의 이 줄 부분이에요(앞뒤 0.1초 여유).")
-
-# ---------- 6. 연습 ----------
-st.subheader("연습")
-if ln["status"] == "dropped":
-    st.caption("연습에서 뺀 줄이에요. 다시 쓰려면 곡 구간을 다시 인식해 주세요.")
-else:
-    tts_ok = ln.get("tts_path") and ln.get("tts_text") == ln["text"]
-    st.caption(f"이 줄의 언어: {languages.name(line_lang)}" + ("" if languages.uses_spaces(line_lang) else " · 글자 오류율(CER) 중심으로 채점해요"))
-    practice_panel(ln["text"], key=f"song_{gen}_{ln['no']}", tts_path=ln["tts_path"] if tts_ok else None, source="song", lang=line_lang)
+lines_section(ws, doc, clip_seconds, mix_path, voc_path, True)

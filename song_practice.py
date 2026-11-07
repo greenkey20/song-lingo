@@ -42,6 +42,11 @@ def _write_json(path, doc):
     os.replace(tmp, path)
 
 
+def save_doc(clip_id, doc, out_dir=SONG_DIR):
+    """줄 목록 doc(dict)을 lines.json으로 저장한다(서버에 저장해 둔 곡 기록을 복원할 때 쓴다, 이슈 #52)."""
+    _write_json(lines_path(clip_id, out_dir), doc)
+
+
 def prepare_lines(clip_id, work_dir=separate.WORK_DIR, out_dir=SONG_DIR, model_size=SONG_MODEL, recognize=stt.recognize_segments,
                   overwrite=False, language="en", multilingual=False, languages=None, **split_kwargs):
     """구간 하나를 인식해 줄 후보를 만들고 lines.json으로 저장한 뒤 그 내용(dict)을 돌려준다.

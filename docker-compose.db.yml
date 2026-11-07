@@ -1,0 +1,20 @@
+# song-lingo 전용 PostgreSQL (이슈 #52, 검토 문서 16.16). inner-orbit의 DB와 **별개 컨테이너·볼륨·포트**이고, 변수 이름(DB_NAME·DB_USER·DB_PASSWORD)은 inner-orbit과 맞췄다.
+# 사용(프로젝트 루트에서, 같은 폴더의 .env에서 값을 읽음):  sudo docker compose -f docker-compose.db.yml up -d
+# 주의: POSTGRES_PASSWORD는 **빈 데이터 폴더를 처음 만들 때만** 쓰인다. 이미 만들어진 뒤에 .env의 DB_PASSWORD만 바꾸면 DB 안의 비밀번호는 안 바뀐다(ALTER USER 필요).
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: songlingo-db
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - songlingo_pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${DB_PORT:-5433}:5432"      # 내 서버 안에서만 접속(127.0.0.1). 5432는 inner-orbit이 쓰므로 5433
+    restart: always
+
+volumes:
+  songlingo_pgdata:
+    name: songlingo_pgdata

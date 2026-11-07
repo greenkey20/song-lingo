@@ -11,23 +11,53 @@ import streamlit as st
 
 import languages
 import web_practice as wp
+import auth_gate
 import explain
+import persist
 from ui_practice import meaning_group, notes_box, practice_panel
 
 CONF = {"high": "확신 높음", "medium": "확신 보통", "low": "확신 낮음", "none": ""}
 SOURCE = {"script": "문자 체계로 본 것", "words": "자주 쓰는 낱말로 본 것", "none": ""}
 
 st.title("내 문장")
-st.caption("연습할 문장이나 가사를 한 줄에 하나씩 쓰거나 붙여 넣어요. 이 화면에만 있고 저장하지 않아요. 어떤 언어인지 몰라도 돼요.")
+st.caption("연습할 문장이나 가사를 한 줄에 하나씩 쓰거나 붙여 넣어요. 어떤 언어인지 몰라도 돼요. "
+           + ("로그인하면 이 문장 목록이 서버에 저장돼서 다음에 이어서 쓸 수 있어요(저장을 끄면 저장하지 않아요)." if auth_gate.is_user()
+              else "게스트로는 이 화면에만 있고 저장되지 않아요."))
 
 if "lyrics" not in st.session_state:
     st.session_state["lyrics"] = ""
+
+
+def restore_sentences(saved):
+    """'저장된 내 문장 불러오기' 버튼의 on_click: 저장해 둔 줄과 줄마다 확인한 언어를 입력칸과 언어 확인 단계에 되살린다(콜백은 위젯이 만들어지기 전에 실행됨)."""
+    entries = saved.get("lines") or []
+    st.session_state["lyrics"] = "\n".join(e["text"] for e in entries)
+    dets = {}
+    for e in entries:
+        ln = e["text"]
+        k = f"{abs(hash(ln)) % 10**8}"                                       # 아래 keys와 같은 공식(같은 프로세스 안에서는 같은 값)
+        sug = languages.suggest_line_language(ln)
+        dets[k] = sug
+        langs = e.get("languages") or []
+        if langs:
+            if sug["primary"] and sug["primary"] == langs[0]:
+                st.session_state[f"lyr_ans_{k}"] = "네"
+            else:
+                st.session_state[f"lyr_ans_{k}"] = "아니오"
+                st.session_state[f"lyr_pick_{k}"] = [c for c in langs if c in languages.COMMON]
+    st.session_state["lyr_det"] = dets
+    st.session_state["lyr_det_for"] = True
 
 
 def load_example():
     """예시 묶음을 입력칸에 넣는다(버튼의 on_click: 입력 위젯이 만들어지기 전에 값을 바꿀 수 있다)."""
     st.session_state["lyrics"] = wp.example_set(st.session_state["lyr_example"])
 
+
+# ---------- 0. 저장된 내 문장 불러오기 (로그인한 사용자, 입력칸이 비어 있을 때만) ----------
+saved = persist.saved_sentences()
+if saved and (saved.get("lines")) and not st.session_state.get("lyrics", "").strip():
+    st.button(f"저장된 내 문장 불러오기 ({len(saved['lines'])}줄)", type="primary", key="lyr_restore", on_click=restore_sentences, args=(saved,))
 
 # ---------- 1. 입력 (맨 위) ----------
 text = st.text_area("문장", key="lyrics", height=150, label_visibility="collapsed",
@@ -98,6 +128,8 @@ for n, (ln, k) in enumerate(zip(lines, keys), 1):
             if note:
                 st.caption(note)
 
+persist.autosave_sentences([{"text": ln, "languages": answers[n]["languages"] if n in answers else None,
+                           "lang": answers[n]["lang"] if n in answers else None} for n, ln in enumerate(lines, 1)])      # 로그인+저장 켬일 때만
 if not answers:
     st.info("줄마다 언어를 확인하면 아래에서 표준 발음을 만들고 연습할 수 있어요.")
     st.stop()

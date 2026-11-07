@@ -277,6 +277,55 @@ class BackgroundVocals(unittest.TestCase):
         self.assertIsNotNone(proc.poll())
         self.assertEqual(web_song.vocals_status(self.ws)["state"], "none")
 
+class SaveRestore(unittest.TestCase):
+    """곡 기록을 저장용 dict로 만들고(song_snapshot), 같은 파일을 다시 올렸을 때 구간·가사를 복원(restore_song)하는지 시험한다(이슈 #52)."""
+
+    def setUp(self):
+        self.base = tempfile.TemporaryDirectory()
+        src = Path(self.base.name) / "src.wav"
+        recorder.save_wav(src, np.stack([_tone(30), _tone(30)], axis=1), SR)
+        self.data = src.read_bytes()
+
+    def tearDown(self):
+        self.base.cleanup()
+
+    def workspace(self):
+        ws = web_song.new_workspace(self.base.name)
+        return ws, web_song.save_upload(ws, "x.wav", self.data)
+
+    def test_snapshot_without_doc_has_empty_lines_and_clip_info(self):
+        ws, song = self.workspace()
+        snap = web_song.song_snapshot(ws, "곡.wav", 30.0, "file", (5, 10))
+        self.assertEqual(snap["doc"], {"lines": []})
+        self.assertEqual((snap["clip_start"], snap["clip_duration"], snap["input"], snap["languages"]), (5.0, 10.0, "file", []))
+        self.assertEqual(web_song.song_snapshot(ws, "곡", 30, "file", None)["clip_start"], None)
+
+    def test_roundtrip_restores_clip_and_lines_in_a_new_workspace(self):
+        ws, song = self.workspace()
+        web_song.cut(ws, song, 5, 10)
+        doc = {"lines": [{"no": 1, "start": 0.5, "end": 3.0, "text": "hello there", "stt_text": "hello there", "status": "candidate", "lang": "en"}],
+               "languages": ["en"], "stt": {"model": "medium"}}
+        from song_practice import save_doc
+        save_doc(web_song.CLIP_ID, doc, web_song.practice_dir(ws))
+        snap = web_song.song_snapshot(ws, "곡.wav", 30.0, "file", (5, 10))
+        self.assertEqual(snap["doc"]["lines"][0]["text"], "hello there")
+        self.assertEqual(snap["languages"], ["en"])
+        # 브라우저를 닫았다 연 것처럼 새 작업 폴더에서 같은 파일을 다시 올림
+        ws2, song2 = self.workspace()
+        self.assertIsNone(web_song.load_doc(ws2))
+        cut_info = web_song.restore_song(ws2, song2, snap)
+        self.assertEqual(cut_info, (5.0, 10.0))
+        self.assertEqual(web_song.load_doc(ws2)["lines"][0]["text"], "hello there")
+        mix, _ = separate.clip_paths(web_song.CLIP_ID, web_song.work_dir(ws2))
+        self.assertTrue(mix.exists())                                     # 구간을 다시 잘랐다(음원은 저장하지 않았으니 새로 올린 파일에서)
+
+    def test_restore_without_clip_info_or_lines_is_harmless(self):
+        ws, song = self.workspace()
+        row = {"clip_start": None, "clip_duration": None, "doc": {"lines": []}}
+        self.assertIsNone(web_song.restore_song(ws, song, row))
+        self.assertIsNone(web_song.load_doc(ws))
+
+
 
 if __name__ == "__main__":
     unittest.main()
