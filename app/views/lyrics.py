@@ -179,4 +179,4 @@ if todo:
 
 # ---------- 5. 연습 ----------
 st.subheader("연습")
-practice_panel(line, key=f"lyr_{no}_{lang}_{a['key']}", tts_path=path if cached else None, lang=lang)
+practice_panel(line, key=f"lyr_{no}_{lang}_{a['key']}", tts_path=path if cached else None, lang=lang, line_no=no)

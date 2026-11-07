@@ -36,27 +36,42 @@ def _clip_id_for(source):
     return st.session_state.get("clip_id") if source == "song" else None
 
 
-def save_practice(source, text, mode, res, lang=None):
-    """따라읽기·받아쓰기 채점 결과 한 번을 저장한다. res는 practice.read·dictation의 결과. 점수가 없으면(오류) 저장하지 않는다."""
+def _line_id_for(source, line_no):
+    """연습한 줄의 lines.id: 내 노래(source="song")는 지금 구간의 줄 번호로, 내 문장(source="lyrics")은 문장 묶음의 줄 번호로 찾는다
+    (autosave가 저장하면서 세션에 보관한 {줄 번호: id}). 모르면 None."""
+    if line_no is None:
+        return None
+    ss = st.session_state
+    if source == "song":
+        return (ss.get("clip_line_ids") or {}).get(line_no)
+    if source == "lyrics":
+        return (ss.get("text_line_ids") or {}).get(line_no)
+    return None
+
+
+def save_practice(source, text, mode, res, lang=None, line_no=None):
+    """따라읽기·받아쓰기 채점 결과 한 번을 저장한다. res는 practice.read·dictation의 결과. 점수가 없으면(오류) 저장하지 않는다.
+    line_no: 화면에서 연습 중인 줄 번호(있으면 practices.line_id로 연결)."""
     if not auth_gate.save_enabled():
         return False
     rec = practice_log.make_record(source, text, mode, res)
     if rec is None:
         return False
     record = {"source": _source(rec["key"], rec["source"]), "key": rec["key"], "mode": mode, "lang": lang, "ref_text": text, "hyp_text": res.get("hyp"),
-              "scoring": res["score"], "azure": None, "stt_settings": rec["stt"] or None, "clip_id": _clip_id_for(source)}
+              "scoring": res["score"], "azure": None, "stt_settings": rec["stt"] or None, "clip_id": _clip_id_for(source),
+              "line_id": _line_id_for(source, line_no)}
     uid = st.session_state["uid"]
     return _run(lambda conn: storage.append_practice(conn, uid, record))
 
 
-def save_azure(source, text, lang, azure_result):
+def save_azure(source, text, lang, azure_result, line_no=None):
     """Azure 발음 평가 결과 한 번을 저장한다(점수와 단어별 결과만, 녹음은 저장하지 않음). 인식된 글은 hyp_text에 둔다."""
     if not auth_gate.save_enabled() or not azure_result:
         return False
     key = practice_log.sentence_key(text)
     record = {"source": _source(key, source), "key": key, "mode": "azure", "lang": lang, "ref_text": text,
               "hyp_text": azure_result.get("text") or None, "scoring": None, "azure": azure_result, "stt_settings": None,
-              "clip_id": _clip_id_for(source)}
+              "clip_id": _clip_id_for(source), "line_id": _line_id_for(source, line_no)}
     uid = st.session_state["uid"]
     return _run(lambda conn: storage.append_practice(conn, uid, record))
 
@@ -123,7 +138,7 @@ def autosave_clip(audio_sha1, ws, name, seconds, input_kind, cut=None):
     (같은 곡을 다시 올리고 구간만 고르다가 저장된 가사를 빈 기록으로 덮어쓰는 사고를 막는다).
     cut: (시작, 길이). 안 주면 세션의 지금 구간을 쓴다(소리 없이 저장본만 여는 '저장된 곡' 모드는 저장된 구간을 직접 넘긴다)."""
     ss = st.session_state
-    ss["clip_id"] = None                                    # 저장되지 않는 경우(게스트·저장 끔·구간 없음)에는 연습 기록에 clip_id를 달지 않는다
+    ss["clip_id"], ss["clip_line_ids"] = None, {}           # 저장되지 않는 경우(게스트·저장 끔·구간 없음)에는 연습 기록에 clip_id·line_id를 달지 않는다
     if not auth_gate.save_enabled():
         return False
     cut = cut or ss.get("cut")
@@ -136,20 +151,23 @@ def autosave_clip(audio_sha1, ws, name, seconds, input_kind, cut=None):
     row = _saved_same_clip(audio_sha1, start, duration)
     if row and (row.get("doc") or {}).get("lines") and not snap["doc"].get("lines"):
         ss["clip_id"] = row["id"]
+        ok, ids = _call(lambda conn: storage.clip_line_ids(conn, uid, row["id"]))
+        ss["clip_line_ids"] = ids if ok else {}
         return False
     h = _digest_of(snap)
     state = ss.get("saved_clip_state")                      # (구간 열쇠, 내용 해시, clip id): 마지막으로 저장한 것
     if state and state[0] == key and state[1] == h:
-        ss["clip_id"] = state[2]
+        ss["clip_id"], ss["clip_line_ids"] = state[2], state[3]
         return True
     holder = {}
 
     def act(conn):
         holder["id"] = storage.save_clip(conn, uid, audio_sha1, start, duration, snap["doc"], song_title=snap["song_title"],
                                          song_duration_sec=snap["song_duration_sec"], input_type=snap["input_type"], languages=snap["languages"])
+        holder["lines"] = storage.clip_line_ids(conn, uid, holder["id"])
     if _run(act):
-        ss["saved_clip_state"] = (key, h, holder["id"])
-        ss["clip_id"] = holder["id"]
+        ss["saved_clip_state"] = (key, h, holder["id"], holder["lines"])
+        ss["clip_id"], ss["clip_line_ids"] = holder["id"], holder["lines"]
         ss.pop(f"saved_clips_{audio_sha1}", None)           # 다음에 읽을 때 방금 저장한 내용으로 새로 읽는다
         return True
     return False
@@ -177,11 +195,17 @@ def autosave_texts(entries):
     doc = {"lines": entries}
     ss = st.session_state
     h = _digest_of(doc)
-    if ss.get("saved_texts_hash") == h:
+    if ss.get("saved_texts_hash") == h and "text_line_ids" in ss:
         return True
     uid = ss["uid"]
-    if _run(lambda conn: storage.save_texts(conn, uid, doc)):
+    holder = {}
+
+    def act(conn):
+        storage.save_texts(conn, uid, doc)
+        holder["ids"] = storage.text_line_ids(conn, uid)
+    if _run(act):
         ss["saved_texts_hash"] = h
         ss["saved_texts"] = doc
+        ss["text_line_ids"] = holder["ids"]                 # 연습 기록이 줄(lines.id)과 이어지도록 {줄 번호: id}를 보관
         return True
     return False

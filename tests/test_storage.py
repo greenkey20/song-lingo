@@ -90,14 +90,14 @@ class WithDb(unittest.TestCase):
 
 class Migrations(WithDb):
     def test_applied_and_idempotent(self):
-        self.assertEqual(self.applied[:3], ["001_init.sql", "002_rename_ids_clips.sql", "003_meanings.sql"])
+        self.assertEqual(self.applied[:4], ["001_init.sql", "002_rename_ids_clips.sql", "003_meanings.sql", "004_lines.sql"])
         with self.conn() as c:
             self.assertEqual(storage.migrate(c), [])                    # 두 번째는 할 일이 없다
             versions = [r["version"] for r in c.execute("SELECT version FROM schema_migrations").fetchall()]
             tables = {r["table_name"] for r in c.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = %s",
                                                            (self.schema,)).fetchall()}
         self.assertEqual(versions.count("001_init.sql"), 1)
-        self.assertTrue({"users", "login_tokens", "clips", "texts", "practices", "meanings", "schema_migrations"} <= tables)
+        self.assertTrue({"users", "login_tokens", "clips", "texts", "practices", "meanings", "lines", "schema_migrations"} <= tables)
         self.assertFalse({"songs", "sentences", "attempts"} & tables)             # 옛 이름은 없어졌다
 
     def test_ping(self):
@@ -132,8 +132,8 @@ class MigrateFromV1(unittest.TestCase):
                 self.assertEqual(len(clips), 1)                                            # 구간 없는 옛 행은 지워진다
                 c0 = storage.load_clip(conn, uid, "dig1", 65.1, 20)
                 self.assertEqual((c0["song_title"], c0["song_duration_sec"], c0["input_type"], c0["languages"]), ("곡", 213.4, "file", ["en"]))
-                self.assertEqual(c0["doc"], {"lines": [{"no": 1}]})
-                self.assertEqual(storage.load_texts(conn, uid), {"lines": [{"text": "hi"}]})
+                self.assertEqual([l["no"] for l in c0["doc"]["lines"]], [1])                   # 004까지 적용돼도 doc은 줄 테이블에서 조립되어 돌아온다
+                self.assertEqual(storage.load_texts(conn, uid), {"lines": [{"text": "hi", "languages": None, "lang": None}]})
                 rows = {r["key"]: r for r in storage.list_practices(conn, uid)}
                 self.assertEqual(rows["k1"]["scoring"], {"wer": {}})
                 self.assertEqual(rows["k1"]["stt_settings"], "tiny")                       # 글이던 값은 JSON 글자로
@@ -264,7 +264,7 @@ class Clips(WithDb):
             cid = storage.save_clip(c, uid, "d1", 65, 20, self.DOC, song_title="내 곡.mp3", song_duration_sec=213.4, input_type="file", languages=["en", "ja"])
             s = storage.load_clip(c, uid, "d1", 65, 20)
             self.assertEqual(s["id"], cid)
-            self.assertEqual(s["doc"], self.DOC)                              # JSONB가 파이썬 dict로 돌아온다
+            self.assertEqual([(l["no"], l["text"], l["status"]) for l in s["doc"]["lines"]], [(1, "hello there", "candidate"), (2, "again", "confirmed")])   # 줄 테이블에서 조립
             self.assertEqual((s["song_title"], s["clip_start_sec"], s["clip_duration_sec"], s["languages"]), ("내 곡.mp3", 65.0, 20.0, ["en", "ja"]))
             self.assertIsInstance(s["clip_start_sec"], float)                 # NUMERIC(Decimal)을 float로 바꿔 돌려준다
             again = storage.save_clip(c, uid, "d1", 65, 20, {"lines": []}, song_title="이름 바꿈")      # 같은 곡·같은 구간이면 덮어씀(같은 id)
@@ -370,6 +370,150 @@ class Meanings(WithDb):
         self.assertFalse({"text", "sentence", "user_id"} & cols)                                   # 문장 글·사용자와 연결되지 않는다
 
 
+class Lines(WithDb):
+    """줄 단위 저장(3단계): 줄은 lines 테이블에, 나머지는 clips.recognition에 나뉘어 저장되고 doc으로 다시 조립된다."""
+
+    @staticmethod
+    def doc(*texts):
+        return {"clip_id": "c01", "start": 65.0, "duration": 20.0, "stt": {"model": "medium", "n_segments": 2}, "languages": ["en"],
+                "lines": [{"no": i, "start": 1.5 * i, "end": 1.5 * i + 1.25, "stt_text": t, "text": t, "edited": False, "status": "candidate",
+                           "source": "segment", "low_confidence": i == 2, "too_long": False, "n_words": len(t.split()), "segment_ids": [i - 1],
+                           "tts_path": None, "lang": "en"} for i, t in enumerate(texts, 1)],
+                "segments": [{"id": 0, "start": 0.0, "end": 3.0}]}
+
+    def test_roundtrip_splits_into_lines_and_recognition(self):
+        uid, _ = self.new_user()
+        d = self.doc("hello there", "so long")
+        with self.conn() as c:
+            cid = storage.save_clip(c, uid, "s", 65, 20, d, languages=["en"])
+            got = storage.load_clip_by_id(c, uid, cid)["doc"]
+            self.assertEqual(got["lines"], d["lines"])                           # 줄 필드(시간·segment_ids·status …)가 그대로
+            self.assertEqual({k: v for k, v in got.items() if k != "lines"}, {k: v for k, v in d.items() if k != "lines"})   # STT 설정·언어·segments는 recognition에서
+            self.assertEqual(c.execute("SELECT count(*) AS n FROM lines WHERE clip_id = %s", (cid,)).fetchone()["n"], 2)
+            self.assertIsNone(c.execute("SELECT doc FROM clips WHERE id = %s", (cid,)).fetchone()["doc"])    # 옛 doc 열은 더 쓰지 않는다
+
+    def test_edit_keeps_line_ids_and_only_changed_lines_update(self):
+        uid, _ = self.new_user()
+        d = self.doc("hello there", "so long")
+        with self.conn() as c:                                                           # 저장마다 별도 트랜잭션(앱과 같음): now()는 트랜잭션 시작 시각이라 한 트랜잭션 안에서는 같은 값이다
+            cid = storage.save_clip(c, uid, "s", 0, 10, d)
+        with self.conn() as c:
+            ids = storage.clip_line_ids(c, uid, cid)
+            before = {r["line_no"]: r["updated_at"] for r in c.execute("SELECT line_no, updated_at FROM lines WHERE clip_id = %s", (cid,)).fetchall()}
+        d["lines"][1].update(text="so long!", edited=True, status="confirmed")           # 2번 줄만 고침(원문 stt_text는 그대로)
+        with self.conn() as c:
+            storage.save_clip(c, uid, "s", 0, 10, d)
+        with self.conn() as c:
+            self.assertEqual(storage.clip_line_ids(c, uid, cid), ids)                    # 줄 id가 유지된다
+            rows = {r["line_no"]: r for r in c.execute("SELECT * FROM lines WHERE clip_id = %s", (cid,)).fetchall()}
+        self.assertEqual(rows[1]["updated_at"], before[1])                               # 안 바뀐 줄은 갱신 시각도 그대로
+        self.assertGreater(rows[2]["updated_at"], before[2])
+        self.assertEqual((rows[2]["text"], rows[2]["stt_text"], rows[2]["edited"], rows[2]["status"]), ("so long!", "so long", True, "confirmed"))
+
+    def test_fewer_lines_after_rerecognition_deletes_extras_and_nulls_practice_link(self):
+        uid, _ = self.new_user()
+        with self.conn() as c:
+            cid = storage.save_clip(c, uid, "s", 0, 10, self.doc("a b", "c d", "e f"))
+            ids = storage.clip_line_ids(c, uid, cid)
+            pid = storage.append_practice(c, uid, {"source": "song", "key": "k", "mode": "dictation", "clip_id": cid, "line_id": ids[3]})
+            storage.save_clip(c, uid, "s", 0, 10, self.doc("a b", "c d"))
+            self.assertEqual(sorted(storage.clip_line_ids(c, uid, cid)), [1, 2])
+            self.assertIsNone(c.execute("SELECT line_id FROM practices WHERE id = %s", (pid,)).fetchone()["line_id"])    # 줄이 없어져도 기록은 남는다
+            self.assertEqual(storage.count_practices(c, uid), 1)
+
+    def test_practice_keeps_line_link_when_line_edited(self):
+        uid, _ = self.new_user()
+        with self.conn() as c:
+            cid = storage.save_clip(c, uid, "s", 0, 10, self.doc("a b"))
+            lid = storage.clip_line_ids(c, uid, cid)[1]
+            pid = storage.append_practice(c, uid, {"source": "song", "key": "k", "mode": "read", "ref_text": "a b", "clip_id": cid, "line_id": lid})
+            storage.save_clip(c, uid, "s", 0, 10, self.doc("a b c"))
+            row = c.execute("SELECT line_id, ref_text FROM practices WHERE id = %s", (pid,)).fetchone()
+            self.assertEqual((row["line_id"], row["ref_text"]), (lid, "a b"))             # 줄은 이어지고 채점 당시의 기준 글도 남는다
+
+    def test_texts_lines(self):
+        uid, _ = self.new_user()
+        with self.conn() as c:
+            storage.save_texts(c, uid, {"lines": [{"text": "Hello", "languages": ["en"], "lang": "en"}, {"text": "朝の光", "languages": ["ja", "en"], "lang": "ja"},
+                                                  {"text": "unknown", "languages": None, "lang": None}]})
+            got = storage.load_texts(c, uid)["lines"]
+            self.assertEqual([(l["text"], l["languages"], l["lang"]) for l in got], [("Hello", ["en"], "en"), ("朝の光", ["ja", "en"], "ja"), ("unknown", None, None)])
+            ids = storage.text_line_ids(c, uid)
+            self.assertEqual(sorted(ids), [1, 2, 3])
+            storage.save_texts(c, uid, {"lines": [{"text": "Hello", "languages": ["en"], "lang": "en"}]})      # 줄이 줄어듦
+            self.assertEqual(len(storage.load_texts(c, uid)["lines"]), 1)
+            self.assertEqual(storage.text_line_ids(c, uid), {1: ids[1]})                  # 남은 줄의 id는 그대로
+            self.assertEqual(c.execute("SELECT count(*) AS n FROM texts WHERE user_id = %s", (uid,)).fetchone()["n"], 1)
+
+    def test_clip_xor_text_and_status_constraints(self):
+        uid, _ = self.new_user()
+        with self.conn() as c:
+            cid = storage.save_clip(c, uid, "s", 0, 10, self.doc("a b"))
+            storage.save_texts(c, uid, {"lines": [{"text": "x"}]})
+            tid = c.execute("SELECT id FROM texts WHERE user_id = %s", (uid,)).fetchone()["id"]
+            sql = "INSERT INTO lines (user_id, original_source_type, clip_id, text_id, line_no, text) VALUES (%s, %s, %s, %s, 9, 't')"
+            for args in ((uid, "clip", cid, tid), (uid, "clip", None, None), (uid, "text", cid, None), (uid, "other", cid, None)):
+                with self.assertRaises(psycopg.errors.CheckViolation):                   # clip_id와 text_id는 정확히 하나만
+                    with c.transaction():
+                        c.execute(sql, args)
+            with self.assertRaises(psycopg.errors.CheckViolation):
+                with c.transaction():
+                    c.execute("UPDATE lines SET status = 'bogus' WHERE clip_id = %s", (cid,))
+            with self.assertRaises(psycopg.errors.UniqueViolation):                      # 같은 구간에서 줄 번호는 유일
+                with c.transaction():
+                    c.execute("INSERT INTO lines (user_id, original_source_type, clip_id, line_no, text) VALUES (%s, 'clip', %s, 1, 'dup')", (uid, cid))
+
+    def test_lines_are_per_user_and_deleted_with_their_clip(self):
+        a, _ = self.new_user()
+        b, _ = self.new_user()
+        with self.conn() as c:
+            cid = storage.save_clip(c, a, "s", 0, 10, self.doc("a b"))
+            self.assertEqual(storage.clip_line_ids(c, b, cid), {})                        # 남의 구간의 줄 id는 안 보인다
+            c.execute("DELETE FROM clips WHERE id = %s", (cid,))
+            self.assertEqual(c.execute("SELECT count(*) AS n FROM lines WHERE user_id = %s", (a,)).fetchone()["n"], 0)    # 구간이 지워지면 줄도(연쇄)
+
+
+class MigrateFromV2(unittest.TestCase):
+    """001~003까지 적용된 DB(서버의 현재 상태)에 doc JSON으로 저장된 구간·문장이 있을 때 004를 적용해도 줄 단위로 옮겨지는지 시험한다."""
+
+    @unittest.skipUnless(INFO, "SONGLINGO_TEST_CONNINFO가 없어 DB 테스트를 건너뜁니다")
+    def test_doc_lines_move_into_lines_table(self):
+        schema = "t_" + uuid.uuid4().hex[:10]
+        with psycopg.connect(INFO, autocommit=True) as c:
+            c.execute(f'CREATE SCHEMA "{schema}"')
+        try:
+            with storage.connect(INFO, schema) as conn:
+                conn.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())")
+                for name in ("001_init.sql", "002_rename_ids_clips.sql", "003_meanings.sql"):
+                    conn.execute((storage.MIGRATIONS_DIR / name).read_text(encoding="utf-8"))
+                    conn.execute("INSERT INTO schema_migrations (version) VALUES (%s)", (name,))
+                uid = conn.execute("INSERT INTO users (username, pw_salt, pw_hash) VALUES ('v2', %s, %s) RETURNING id", (b"s", b"h")).fetchone()["id"]
+                doc = {"stt": {"model": "medium"}, "languages": ["en"], "segments": [{"id": 0}],
+                       "lines": [{"no": 1, "start": 0.5, "end": 3.25, "stt_text": "hello wrld", "text": "hello world", "edited": True, "status": "confirmed",
+                                  "source": "split", "low_confidence": True, "too_long": False, "n_words": 2, "segment_ids": [0, 1], "tts_path": "/x.wav", "lang": "en"},
+                                 {"no": 2, "start": 3.5, "end": 5.0, "stt_text": "bye", "text": "bye", "status": "dropped"}]}
+                import json
+                conn.execute("INSERT INTO clips (user_id, audio_sha1, clip_start_sec, clip_duration_sec, doc) VALUES (%s, 'x', 10, 20, %s::jsonb)", (uid, json.dumps(doc)))
+                conn.execute("INSERT INTO texts (user_id, doc) VALUES (%s, %s::jsonb)", (uid, json.dumps({"lines": [
+                    {"text": "Hello", "languages": ["en"], "lang": "en"}, {"text": "朝の光", "languages": None, "lang": "ja"}]})))
+                conn.execute("INSERT INTO practices (user_id, source, key, mode) VALUES (%s, 'song', 'k', 'read')", (uid,))
+            with storage.connect(INFO, schema) as conn:
+                self.assertEqual(storage.migrate(conn), ["004_lines.sql"])
+                got = storage.load_clip(conn, uid, "x", 10, 20)["doc"]
+                l1, l2 = got["lines"]
+                self.assertEqual((l1["text"], l1["stt_text"], l1["edited"], l1["status"], l1["source"], l1["low_confidence"], l1["n_words"], l1["segment_ids"]),
+                                 ("hello world", "hello wrld", True, "confirmed", "split", True, 2, [0, 1]))
+                self.assertEqual((l1["start"], l1["end"], l1["lang"]), (0.5, 3.25, "en"))
+                self.assertEqual((l2["status"], l2["edited"], l2["segment_ids"]), ("dropped", False, []))            # 빠진 값은 기본값
+                self.assertEqual((got["stt"], got["languages"], got["segments"]), (doc["stt"], ["en"], doc["segments"]))   # 줄 밖의 내용은 recognition으로
+                self.assertEqual(storage.load_texts(conn, uid), {"lines": [{"text": "Hello", "languages": ["en"], "lang": "en"},
+                                                                          {"text": "朝の光", "languages": None, "lang": "ja"}]})
+                self.assertEqual(conn.execute("SELECT count(*) AS n FROM practices WHERE line_id IS NULL").fetchone()["n"], 1)   # 기존 기록은 줄과 연결 없음
+        finally:
+            with psycopg.connect(INFO, autocommit=True) as c:
+                c.execute(f'DROP SCHEMA "{schema}" CASCADE')
+
+
 class Cascade(WithDb):
     def test_delete_user_removes_everything(self):
         uid, name = self.new_user()
@@ -382,7 +526,7 @@ class Cascade(WithDb):
             other_cid = storage.save_clip(c, other, "d", 0, 10, {"lines": []})
             self.assertEqual(storage.delete_user(c, uid), 1)
             self.assertIsNone(storage.get_user(c, name))
-            for table in ("login_tokens", "clips", "texts", "practices"):
+            for table in ("login_tokens", "clips", "texts", "lines", "practices"):
                 self.assertEqual(c.execute(f"SELECT count(*) AS n FROM {table} WHERE user_id = %s", (uid,)).fetchone()["n"], 0, table)
             self.assertIsNotNone(storage.load_clip_by_id(c, other, other_cid))             # 다른 사용자의 데이터는 그대로
             self.assertEqual(storage.delete_user(c, uid), 0)

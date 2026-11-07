@@ -56,9 +56,13 @@ def restore_saved(ws, song_path, clip_id):
             st.session_state["dur"] = f"{int(cut_info[1])}초"
 
 
-def _tts_ready(ln):
-    """줄의 표준 발음 파일이 지금 쓸 수 있는지: 글이 같고 파일이 실제로 있어야 한다(저장본에서 불러온 줄은 파일이 없어졌을 수 있다)."""
-    return bool(ln.get("tts_path")) and ln.get("tts_text") == ln["text"] and os.path.exists(ln["tts_path"])
+def _tts_path(ln):
+    """줄의 표준 발음 파일 경로(없으면 None). 이 세션에서 만든 경로가 유효하면 그것을, 아니면 **글로 TTS 캐시를 찾는다**(저장본에서 불러온 줄은 경로를 저장하지
+    않으므로 같은 글의 캐시가 있으면 다시 만들지 않고 바로 듣는다)."""
+    if ln.get("tts_path") and ln.get("tts_text") == ln["text"] and os.path.exists(ln["tts_path"]):
+        return ln["tts_path"]
+    path, cached = wp.tts_target(ln["text"])
+    return str(path) if cached else None
 
 
 def lines_section(ws, doc, clip_seconds, mix_path, voc_path, has_audio):
@@ -136,8 +140,8 @@ def lines_section(ws, doc, clip_seconds, mix_path, voc_path, has_audio):
                 web_song.start_vocals(ws)
                 st.rerun()
     elif src == "표준 발음":
-        if _tts_ready(ln):
-            st.audio(ln["tts_path"], format="audio/wav")
+        if _tts_path(ln):
+            st.audio(_tts_path(ln), format="audio/wav")
             st.caption("TTS가 읽는 또박또박한 발음이에요(기계 음성).")
         elif ln["status"] == "dropped":
             st.caption("연습에서 뺀 줄이에요.")
@@ -171,9 +175,9 @@ def lines_section(ws, doc, clip_seconds, mix_path, voc_path, has_audio):
     if ln["status"] == "dropped":
         st.caption("연습에서 뺀 줄이에요. 다시 쓰려면 같은 곡을 다시 올려 구간을 다시 인식해 주세요.")
     else:
-        tts_ok = _tts_ready(ln)
+        tts_file = _tts_path(ln)
         st.caption(f"이 줄의 언어: {languages.name(line_lang)}" + ("" if languages.uses_spaces(line_lang) else " · 글자 오류율(CER) 중심으로 채점해요"))
-        practice_panel(ln["text"], key=f"song_{gen}_{ln['no']}", tts_path=ln["tts_path"] if tts_ok else None, source="song", lang=line_lang)
+        practice_panel(ln["text"], key=f"song_{gen}_{ln['no']}", tts_path=tts_file, source="song", lang=line_lang, line_no=ln["no"])
 
 
 def clip_label(c, with_title=False):

@@ -225,40 +225,123 @@ def _clip(row):
     return row
 
 
+# ---------- 줄(lines): 구간·내 문장의 줄 단위 저장 (검토 문서 16.17 3단계) ----------
+def _num3(v):
+    return Decimal(str(round(float(v), 3))) if v is not None else None
+
+
+def _line_values(l, i):
+    """앱의 줄 dict(lines.json 모양, 또는 내 문장의 {"text","languages","lang"})를 lines 테이블 열 값 튜플로 바꾼다. i는 줄 번호의 기본값."""
+    langs = l.get("languages")
+    return (int(l.get("no", i)), _num3(l.get("start")), _num3(l.get("end")), l.get("stt_text"), str(l.get("text") or ""),
+            bool(l.get("edited")), l.get("status") or "candidate", l.get("source"), bool(l.get("low_confidence")), bool(l.get("too_long")),
+            l.get("n_words"), list(l["segment_ids"]) if l.get("segment_ids") is not None else None, l.get("lang"),
+            list(langs) if langs else None)
+
+
+_LINE_SET = ("start_sec", "end_sec", "stt_text", "text", "edited", "status", "line_kind", "low_confidence", "too_long", "n_words", "segment_ids", "lang", "languages")
+
+
+def _sync_lines(conn, user_id, source_type, owner_id, lines):
+    """구간(clip) 또는 문장 묶음(text) 하나의 줄 목록을 DB에 맞춘다: (소유자, 줄 번호) 기준으로 **바뀐 줄만 갱신**(줄 id가 유지되어 연습 기록과의 연결이 안 끊김),
+    목록에 없는 줄 번호는 삭제한다(다시 인식해서 줄 수가 줄어든 경우)."""
+    col = "clip_id" if source_type == "clip" else "text_id"                  # 고정된 두 값 중 하나(사용자 입력이 아님)
+    cols = ", ".join(_LINE_SET)
+    nos = []
+    for i, l in enumerate(lines, 1):
+        v = _line_values(l, i)
+        nos.append(v[0])
+        conn.execute(
+            f"INSERT INTO lines (user_id, original_source_type, {col}, line_no, {cols}) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+            f"ON CONFLICT ({col}, line_no) WHERE {col} IS NOT NULL DO UPDATE SET " + ", ".join(f"{c} = EXCLUDED.{c}" for c in _LINE_SET) + ", updated_at = now() "
+            "WHERE (" + ", ".join(f"lines.{c}" for c in _LINE_SET) + ") IS DISTINCT FROM (" + ", ".join(f"EXCLUDED.{c}" for c in _LINE_SET) + ")",
+            (user_id, source_type, owner_id, v[0]) + v[1:])
+    conn.execute(f"DELETE FROM lines WHERE {col} = %s AND NOT (line_no = ANY(%s))", (owner_id, nos))
+
+
+def _doc_line(r):
+    """lines 행을 앱이 쓰던 줄 dict(lines.json 모양)로 되돌린다. 표준 발음 경로는 저장하지 않으므로 None(글로 TTS 캐시를 다시 찾는다)."""
+    f = lambda v: float(v) if v is not None else None
+    return {"no": r["line_no"], "start": f(r["start_sec"]), "end": f(r["end_sec"]), "stt_text": r["stt_text"] if r["stt_text"] is not None else r["text"],
+            "text": r["text"], "edited": r["edited"], "status": r["status"], "source": r["line_kind"], "low_confidence": r["low_confidence"],
+            "too_long": r["too_long"], "n_words": r["n_words"], "segment_ids": r["segment_ids"] or [], "tts_path": None, "lang": r["lang"]}
+
+
+def clip_line_ids(conn, user_id, clip_id):
+    """구간의 {줄 번호: lines.id}. 연습 기록(practices.line_id)이 어느 줄인지 잇는 데 쓴다."""
+    return {r["line_no"]: r["id"] for r in conn.execute("SELECT id, line_no FROM lines WHERE user_id = %s AND clip_id = %s", (user_id, clip_id)).fetchall()}
+
+
+def text_line_ids(conn, user_id):
+    """내 문장 묶음의 {줄 번호: lines.id}."""
+    return {r["line_no"]: r["id"] for r in conn.execute(
+        "SELECT l.id, l.line_no FROM lines l JOIN texts t ON t.id = l.text_id WHERE l.user_id = %s AND t.user_id = %s", (user_id, user_id)).fetchall()}
+
+
+# ---------- 구간(clips): 곡 하나에서 구간 여러 개 (검토 문서 16.17) ----------
+def _num(v):
+    """초 단위 값을 소수 2자리 Decimal로(DB의 NUMERIC(9,2)와 같은 정밀도). 같은 구간을 찾을 때 실수 오차로 어긋나지 않게 저장·조회 모두 이 값을 쓴다."""
+    return Decimal(str(round(float(v), 2)))
+
+
+def _clip(row):
+    """DB 행의 NUMERIC(Decimal)을 파이썬 float로 바꿔 돌려준다(화면·JSON에서 다루기 쉽게). None이면 None."""
+    if row is None:
+        return None
+    for k in ("song_duration_sec", "clip_start_sec", "clip_duration_sec"):
+        if row.get(k) is not None:
+            row[k] = float(row[k])
+    return row
+
+
+def _with_doc(conn, row):
+    """구간 행에 `doc`(앱이 쓰던 lines.json 모양 = recognition + lines)을 줄 테이블에서 조립해 붙인다. None이면 None."""
+    if row is None:
+        return None
+    lines = conn.execute("SELECT * FROM lines WHERE clip_id = %s ORDER BY line_no", (row["id"],)).fetchall()
+    row["doc"] = {**(row.pop("recognition", None) or {}), "lines": [_doc_line(r) for r in lines]}
+    row.pop("doc_legacy", None)
+    return row
+
+
 def save_clip(conn, user_id, audio_sha1, clip_start_sec, clip_duration_sec, doc, song_title=None, song_duration_sec=None,
               input_type=None, languages=None):
     """구간 기록을 저장하고 clip id를 돌려준다. (사용자, 음원 지문, 시작, 길이)가 같으면 덮어쓰고 수정 시각을 갱신하며, 다르면 새 행이다
-    (같은 곡의 다른 구간은 따로 저장). doc은 가사 줄 등을 담은 dict. 음원 자체는 저장하지 않는다."""
+    (같은 곡의 다른 구간은 따로 저장). doc은 lines.json 모양 dict: **줄 목록은 lines 테이블로, 나머지(STT 설정·언어·원본 segments)는 clips.recognition으로**
+    나눠 저장한다. 음원 자체는 저장하지 않는다."""
+    recognition = {k: v for k, v in (doc or {}).items() if k != "lines"}
+    lines = (doc or {}).get("lines") or []
     row = conn.execute(
-        "INSERT INTO clips (user_id, audio_sha1, clip_start_sec, clip_duration_sec, song_title, song_duration_sec, input_type, languages, doc) "
+        "INSERT INTO clips (user_id, audio_sha1, clip_start_sec, clip_duration_sec, song_title, song_duration_sec, input_type, languages, recognition) "
         "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
         "ON CONFLICT (user_id, audio_sha1, clip_start_sec, clip_duration_sec) DO UPDATE SET song_title = EXCLUDED.song_title, "
         "song_duration_sec = EXCLUDED.song_duration_sec, input_type = EXCLUDED.input_type, languages = EXCLUDED.languages, "
-        "doc = EXCLUDED.doc, updated_at = now() RETURNING id",
+        "recognition = EXCLUDED.recognition, updated_at = now() RETURNING id",
         (user_id, audio_sha1, _num(clip_start_sec), _num(clip_duration_sec), song_title,
          _num(song_duration_sec) if song_duration_sec is not None else None, input_type,
-         list(languages) if languages is not None else None, _jsonb(doc))).fetchone()
+         list(languages) if languages is not None else None, _jsonb(recognition))).fetchone()
+    _sync_lines(conn, user_id, "clip", row["id"], lines)
     return row["id"]
 
 
 def load_clip(conn, user_id, audio_sha1, clip_start_sec, clip_duration_sec):
-    """같은 구간의 기록 한 개(없으면 None). user_id 조건 때문에 다른 사용자의 구간은 절대 나오지 않는다."""
-    return _clip(conn.execute(
+    """같은 구간의 기록 한 개(없으면 None, `doc`은 줄 테이블에서 조립). user_id 조건 때문에 다른 사용자의 구간은 절대 나오지 않는다."""
+    return _with_doc(conn, _clip(conn.execute(
         "SELECT * FROM clips WHERE user_id = %s AND audio_sha1 = %s AND clip_start_sec = %s AND clip_duration_sec = %s",
-        (user_id, audio_sha1, _num(clip_start_sec), _num(clip_duration_sec))).fetchone())
+        (user_id, audio_sha1, _num(clip_start_sec), _num(clip_duration_sec))).fetchone()))
 
 
 def load_clip_by_id(conn, user_id, clip_id):
-    """clip id로 기록 한 개(없거나 다른 사용자의 것이면 None)."""
-    return _clip(conn.execute("SELECT * FROM clips WHERE user_id = %s AND id = %s", (user_id, clip_id)).fetchone())
+    """clip id로 기록 한 개(없거나 다른 사용자의 것이면 None, `doc`은 줄 테이블에서 조립)."""
+    return _with_doc(conn, _clip(conn.execute("SELECT * FROM clips WHERE user_id = %s AND id = %s", (user_id, clip_id)).fetchone()))
 
 
 _CLIP_LIGHT = ("id, audio_sha1, song_title, song_duration_sec, input_type, clip_start_sec, clip_duration_sec, languages, created_at, updated_at, "
-               "COALESCE(jsonb_array_length(doc->'lines'), 0) AS n_lines")
+               "(SELECT count(*) FROM lines WHERE lines.clip_id = clips.id) AS n_lines")
 
 
 def list_clips(conn, user_id):
-    """내 구간 목록(최근 수정 순). 가사 전체(doc) 대신 가벼운 열과 줄 수(n_lines)만 돌려준다."""
+    """내 구간 목록(최근 수정 순). 가사 전체 대신 가벼운 열과 줄 수(n_lines)만 돌려준다."""
     rows = conn.execute(f"SELECT {_CLIP_LIGHT} FROM clips WHERE user_id = %s ORDER BY updated_at DESC, id DESC", (user_id,)).fetchall()
     return [_clip(r) for r in rows]
 
@@ -272,25 +355,28 @@ def list_clips_of(conn, user_id, audio_sha1):
 
 # ---------- 내 문장(texts) ----------
 def save_texts(conn, user_id, doc):
-    """내 문장 목록(줄 글과 줄마다 확인한 언어)을 통째로 저장한다(지금은 사용자당 한 묶음)."""
-    conn.execute("INSERT INTO texts (user_id, doc) VALUES (%s, %s) "
-                 "ON CONFLICT (user_id) DO UPDATE SET doc = EXCLUDED.doc, updated_at = now()", (user_id, _jsonb(doc)))
+    """내 문장 목록(줄 글과 줄마다 확인한 언어)을 저장한다(지금은 사용자당 한 묶음). 줄은 lines 테이블에, 묶음 행에는 수정 시각만 갱신한다."""
+    row = conn.execute("INSERT INTO texts (user_id) VALUES (%s) ON CONFLICT (user_id) DO UPDATE SET updated_at = now() RETURNING id", (user_id,)).fetchone()
+    _sync_lines(conn, user_id, "text", row["id"], (doc or {}).get("lines") or [])
 
 
 def load_texts(conn, user_id):
-    """내 문장 목록 dict(없으면 None)."""
-    row = conn.execute("SELECT doc FROM texts WHERE user_id = %s", (user_id,)).fetchone()
-    return row["doc"] if row else None
+    """내 문장 목록 dict {"lines": [{"text","languages","lang"}]}(저장된 묶음이 없으면 None)."""
+    row = conn.execute("SELECT id FROM texts WHERE user_id = %s", (user_id,)).fetchone()
+    if row is None:
+        return None
+    rows = conn.execute("SELECT text, languages, lang FROM lines WHERE text_id = %s ORDER BY line_no", (row["id"],)).fetchall()
+    return {"lines": [{"text": r["text"], "languages": r["languages"], "lang": r["lang"]} for r in rows]}
 
 
 # ---------- 연습 기록(practices) ----------
 def append_practice(conn, user_id, record):
     """채점 한 번을 저장하고 id를 돌려준다. record 열쇠: source, key, mode, lang, ref_text, hyp_text, scoring(dict), azure(dict 또는 None),
-    stt_settings(글 또는 dict), clip_id(내 노래의 구간이면 그 id, 아니면 None)."""
+    stt_settings(글 또는 dict), clip_id(내 노래의 구간이면 그 id, 아니면 None), line_id(연습한 줄의 lines.id, 모르면 None)."""
     row = conn.execute(
-        "INSERT INTO practices (user_id, clip_id, source, key, mode, lang, ref_text, hyp_text, scoring, azure, stt_settings) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
-        (user_id, record.get("clip_id"), record.get("source"), record.get("key"), record.get("mode"), record.get("lang"),
+        "INSERT INTO practices (user_id, clip_id, line_id, source, key, mode, lang, ref_text, hyp_text, scoring, azure, stt_settings) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+        (user_id, record.get("clip_id"), record.get("line_id"), record.get("source"), record.get("key"), record.get("mode"), record.get("lang"),
          record.get("ref_text"), record.get("hyp_text"), _jsonb(record.get("scoring")), _jsonb(record.get("azure")),
          _jsonb(record.get("stt_settings")))).fetchone()
     return row["id"]
