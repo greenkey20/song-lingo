@@ -11,6 +11,7 @@ class FakeStore:
 
     def __init__(self):
         self.users, self.tokens, self.clips, self.texts, self.practices = {}, {}, {}, {}, []
+        self.meanings = {}
         self.next_id, self.calls = 1, []
 
     # 접속
@@ -114,6 +115,15 @@ class FakeStore:
         return list(reversed(rows))[:limit]
 
     def count_practices(self, conn, uid): return sum(1 for a in self.practices if a["user_id"] == uid)
+
+    def get_meaning(self, conn, cache_key, kind, prompt_version): return self.meanings.get((cache_key, kind, prompt_version))
+
+    def put_meaning(self, conn, cache_key, kind, lang, content, model, prompt_version):
+        k = (cache_key, kind, prompt_version)
+        if k in self.meanings:
+            return 0
+        self.meanings[k] = content
+        return 1
 
     def _new_id(self):
         self.next_clip_id = getattr(self, "next_clip_id", 0) + 1
