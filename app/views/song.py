@@ -74,17 +74,20 @@ def lines_section(ws, doc, clip_seconds, mix_path, voc_path, has_audio):
     st.caption("인식된 가사가 맞으면 **그대로 연습해도 돼요.** 틀린 곳이 보이거나 점수가 이상하면 고쳐서 저장하세요. "
                "인식이 틀리면 기준 문장도 틀려서 점수가 틀린 기준으로 매겨질 수 있어요.")
     mark = {"confirmed": "✓", "dropped": "✕", "candidate": "·"}
-    no = st.segmented_control("줄", [l["no"] for l in lines], default=lines[0]["no"], key=f"line_{gen}",
-                              format_func=lambda n: f"{n}줄 {mark[next(l['status'] for l in lines if l['no'] == n)]}")
+    order = {l["no"]: i for i, l in enumerate(lines, 1)}                    # 화면에는 순서 번호(합치기로 줄이 빠져도 1, 2, 3…): 내부 줄 번호는 그대로 둔다
+    sel_key = f"line_{gen}"
+    pick_kw = {} if sel_key in st.session_state else {"default": lines[0]["no"]}      # 합친 뒤 같은 줄을 고른 채로 다시 그리려고 값을 미리 넣어 둘 수 있다(기본값과 같이 주면 경고)
+    no = st.segmented_control("줄", [l["no"] for l in lines], key=sel_key, **pick_kw,
+                              format_func=lambda n: f"{order[n]}줄 {mark[next(l['status'] for l in lines if l['no'] == n)]}")
     ln = next(l for l in lines if l["no"] == (no or lines[0]["no"]))
     if doc["lines"] and any(l["low_confidence"] for l in lines):
         st.caption("⚠ 이 구간은 인식이 불안정할 수 있어요(신뢰 지표가 낮음). 특히 꼼꼼히 들어 보세요.")
     if ln["too_long"]:
-        st.caption("이 줄은 길어요(6초·14단어 초과). 나눠서 연습하고 싶다면 가사를 줄이거나 빼세요.")
+        st.caption("이 줄은 길어요(6초·14단어 초과). 줄여서 연습하고 싶다면 가사를 줄이거나 빼세요.")
 
     text = st.text_input("가사 (고치면 아래에 저장 버튼이 나와요)", value=ln["text"], key=f"txt_{gen}_{ln['no']}")
     changed = text.strip() != ln["text"]
-    c1, c2, c3 = st.columns([2, 1, 3], vertical_alignment="center")
+    c1, c2, c4, c3 = st.columns([2, 1, 1.4, 2.4], vertical_alignment="center")
     if changed and c1.button("고친 가사 저장", type="primary", key=f"ok_{gen}_{ln['no']}"):
         if text.strip():
             web_song.confirm_line(ws, ln["no"], text)
@@ -93,6 +96,14 @@ def lines_section(ws, doc, clip_seconds, mix_path, voc_path, has_audio):
             st.warning("가사가 비어 있어요. 빼려면 '연습에서 빼기'를 누르세요.")
     if c2.button("연습에서 빼기", key=f"drop_{gen}_{ln['no']}"):
         web_song.drop_line(ws, ln["no"])
+        st.rerun()
+    next_line = next((l for l in lines if l["no"] > ln["no"] and l["status"] != "dropped"), None)
+    if c4.button("다음 줄과 합치기", key=f"merge_{gen}_{ln['no']}", disabled=ln["status"] == "dropped" or next_line is None,
+                 help="이 줄과 바로 다음 줄을 한 줄로 합쳐요. 글은 이어 붙고 듣는 구간도 둘을 합친 구간이 돼요."):
+        merged_lang = ln.get("lang") or (doc.get("languages") or ["en"])[0]
+        web_song.merge_next(ws, ln["no"], merged_lang)
+        st.session_state["gen"] = gen + 1                                   # 입력칸 열쇠를 새로 만들어 합친 글이 보이게 한다
+        st.session_state[f"line_{gen + 1}"] = ln["no"]                       # 합친 줄을 그대로 고른 상태로
         st.rerun()
     c3.caption({"confirmed": "고쳐서 저장함", "dropped": "연습에서 뺌", "candidate": "자동 인식 그대로"}[ln["status"]]
                + (" · 원문과 달라요" if ln["edited"] else ""))
@@ -180,28 +191,22 @@ def lines_section(ws, doc, clip_seconds, mix_path, voc_path, has_audio):
         practice_panel(ln["text"], key=f"song_{gen}_{ln['no']}", tts_path=tts_file, source="song", lang=line_lang, line_no=ln["no"])
 
 
-def clip_label(c, with_title=False):
-    """저장된 구간 한 줄 설명: [곡 이름 · ]구간 · 가사 줄 수(· 수정 시각)."""
-    when = c["updated_at"].astimezone().strftime("%m-%d %H:%M") if c.get("updated_at") else ""
-    head = f"{c.get('song_title') or '이름 없음'} · " if with_title else ""
-    return f"{head}{web_song.clip_range_label(c['clip_start_sec'], c['clip_duration_sec'])} · {c['n_lines']}줄" + (f" · {when}" if with_title and when else "")
-
-
 def saved_songs_view():
     """'저장된 곡' 입력 방식: 서버에 저장한 구간 목록에서 하나를 골라 **소리 없이** 가사·표준 발음·연습을 이어 간다(음원은 저장하지 않으므로).
     같은 곡의 다른 구간은 목록에서 따로 보인다. 고른 구간의 가사 doc을 새 작업 폴더에 되살리고(web_song.restore_lines), 이후는 업로드한 곡과 같은 lines_section을 쓴다."""
-    rows = sorted((r for r in persist.clip_list() if r["n_lines"]), key=lambda r: (r.get("song_title") or "", r["audio_sha1"], r["clip_start_sec"]))
+    rows = [r for r in persist.clip_list() if r["n_lines"]]                  # 최근에 저장·수정한 것부터(녹음은 제목이 같아 최신순이 알아보기 쉽다)
     if not rows:
         st.info("저장된 곡이 아직 없어요. '음원 파일 업로드'나 '주변 음악 녹음'으로 가사를 인식하면 자동으로 저장돼요(저장을 켜 둔 경우).")
         return
     by_id = {r["id"]: r for r in rows}
     st.caption("곡 소리는 저장하지 않아서 가사와 표준 발음으로 연습해요. 원곡을 들으려면 같은 파일을 다시 올리세요. 같은 곡의 다른 구간은 따로 저장돼 있어요.")
-    pick = st.selectbox("저장된 구간", list(by_id), index=None, format_func=lambda i: clip_label(by_id[i], with_title=True),
+    pick = st.selectbox("저장된 구간", list(by_id), index=None, format_func=lambda i: web_song.clip_label(by_id[i], with_title=True),
                         placeholder="곡·구간을 고르세요", key="saved_pick")
     if pick is None:
         if "ws" in st.session_state:
             reset_song()
         return
+    st.caption(web_song.clip_detail(by_id[pick]))
     row = persist.saved_clip(pick)
     if row is None:
         st.error("저장된 구간을 불러오지 못했어요.")
@@ -284,7 +289,7 @@ if saved_clips and web_song.load_doc(ws) is None and st.session_state.get("cut")
     with st.container(border=True):
         st.markdown(f"**이 곡을 전에 저장했어요** · 구간 {len(saved_clips)}개")
         by_id = {c["id"]: c for c in saved_clips}
-        pick_clip = st.selectbox("저장된 구간", list(by_id), format_func=lambda i: clip_label(by_id[i]), key="restore_pick", label_visibility="collapsed")
+        pick_clip = st.selectbox("저장된 구간", list(by_id), format_func=lambda i: web_song.clip_label(by_id[i]), key="restore_pick", label_visibility="collapsed")
         st.caption("불러오면 그 구간을 다시 자르고 가사를 되살려요(인식을 다시 하지 않아요). 다른 구간을 연습하려면 아래에서 새로 고르면 따로 저장돼요.")
         st.button("저장된 구간·가사 불러오기", type="primary", key="restore_btn", on_click=restore_saved, args=(ws, st.session_state["song_path"], pick_clip))
 

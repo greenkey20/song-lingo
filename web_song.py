@@ -19,6 +19,7 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import numpy as np
 
@@ -101,6 +102,40 @@ def clip_range_label(start, duration):
     return f"{format_hms(start)} ~ {format_hms(start + duration)}"
 
 
+SEOUL = ZoneInfo("Asia/Seoul")
+
+
+def _when(c):
+    """저장된 구간의 저장 시각을 서울 시간 '11-08 04:12' 꼴로(없으면 빈 글)."""
+    t = c.get("created_at") or c.get("updated_at")
+    return t.astimezone(SEOUL).strftime("%m-%d %H:%M") if t else ""
+
+
+def clip_title(c):
+    """구간의 제목: 파일은 파일 이름, **녹음은 저장 시각**(녹음 파일 이름은 늘 recording.wav라 구분이 안 됨)."""
+    if c.get("input_type") == "record":
+        return f"🎙 녹음 {_when(c)}".strip()
+    return c.get("song_title") or "이름 없음"
+
+
+def clip_label(c, with_title=False):
+    """저장된 구간을 고르는 상자의 한 줄 글. **좁은 화면(아이폰)에서는 뒤쪽이 잘리므로 알아보기 쉬운 것을 앞에** 둔다:
+    [제목 · ]첫 줄 미리보기 · 구간 · 줄 수."""
+    first = (c.get("first_text") or "").strip()
+    preview = f"“{first[:14]}{'…' if len(first) > 14 else ''}”" if first else ""
+    parts = ([clip_title(c)] if with_title else []) + [preview, clip_range_label(c["clip_start_sec"], c["clip_duration_sec"]), f"{c['n_lines']}줄"]
+    return " · ".join(p for p in parts if p)
+
+
+def clip_detail(c):
+    """선택한 구간의 자세한 정보 한 줄(상자의 글이 잘려도 여기서 확인): 제목 · 구간(초) · 줄 수 · 언어 · 저장 시각."""
+    langs = " + ".join(languages.name(x) for x in (c.get("languages") or []))
+    secs = int(round(c["clip_duration_sec"]))
+    bits = [clip_title(c), f"구간 {clip_range_label(c['clip_start_sec'], c['clip_duration_sec'])} ({secs}초)", f"{c['n_lines']}줄",
+            langs, f"저장 {_when(c)}" if _when(c) else ""]
+    return " · ".join(x for x in bits if x)
+
+
 def waveform_peaks(x, n_bins=600):
     """파형 x((샘플,) 또는 (샘플, 채널))를 n_bins칸으로 나눠 칸마다 (최솟값, 최댓값)을 돌려준다: (mins, maxs) 두 배열(길이 n_bins).
 
@@ -168,6 +203,11 @@ def load_doc(ws):
 def confirm_line(ws, no, text):
     """줄 no의 가사를 text로 확정한다(고쳤으면 edited)."""
     return song_practice.apply_edits(CLIP_ID, edits={no: text}, out_dir=practice_dir(ws))
+
+
+def merge_next(ws, no, lang="en"):
+    """줄 no를 다음 줄과 합친다(글은 언어에 맞게: 공백 있는 언어는 공백으로, 일본어·중국어는 붙여서)."""
+    return song_practice.merge_with_next(CLIP_ID, no, out_dir=practice_dir(ws), sep=" " if languages.uses_spaces(lang) else "")
 
 
 def drop_line(ws, no):

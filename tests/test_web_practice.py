@@ -14,6 +14,15 @@ class Lyrics(unittest.TestCase):
         self.assertEqual(wp.split_lyrics("  a b \n\n c\r\n   \nd"), ["a b", "c", "d"])
         self.assertEqual(wp.split_lyrics(""), [])
 
+    def test_line_keys_are_unique_even_when_a_line_repeats(self):
+        lines = ["Hello there.", "We sing.", "Hello there.", "Hello there."]            # 반복되는 후렴
+        keys = wp.line_keys(lines)
+        self.assertEqual(len(keys), 4)
+        self.assertEqual(len(set(keys)), 4)                                            # 겹치면 StreamlitDuplicateElementKey
+        self.assertEqual(keys, wp.line_keys(lines))                                    # 같은 입력이면 같은 열쇠
+        self.assertEqual(keys[0], wp.line_keys(["Hello there."])[0])                   # 첫 번째 줄의 열쇠는 그대로(반복이 아닐 때와 같음)
+        self.assertEqual(wp.line_keys([]), [])
+
     def test_example_lyrics_by_id(self):
         sents = [{"id": "1", "sentence": "One."}, {"id": "2", "sentence": "Two."}, {"id": "9", "sentence": "Nine."}]
         self.assertEqual(wp.example_lyrics(("2", "1", "7"), sents), "Two.\nOne.")

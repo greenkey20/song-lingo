@@ -212,6 +212,15 @@ class SavesSentences(Base):
         self.assertEqual(at2.session_state["lyrics"], text_before)
         self.assertTrue(at2.session_state["lyr_det"])                                    # 언어 확인 단계가 이미 끝난 상태로 복원
 
+    def test_repeated_lines_do_not_crash_language_check(self):
+        """같은 줄이 여러 번 나와도(후렴) '언어 알아보기'가 위젯 열쇠 중복으로 죽지 않는다(11-08 서버에서 발견한 오류)."""
+        at = self.signup(self.app())
+        find(at.text_area, "문장").set_value("Hello there.\nWe sing together.\nHello there.\nHello there.")
+        at = at.run()
+        at = find(at.button, "언어 알아보기").click().run()
+        self.assertFalse(at.exception, [e.value for e in at.exception])
+        self.assertEqual(len(at.radio), 4)                                              # 줄마다 따로 확인할 수 있다
+
     def test_guest_cannot_save_or_see_restore_button(self):
         at = self.app()
         [t for t in at.text_input if t.label == "초대 코드"][-1].set_value(INVITE)
@@ -236,6 +245,10 @@ class SavedSongs(Base):
                                         song_title="my.mp3", song_duration_sec=100.0, input_type="file", languages=["en"])
         return uid
 
+    @staticmethod
+    def signup_uid(at):
+        return at.session_state["uid"]
+
     def open_saved(self, at):
         at = at.switch_page("views/song.py").run()
         at.session_state["song_mode"] = "저장된 곡"
@@ -258,6 +271,32 @@ class SavedSongs(Base):
         self.assertEqual(doc["lines"][0]["text"], "hello world")
         self.assertEqual(doc["lines"][0]["stt_text"], "hello wrld")                    # 처음 인식한 글은 그대로
         self.assertEqual((saved["clip_start_sec"], saved["id"]), (10.0, self.cid))       # 구간 정보와 id도 유지(같은 행을 갱신)
+
+    def test_saved_list_label_has_preview_and_detail_caption(self):
+        at = self.signup(self.app())
+        uid = self.seed(at)
+        at = self.open_saved(at)
+        label = at.selectbox[0].options[0]
+        self.assertIn("“hello wrld”", label)                                          # 첫 줄 미리보기가 목록에 보인다
+        at.selectbox[0].select(self.cid).run()
+        self.assertFalse(at.exception, [e.value for e in at.exception])
+        self.assertTrue(any("my.mp3" in c.value and "(15초)" in c.value for c in at.caption))   # 선택하면 자세한 정보 한 줄
+
+    def test_merge_with_next_line_saves_one_merged_line(self):
+        at = self.signup(self.app())
+        uid = self.signup_uid(at)
+        second = dict(self.LINE, no=2, start=3.0, end=6.0, stt_text="second line", text="second line")
+        cid = self.store.save_clip(None, uid, "m" * 40, 10.0, 15.0, {"lines": [dict(self.LINE), second], "languages": ["en"], "stt": {}},
+                                   song_title="my.mp3", song_duration_sec=100.0, input_type="file", languages=["en"])
+        at = self.open_saved(at)
+        at.selectbox[0].select(cid).run()
+        at = find(at.button, "다음 줄과 합치기").click().run()
+        self.assertFalse(at.exception, [e.value for e in at.exception])
+        lines = self.store.clips[(uid, "m" * 40, 10.0, 15.0)]["doc"]["lines"]
+        self.assertEqual([(l["no"], l["text"], l["start"], l["end"], l["source"]) for l in lines], [(1, "hello wrld second line", 0.0, 6.0, "merged")])
+        self.assertEqual(lines[0]["stt_text"], "hello wrld second line")                # 합친 처음 인식 글도 보존
+        self.assertEqual([t.value for t in at.text_input if t.label.startswith("가사")], ["hello wrld second line"])   # 화면의 입력칸도 합친 글로
+        self.assertTrue(find(at.button, "다음 줄과 합치기").disabled)                        # 이제 다음 줄이 없다
 
     def test_same_song_two_clips_are_listed_separately(self):
         at = self.signup(self.app())
