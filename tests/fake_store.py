@@ -102,6 +102,17 @@ class FakeStore:
         return [self._light(v) for v in sorted(self.clips.values(), key=lambda v: (v["clip_start_sec"], v["clip_duration_sec"]))
                 if v["user_id"] == uid and v["audio_sha1"] == audio_sha1]
 
+    def _line_id(self, kind, owner, no):
+        ids = self.__dict__.setdefault("line_ids", {})
+        return ids.setdefault((kind, owner, no), len(ids) + 1)
+
+    def clip_line_ids(self, conn, uid, clip_id):
+        clip = self.load_clip_by_id(conn, uid, clip_id)
+        return {l["no"]: self._line_id("clip", clip_id, l["no"]) for l in (clip["doc"].get("lines", []) if clip else [])}
+
+    def text_line_ids(self, conn, uid):
+        return {i: self._line_id("text", uid, i) for i, _ in enumerate((self.texts.get(uid) or {}).get("lines", []), 1)}
+
     def save_texts(self, conn, uid, doc): self.texts[uid] = doc
     def load_texts(self, conn, uid): return self.texts.get(uid)
 

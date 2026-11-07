@@ -160,6 +160,7 @@ class SavesAttempts(Base):
         self.assertEqual((a["mode"], a["hyp_text"], a["user_id"]), ("dictation", "Hello there.", at.session_state["uid"]))
         self.assertTrue(a["ref_text"])                                              # 문장 글이 함께 저장된다
         self.assertEqual(a["source"], "sample")                                     # 예시 문장
+        self.assertIsNotNone(a["line_id"])                                          # 내 문장의 어느 줄을 연습했는지 줄(lines)과 연결된다
         self.assertIn("wer", a["scoring"])
 
     def test_save_off_saves_nothing(self):
@@ -276,6 +277,7 @@ class SavedSongs(Base):
         self.assertFalse(at.exception, [e.value for e in at.exception])
         song_rows = [p for p in self.store.practices if p["source"] == "song"]
         self.assertEqual([p["clip_id"] for p in song_rows], [self.cid])               # 내 노래의 연습 기록은 구간과 연결된다
+        self.assertEqual([p["line_id"] for p in song_rows], [self.store.clip_line_ids(None, self.store.users and at.session_state["uid"], self.cid)[1]])   # 연습한 줄(1번)과도
 
     def test_empty_list_message_and_guest_has_no_saved_mode(self):
         at = self.signup(self.app())

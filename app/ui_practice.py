@@ -20,10 +20,10 @@ import storage
 import web_practice as wp
 
 
-def _log(source, text, mode, res, lang=None):
+def _log(source, text, mode, res, lang=None, line_no=None):
     """채점이 성공했으면 ① 기록 CSV에 한 줄(문장 글 없이) ② 로그인한 사용자면 서버 DB에 시도 한 번(문장·인식문·점수 포함, persist.py)을 남긴다.
     화면에 보여 줄 글은 이번 세션 메모리에도 key로 묻어 둔다. 기록 실패가 연습을 막지 않게 오류는 안내만 한다."""
-    persist.save_practice(source, text, mode, res, lang)
+    persist.save_practice(source, text, mode, res, lang, line_no)
     try:
         rec = practice_log.make_record(source, text, mode, res)
         if rec is None:
@@ -82,7 +82,7 @@ AZURE_GUIDE = """
 """
 
 
-def _show_azure(key, prep, rec, nonce, source="sample"):
+def _show_azure(key, prep, rec, nonce, source="sample", line_no=None):
     """따라읽기 결과 아래 '표준 평가(Azure)'. 버튼을 눌렀을 때만 녹음이 Microsoft Azure로 전송된다(자동 전송 없음). 결과는 세션에 보관해 화면이 다시 그려져도 다시 보내지 않는다."""
     st.markdown("**표준 평가 · Azure 발음 평가** · 참고용 · 외부 서비스")
     explain.show("azure")
@@ -94,7 +94,7 @@ def _show_azure(key, prep, rec, nonce, source="sample"):
             try:
                 st.session_state[state] = {"result": azure_pronunciation.assess(
                     rec.getvalue(), prep["text"], languages.azure_locale(prep["lang"]))}
-                persist.save_azure(source, prep["text"], prep["lang"], st.session_state[state]["result"])     # 로그인한 사용자만 서버에 저장
+                persist.save_azure(source, prep["text"], prep["lang"], st.session_state[state]["result"], line_no)     # 로그인한 사용자만 서버에 저장
             except azure_pronunciation.NotConfigured as e:
                 st.session_state[state] = {"error": str(e)}
             except (azure_pronunciation.AssessmentError, ValueError) as e:
@@ -264,11 +264,12 @@ def _show_result(res, prep, mode):
         st.caption(f"인식한 문장: {res['hyp']}  ·  인식 {res['seconds']:.1f}초")
 
 
-def practice_panel(text, key, tts_path=None, meaning_ko="", source="lyrics", lang="en"):
+def practice_panel(text, key, tts_path=None, meaning_ko="", source="lyrics", lang="en", line_no=None):
     """문장 text 하나의 따라읽기·받아쓰기를 그린다. key는 페이지 안에서 겹치지 않는 문자열(문장·줄마다 다르게).
 
     source: 기록의 출처 표시("lyrics" 내 문장 / "song" 내 노래; 예시 문장이면 자동으로 "sample").
     lang: 문장의 언어 코드(STT 언어·채점 규칙·Azure 로캘에 쓰임, 이슈 #50). 기본 "en".
+    line_no: 연습 중인 줄 번호(내 노래는 구간 안의 줄, 내 문장은 목록의 줄). 있으면 기록이 그 줄(lines.id)과 이어진다(이슈 #71).
     tts_path: 표준 발음 음성 파일(있으면 결과 아래 '다시 듣기'에 쓴다). 받아쓰기는 정답을 숨겨야 하므로 이 함수는 받아쓰기 탭에서
     채점하기 전에는 text를 보여 주지 않는다(따라읽기 탭에서는 읽을 문장을 보여 준다)."""
     prep = wp.make_prep(text, lang=lang or "en", tts_path=tts_path, meaning_ko=meaning_ko)
@@ -290,7 +291,7 @@ def practice_panel(text, key, tts_path=None, meaning_ko="", source="lyrics", lan
             with st.spinner("인식하고 채점하는 중… (틀린 구간을 찾느라 몇 초 더 걸려요)"):
                 try:
                     st.session_state[f"{key}_read"] = wp.apply_japanese_reading(prep, practice.read(prep, rec.getvalue()))
-                    _log(source, prep["text"], "read", st.session_state[f"{key}_read"], prep["lang"])
+                    _log(source, prep["text"], "read", st.session_state[f"{key}_read"], prep["lang"], line_no)
                     ok = tts_path and not st.session_state[f"{key}_read"]["error"]
                     st.session_state[f"{key}_figs"] = _sound_figs(tts_path, rec.getvalue()) if ok else None
                     wrong = ok and st.session_state[f"{key}_read"]["score"]["main"]["distance"] > 0
@@ -318,7 +319,7 @@ def practice_panel(text, key, tts_path=None, meaning_ko="", source="lyrics", lan
                     st.audio(rec)
             if not res["error"]:
                 _show_error_spans(st.session_state.get(f"{key}_spans"))
-                _show_azure(key, prep, rec, nonce, source)
+                _show_azure(key, prep, rec, nonce, source, line_no)
                 _show_sound_shapes(st.session_state.get(f"{key}_figs"), bool(tts_path))
         st.caption("점수는 발음 점수가 아니라 문장 인식 일치도예요. 주변 소리가 크면 오류율이 올라갈 수 있어요.")
 
@@ -329,7 +330,7 @@ def practice_panel(text, key, tts_path=None, meaning_ko="", source="lyrics", lan
         c1, c2 = st.columns([1, 1])
         if c1.button("채점하기", type="primary", key=f"{key}_dict_go_{nonce}"):
             st.session_state[f"{key}_dict"] = wp.apply_japanese_reading(prep, practice.dictation(prep, ans))
-            _log(source, prep["text"], "dictation", st.session_state[f"{key}_dict"], prep["lang"])
+            _log(source, prep["text"], "dictation", st.session_state[f"{key}_dict"], prep["lang"], line_no)
         if c2.button("건너뛰기", key=f"{key}_dict_skip_{nonce}"):
             st.session_state[f"{key}_nonce"] = nonce + 1
             st.session_state.pop(f"{key}_dict", None)
