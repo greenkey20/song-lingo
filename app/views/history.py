@@ -1,7 +1,7 @@
 """기록 페이지: 연습한 줄 표시, 문장별 WER 변화, 최근 시도 표. 검토 문서 16.10·16.16.
 
 기록의 출처는 세 가지다.
-- **로그인한 사용자**(서버 DB 모드): 내 `attempts`(문장 글과 인식문까지 저장되어 있어서 다시 열어도 문장이 보인다). 이슈 #52.
+- **로그인한 사용자**(서버 DB 모드): 내 `practices`(문장 글과 인식문까지 저장되어 있어서 다시 열어도 문장이 보인다). 이슈 #52.
 - **게스트**(서버 DB 모드): 이번 세션에서 한 연습만(저장되지 않음, 공유 CSV는 쓰지 않는다).
 - **저장소 설정이 없을 때**(내 컴퓨터 개발): 기록 CSV(practice_log.py). CSV에는 문장 글이 없고 key만 있어서, 글은 sentences.csv(예시 문장)나
   이번 세션에서 연습한 글(session_state)에서 key로 찾고 못 찾으면 key를 그대로 보여 준다.
@@ -22,12 +22,12 @@ db_text = {}
 if auth_gate.is_user():                                           # 로그인한 사용자: 내 시도(서버 DB)
     try:
         with storage.connect() as conn:
-            attempts_db = storage.list_attempts(conn, st.session_state["uid"], limit=2000)
+            practices_db = storage.list_practices(conn, st.session_state["uid"], limit=2000)
     except Exception:
-        attempts_db = []
+        practices_db = []
         st.warning("서버에서 기록을 불러오지 못했어요. 잠시 뒤에 다시 열어 보세요.")
-    rows = [r for r in (pl.row_from_attempt(a) for a in reversed(attempts_db)) if r]       # 오래된 것부터
-    db_text = {a["key"]: a["ref_text"] for a in attempts_db if a.get("ref_text")}
+    rows = [r for r in (pl.row_from_practice(a) for a in reversed(practices_db)) if r]       # 오래된 것부터
+    db_text = {a["key"]: a["ref_text"] for a in practices_db if a.get("ref_text")}
 elif storage.enabled():                                           # 게스트: 이번 세션의 연습만
     rows = list(st.session_state.get("session_rows", []))
     st.caption("게스트로 이용 중이라 기록이 저장되지 않아요. 이번 세션에서 한 연습만 보여요. 로그인하면 기록이 서버에 저장돼요.")

@@ -10,7 +10,7 @@ class FakeStore:
     UsernameTaken = real.UsernameTaken
 
     def __init__(self):
-        self.users, self.tokens, self.songs, self.sentences, self.attempts = {}, {}, {}, {}, []
+        self.users, self.tokens, self.clips, self.texts, self.practices = {}, {}, {}, {}, []
         self.next_id, self.calls = 1, []
 
     # 접속
@@ -53,9 +53,9 @@ class FakeStore:
             return 0
         del self.users[uid]
         self.tokens = {h: t for h, t in self.tokens.items() if t["user_id"] != uid}
-        self.songs = {k: v for k, v in self.songs.items() if k[0] != uid}
-        self.sentences.pop(uid, None)
-        self.attempts = [a for a in self.attempts if a["user_id"] != uid]
+        self.clips = {k: v for k, v in self.clips.items() if v["user_id"] != uid}
+        self.texts.pop(uid, None)
+        self.practices = [a for a in self.practices if a["user_id"] != uid]
         return 1
 
     # 토큰
@@ -72,32 +72,52 @@ class FakeStore:
     def delete_user_tokens(self, conn, uid): return 0
     def purge_expired_tokens(self, conn, now): return 0
 
-    # 곡·문장·시도
-    def save_song(self, conn, uid, digest, doc, name=None, seconds=None, input=None, clip_start=None, clip_duration=None, languages=None):
-        self.calls.append(("save_song", uid, digest))
-        self.songs[(uid, digest)] = {"user_id": uid, "digest": digest, "doc": doc, "name": name, "seconds": seconds, "input": input,
-                                     "clip_start": clip_start, "clip_duration": clip_duration, "languages": languages}
+    # 구간·문장·연습 기록 (storage.py와 같은 이름·열)
+    def save_clip(self, conn, uid, audio_sha1, clip_start_sec, clip_duration_sec, doc, song_title=None, song_duration_sec=None,
+                  input_type=None, languages=None):
+        key = (uid, audio_sha1, round(float(clip_start_sec), 2), round(float(clip_duration_sec), 2))
+        self.calls.append(("save_clip", uid, audio_sha1))
+        old = self.clips.get(key)
+        cid = old["id"] if old else self._new_id()
+        self.clips[key] = {"id": cid, "user_id": uid, "audio_sha1": audio_sha1, "song_title": song_title, "song_duration_sec": song_duration_sec,
+                           "input_type": input_type, "clip_start_sec": key[2], "clip_duration_sec": key[3], "languages": languages, "doc": doc,
+                           "updated_at": datetime.now(timezone.utc)}
+        return cid
 
-    def load_song(self, conn, uid, digest): return self.songs.get((uid, digest))
+    def load_clip(self, conn, uid, audio_sha1, clip_start_sec, clip_duration_sec):
+        return self.clips.get((uid, audio_sha1, round(float(clip_start_sec), 2), round(float(clip_duration_sec), 2)))
 
-    def list_songs(self, conn, uid):
-        return [dict(v, n_lines=len(v["doc"].get("lines", []))) for k, v in self.songs.items() if k[0] == uid]
+    def load_clip_by_id(self, conn, uid, clip_id):
+        return next((v for v in self.clips.values() if v["user_id"] == uid and v["id"] == clip_id), None)
 
-    def delete_song(self, conn, uid, digest): return 1 if self.songs.pop((uid, digest), None) else 0
+    @staticmethod
+    def _light(v):
+        return {k: x for k, x in v.items() if k != "doc"} | {"n_lines": len(v["doc"].get("lines", []))}
 
-    def save_sentences(self, conn, uid, doc): self.sentences[uid] = doc
-    def load_sentences(self, conn, uid): return self.sentences.get(uid)
+    def list_clips(self, conn, uid):
+        return [self._light(v) for v in sorted(self.clips.values(), key=lambda v: v["updated_at"], reverse=True) if v["user_id"] == uid]
 
-    def append_attempt(self, conn, uid, record):
-        self.calls.append(("append_attempt", uid, record.get("mode")))
-        self.attempts.append(dict(record, user_id=uid, id=len(self.attempts) + 1, ts=datetime.now(timezone.utc)))
-        return len(self.attempts)
+    def list_clips_of(self, conn, uid, audio_sha1):
+        return [self._light(v) for v in sorted(self.clips.values(), key=lambda v: (v["clip_start_sec"], v["clip_duration_sec"]))
+                if v["user_id"] == uid and v["audio_sha1"] == audio_sha1]
 
-    def list_attempts(self, conn, uid, limit=500, key=None):
-        rows = [a for a in self.attempts if a["user_id"] == uid and (key is None or a.get("key") == key)]
+    def save_texts(self, conn, uid, doc): self.texts[uid] = doc
+    def load_texts(self, conn, uid): return self.texts.get(uid)
+
+    def append_practice(self, conn, uid, record):
+        self.calls.append(("append_practice", uid, record.get("mode")))
+        self.practices.append(dict(record, user_id=uid, id=len(self.practices) + 1, created_at=datetime.now(timezone.utc)))
+        return len(self.practices)
+
+    def list_practices(self, conn, uid, limit=500, key=None):
+        rows = [a for a in self.practices if a["user_id"] == uid and (key is None or a.get("key") == key)]
         return list(reversed(rows))[:limit]
 
-    def count_attempts(self, conn, uid): return sum(1 for a in self.attempts if a["user_id"] == uid)
+    def count_practices(self, conn, uid): return sum(1 for a in self.practices if a["user_id"] == uid)
+
+    def _new_id(self):
+        self.next_clip_id = getattr(self, "next_clip_id", 0) + 1
+        return self.next_clip_id
 
 
 def install(store):

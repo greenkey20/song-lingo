@@ -23,7 +23,7 @@ import web_practice as wp
 def _log(source, text, mode, res, lang=None):
     """채점이 성공했으면 ① 기록 CSV에 한 줄(문장 글 없이) ② 로그인한 사용자면 서버 DB에 시도 한 번(문장·인식문·점수 포함, persist.py)을 남긴다.
     화면에 보여 줄 글은 이번 세션 메모리에도 key로 묻어 둔다. 기록 실패가 연습을 막지 않게 오류는 안내만 한다."""
-    persist.save_attempt(source, text, mode, res, lang)
+    persist.save_practice(source, text, mode, res, lang)
     try:
         rec = practice_log.make_record(source, text, mode, res)
         if rec is None:

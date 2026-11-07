@@ -90,17 +90,61 @@ class WithDb(unittest.TestCase):
 
 class Migrations(WithDb):
     def test_applied_and_idempotent(self):
-        self.assertIn("001_init.sql", self.applied)
+        self.assertEqual(self.applied[:2], ["001_init.sql", "002_rename_ids_clips.sql"])
         with self.conn() as c:
             self.assertEqual(storage.migrate(c), [])                    # 두 번째는 할 일이 없다
             versions = [r["version"] for r in c.execute("SELECT version FROM schema_migrations").fetchall()]
             tables = {r["table_name"] for r in c.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = %s",
                                                            (self.schema,)).fetchall()}
         self.assertEqual(versions.count("001_init.sql"), 1)
-        self.assertTrue({"users", "login_tokens", "songs", "sentences", "attempts", "schema_migrations"} <= tables)
+        self.assertTrue({"users", "login_tokens", "clips", "texts", "practices", "schema_migrations"} <= tables)
+        self.assertFalse({"songs", "sentences", "attempts"} & tables)             # 옛 이름은 없어졌다
 
     def test_ping(self):
         self.assertTrue(storage.ping(INFO))
+
+
+class MigrateFromV1(unittest.TestCase):
+    """001(옛 이름·모양)에 데이터를 넣은 뒤 002를 적용해도 데이터가 그대로 읽히는지 시험한다(서버 DB에 이미 001이 적용돼 있는 상황)."""
+
+    @unittest.skipUnless(INFO, "SONGLINGO_TEST_CONNINFO가 없어 DB 테스트를 건너뜁니다")
+    def test_old_rows_survive_002(self):
+        schema = "t_" + uuid.uuid4().hex[:10]
+        with psycopg.connect(INFO, autocommit=True) as c:
+            c.execute(f'CREATE SCHEMA "{schema}"')
+        try:
+            with storage.connect(INFO, schema) as conn:
+                conn.execute((storage.MIGRATIONS_DIR / "001_init.sql").read_text(encoding="utf-8"))
+                conn.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())")
+                conn.execute("INSERT INTO schema_migrations (version) VALUES ('001_init.sql')")
+                uid = conn.execute("INSERT INTO users (username, pw_salt, pw_hash) VALUES ('old', %s, %s) RETURNING id", (b"s", b"h")).fetchone()["id"]
+                conn.execute("INSERT INTO songs (user_id, digest, name, seconds, input, clip_start, clip_duration, languages, doc) "
+                             "VALUES (%s, 'dig1', '곡', 213.4, 'file', 65.1, 20, ARRAY['en'], %s::jsonb)", (uid, '{"lines": [{"no": 1}]}'))
+                conn.execute("INSERT INTO songs (user_id, digest, doc) VALUES (%s, 'nocut', %s::jsonb)", (uid, '{"lines": []}'))       # 구간 없는 행
+                conn.execute("INSERT INTO sentences (user_id, doc) VALUES (%s, %s::jsonb)", (uid, '{"lines": [{"text": "hi"}]}'))
+                conn.execute("INSERT INTO attempts (user_id, source, key, mode, score, stt) VALUES (%s, 'lyrics', 'k1', 'read', '{\"wer\": {}}'::jsonb, 'tiny')", (uid,))
+                conn.execute("INSERT INTO attempts (user_id, source, key, mode, stt) VALUES (%s, 'lyrics', 'k2', 'dictation', NULL)", (uid,))
+                conn.execute("INSERT INTO attempts (user_id, source, key, mode, stt) VALUES (%s, 'lyrics', 'k3', 'read', %s)", (uid, '{"model": "tiny"}'))
+            with storage.connect(INFO, schema) as conn:
+                self.assertEqual(storage.migrate(conn), ["002_rename_ids_clips.sql"])
+                clips = storage.list_clips(conn, uid)
+                self.assertEqual(len(clips), 1)                                            # 구간 없는 옛 행은 지워진다
+                c0 = storage.load_clip(conn, uid, "dig1", 65.1, 20)
+                self.assertEqual((c0["song_title"], c0["song_duration_sec"], c0["input_type"], c0["languages"]), ("곡", 213.4, "file", ["en"]))
+                self.assertEqual(c0["doc"], {"lines": [{"no": 1}]})
+                self.assertEqual(storage.load_texts(conn, uid), {"lines": [{"text": "hi"}]})
+                rows = {r["key"]: r for r in storage.list_practices(conn, uid)}
+                self.assertEqual(rows["k1"]["scoring"], {"wer": {}})
+                self.assertEqual(rows["k1"]["stt_settings"], "tiny")                       # 글이던 값은 JSON 글자로
+                self.assertIsNone(rows["k2"]["stt_settings"])
+                self.assertEqual(rows["k3"]["stt_settings"], {"model": "tiny"})            # JSON 글자는 객체로
+                self.assertTrue(all(r["clip_id"] is None and r["created_at"] for r in rows.values()))
+                self.assertIsNotNone(conn.execute("SELECT updated_at FROM users WHERE id = %s", (uid,)).fetchone()["updated_at"])
+                new_id = storage.save_clip(conn, uid, "dig1", 90, 15, {"lines": []})      # 새 id가 이어서 발급된다
+                self.assertNotEqual(new_id, c0["id"])
+        finally:
+            with psycopg.connect(INFO, autocommit=True) as c:
+                c.execute(f'DROP SCHEMA "{schema}" CASCADE')
 
 
 class Users(WithDb):
@@ -209,74 +253,95 @@ class Tokens(WithDb):
             self.assertEqual(storage.delete_user_tokens(c, uid), 1)
 
 
-class Songs(WithDb):
+class Clips(WithDb):
     DOC = {"lines": [{"no": 1, "text": "hello there", "status": "candidate"}, {"no": 2, "text": "again", "status": "confirmed"}]}
 
-    def test_save_load_upsert_list_delete(self):
+    def test_save_load_upsert_list(self):
         uid, _ = self.new_user()
         with self.conn() as c:
-            self.assertIsNone(storage.load_song(c, uid, "d1"))
-            storage.save_song(c, uid, "d1", self.DOC, name="내 곡.mp3", seconds=213.4, input="file", clip_start=65, clip_duration=20, languages=["en", "ja"])
-            s = storage.load_song(c, uid, "d1")
+            self.assertIsNone(storage.load_clip(c, uid, "d1", 65, 20))
+            cid = storage.save_clip(c, uid, "d1", 65, 20, self.DOC, song_title="내 곡.mp3", song_duration_sec=213.4, input_type="file", languages=["en", "ja"])
+            s = storage.load_clip(c, uid, "d1", 65, 20)
+            self.assertEqual(s["id"], cid)
             self.assertEqual(s["doc"], self.DOC)                              # JSONB가 파이썬 dict로 돌아온다
-            self.assertEqual((s["name"], s["clip_start"], s["clip_duration"], s["languages"]), ("내 곡.mp3", 65, 20, ["en", "ja"]))
-            storage.save_song(c, uid, "d1", {"lines": []}, name="이름 바꿈", clip_start=70)      # 같은 곡 지문이면 덮어씀
-            self.assertEqual(storage.load_song(c, uid, "d1")["name"], "이름 바꿈")
-            storage.save_song(c, uid, "d2", self.DOC)
-            songs = storage.list_songs(c, uid)
-            self.assertEqual({x["digest"] for x in songs}, {"d1", "d2"})
-            self.assertEqual({x["digest"]: x["n_lines"] for x in songs}, {"d1": 0, "d2": 2})
-            self.assertNotIn("doc", songs[0])                                 # 목록에는 가사 전체를 싣지 않는다
-            self.assertEqual(storage.delete_song(c, uid, "d1"), 1)
-            self.assertEqual(storage.delete_song(c, uid, "d1"), 0)
+            self.assertEqual((s["song_title"], s["clip_start_sec"], s["clip_duration_sec"], s["languages"]), ("내 곡.mp3", 65.0, 20.0, ["en", "ja"]))
+            self.assertIsInstance(s["clip_start_sec"], float)                 # NUMERIC(Decimal)을 float로 바꿔 돌려준다
+            again = storage.save_clip(c, uid, "d1", 65, 20, {"lines": []}, song_title="이름 바꿈")      # 같은 곡·같은 구간이면 덮어씀(같은 id)
+            self.assertEqual(again, cid)
+            self.assertEqual(storage.load_clip(c, uid, "d1", 65, 20)["song_title"], "이름 바꿈")
+            self.assertEqual(storage.load_clip_by_id(c, uid, cid)["audio_sha1"], "d1")
+
+    def test_same_song_different_ranges_are_separate_rows(self):
+        uid, _ = self.new_user()
+        with self.conn() as c:
+            a = storage.save_clip(c, uid, "song1", 10, 15, self.DOC, song_title="곡")
+            b = storage.save_clip(c, uid, "song1", 40, 15, {"lines": []}, song_title="곡")
+            d = storage.save_clip(c, uid, "song1", 10, 20, self.DOC, song_title="곡")      # 시작이 같아도 길이가 다르면 다른 구간
+            self.assertEqual(len({a, b, d}), 3)
+            of = storage.list_clips_of(c, uid, "song1")
+            self.assertEqual([(x["clip_start_sec"], x["clip_duration_sec"]) for x in of], [(10.0, 15.0), (10.0, 20.0), (40.0, 15.0)])
+            self.assertEqual({x["id"]: x["n_lines"] for x in storage.list_clips(c, uid)}, {a: 2, b: 0, d: 2})
+            self.assertNotIn("doc", of[0])                                    # 목록에는 가사 전체를 싣지 않는다
+
+    def test_float_noise_does_not_create_a_second_row(self):
+        uid, _ = self.new_user()
+        with self.conn() as c:
+            a = storage.save_clip(c, uid, "s", 0.1 + 0.2, 15, {"lines": []})            # 0.30000000000000004
+            b = storage.save_clip(c, uid, "s", 0.3, 15, {"lines": []})
+            self.assertEqual(a, b)
 
     def test_users_are_isolated(self):
         a, _ = self.new_user()
         b, _ = self.new_user()
         with self.conn() as c:
-            storage.save_song(c, a, "same-digest", self.DOC, name="A의 곡")
-            self.assertIsNone(storage.load_song(c, b, "same-digest"))
-            self.assertEqual(storage.list_songs(c, b), [])
-            self.assertEqual(storage.delete_song(c, b, "same-digest"), 0)       # 남의 곡은 지울 수 없다
-            self.assertIsNotNone(storage.load_song(c, a, "same-digest"))
-            storage.save_song(c, b, "same-digest", {"lines": []}, name="B의 곡")  # 같은 지문이어도 사용자별로 따로
-            self.assertEqual(storage.load_song(c, a, "same-digest")["name"], "A의 곡")
+            cid = storage.save_clip(c, a, "same-sha", 0, 10, self.DOC, song_title="A의 곡")
+            self.assertIsNone(storage.load_clip(c, b, "same-sha", 0, 10))
+            self.assertIsNone(storage.load_clip_by_id(c, b, cid))               # 남의 clip id로도 못 읽는다
+            self.assertEqual(storage.list_clips(c, b), [])
+            self.assertEqual(storage.list_clips_of(c, b, "same-sha"), [])
+            storage.save_clip(c, b, "same-sha", 0, 10, {"lines": []}, song_title="B의 곡")   # 같은 지문·구간이어도 사용자별로 따로
+            self.assertEqual(storage.load_clip(c, a, "same-sha", 0, 10)["song_title"], "A의 곡")
 
-    def test_sentences(self):
+    def test_texts(self):
         uid, _ = self.new_user()
         with self.conn() as c:
-            self.assertIsNone(storage.load_sentences(c, uid))
-            storage.save_sentences(c, uid, {"lines": [{"text": "朝の光", "lang": "ja"}]})
-            storage.save_sentences(c, uid, {"lines": [{"text": "Bonjour", "lang": "fr"}]})
-            self.assertEqual(storage.load_sentences(c, uid)["lines"][0]["lang"], "fr")
+            self.assertIsNone(storage.load_texts(c, uid))
+            storage.save_texts(c, uid, {"lines": [{"text": "朝の光", "lang": "ja"}]})
+            storage.save_texts(c, uid, {"lines": [{"text": "Bonjour", "lang": "fr"}]})
+            self.assertEqual(storage.load_texts(c, uid)["lines"][0]["lang"], "fr")
 
 
-class Attempts(WithDb):
+class Practices(WithDb):
     def test_append_list_order_filter_and_json(self):
         import numpy as np
         uid, _ = self.new_user()
         with self.conn() as c:
-            first = storage.append_attempt(c, uid, {"source": "song", "key": "h_1", "mode": "read", "lang": "en", "ref_text": "hello there",
-                                                    "hyp_text": "hello their", "score": {"wer": np.float64(0.5), "ops": [("equal", "hello", "hello")]},
-                                                    "stt": "tiny/cpu/int8"})
-            second = storage.append_attempt(c, uid, {"source": "lyrics", "key": "h_2", "mode": "azure", "azure": {"pron": 79.0}})
-            rows = storage.list_attempts(c, uid)
+            cid = storage.save_clip(c, uid, "s", 0, 10, {"lines": []})
+            first = storage.append_practice(c, uid, {"source": "song", "key": "h_1", "mode": "read", "lang": "en", "ref_text": "hello there",
+                                                     "hyp_text": "hello their", "clip_id": cid,
+                                                     "scoring": {"wer": np.float64(0.5), "ops": [("equal", "hello", "hello")]},
+                                                     "stt_settings": {"model": "tiny", "device": "cpu"}})
+            second = storage.append_practice(c, uid, {"source": "lyrics", "key": "h_2", "mode": "azure", "hyp_text": "hello", "azure": {"pron": 79.0}})
+            rows = storage.list_practices(c, uid)
             self.assertEqual([r["id"] for r in rows], [second, first])           # 최신 순
-            self.assertEqual(rows[1]["score"]["wer"], 0.5)                        # numpy 값도 저장·복원된다
-            self.assertEqual(rows[1]["score"]["ops"], [["equal", "hello", "hello"]])
-            self.assertEqual(rows[0]["azure"], {"pron": 79.0})
-            self.assertIsNone(rows[0]["score"])
-            self.assertEqual([r["id"] for r in storage.list_attempts(c, uid, key="h_1")], [first])
-            self.assertEqual(len(storage.list_attempts(c, uid, limit=1)), 1)
-            self.assertEqual(storage.count_attempts(c, uid), 2)
+            self.assertEqual(rows[1]["scoring"]["wer"], 0.5)                      # numpy 값도 저장·복원된다
+            self.assertEqual(rows[1]["scoring"]["ops"], [["equal", "hello", "hello"]])
+            self.assertEqual(rows[1]["stt_settings"], {"model": "tiny", "device": "cpu"})   # dict가 JSONB로 그대로 저장된다(따라읽기 기록이 안 남던 버그의 회귀 방지)
+            self.assertEqual((rows[1]["clip_id"], rows[0]["clip_id"]), (cid, None))
+            self.assertEqual((rows[0]["azure"], rows[0]["hyp_text"]), ({"pron": 79.0}, "hello"))
+            self.assertIsNone(rows[0]["scoring"])
+            self.assertIsNotNone(rows[0]["created_at"])
+            self.assertEqual([r["id"] for r in storage.list_practices(c, uid, key="h_1")], [first])
+            self.assertEqual(len(storage.list_practices(c, uid, limit=1)), 1)
+            self.assertEqual(storage.count_practices(c, uid), 2)
 
-    def test_attempts_are_per_user(self):
+    def test_practices_are_per_user(self):
         a, _ = self.new_user()
         b, _ = self.new_user()
         with self.conn() as c:
-            storage.append_attempt(c, a, {"source": "song", "key": "k", "mode": "read"})
-            self.assertEqual(storage.list_attempts(c, b), [])
-            self.assertEqual(storage.count_attempts(c, b), 0)
+            storage.append_practice(c, a, {"source": "song", "key": "k", "mode": "read"})
+            self.assertEqual(storage.list_practices(c, b), [])
+            self.assertEqual(storage.count_practices(c, b), 0)
 
 
 class Cascade(WithDb):
@@ -285,15 +350,15 @@ class Cascade(WithDb):
         other, _ = self.new_user()
         with self.conn() as c:
             storage.add_token(c, uid, auth.token_hash("t"), auth.token_expiry(NOW))
-            storage.save_song(c, uid, "d", {"lines": []})
-            storage.save_sentences(c, uid, {"lines": []})
-            storage.append_attempt(c, uid, {"source": "song", "key": "k", "mode": "read"})
-            storage.save_song(c, other, "d", {"lines": []})
+            cid = storage.save_clip(c, uid, "d", 0, 10, {"lines": []})
+            storage.save_texts(c, uid, {"lines": []})
+            storage.append_practice(c, uid, {"source": "song", "key": "k", "mode": "read", "clip_id": cid})
+            other_cid = storage.save_clip(c, other, "d", 0, 10, {"lines": []})
             self.assertEqual(storage.delete_user(c, uid), 1)
             self.assertIsNone(storage.get_user(c, name))
-            for table in ("login_tokens", "songs", "sentences", "attempts"):
+            for table in ("login_tokens", "clips", "texts", "practices"):
                 self.assertEqual(c.execute(f"SELECT count(*) AS n FROM {table} WHERE user_id = %s", (uid,)).fetchone()["n"], 0, table)
-            self.assertIsNotNone(storage.load_song(c, other, "d"))             # 다른 사용자의 데이터는 그대로
+            self.assertIsNotNone(storage.load_clip_by_id(c, other, other_cid))             # 다른 사용자의 데이터는 그대로
             self.assertEqual(storage.delete_user(c, uid), 0)
 
 

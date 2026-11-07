@@ -1,4 +1,4 @@
-"""사용자별 저장(PostgreSQL): 계정·로그인 토큰·곡 기록·내 문장·채점 시도를 읽고 쓴다. 이슈 #52, 검토 문서 16.16 11절.
+"""사용자별 저장(PostgreSQL): 계정·로그인 토큰·구간(clips)·내 문장(texts)·연습 기록(practices)을 읽고 쓴다. 이슈 #52·#67, 검토 문서 16.16·16.17.
 
 이 모듈은 **SQL을 실행하는 일만** 한다. 해시·토큰 만들기·잠금 판단은 `auth.py`(순수 함수), 화면은 `app/`이 맡는다. Streamlit을 부르지 않아 단위 테스트가 쉽다.
 
@@ -6,7 +6,7 @@
     with storage.connect() as conn:          # 열기 → 성공하면 commit, 예외가 나면 rollback → 닫기
         storage.migrate(conn)                # 아직 적용 안 된 migrations/*.sql만 순서대로 실행(앱 시작 때 한 번)
         uid = storage.create_user(conn, "alice", salt, pw_hash)
-        storage.append_attempt(conn, uid, {...})
+        storage.append_practice(conn, uid, {...})
 
 - **접속 정보는 환경변수**(`.env`): `DB_HOST`(기본 127.0.0.1), `DB_PORT`(기본 5433), `DB_NAME`, `DB_USER`, `DB_PASSWORD`(inner-orbit과 같은 이름).
   `DB_NAME`·`DB_USER`가 없으면 `enabled()`가 False이고 앱은 저장 없이(게스트 모드로) 동작한다.
@@ -20,6 +20,7 @@ import json
 import os
 import re
 from contextlib import contextmanager
+from decimal import Decimal
 from pathlib import Path
 
 import psycopg
@@ -208,69 +209,103 @@ def purge_expired_tokens(conn, now):
     return conn.execute("DELETE FROM login_tokens WHERE expires_at <= %s", (now,)).rowcount
 
 
-# ---------- 곡 기록 ----------
-def save_song(conn, user_id, digest, doc, name=None, seconds=None, input=None, clip_start=None, clip_duration=None, languages=None):
-    """곡 기록을 저장한다(같은 곡 지문이면 덮어쓰고 수정 시각을 갱신). doc은 가사 줄 등을 담은 dict. 음원 자체는 저장하지 않는다."""
-    conn.execute(
-        "INSERT INTO songs (user_id, digest, name, seconds, input, clip_start, clip_duration, languages, doc) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
-        "ON CONFLICT (user_id, digest) DO UPDATE SET name = EXCLUDED.name, seconds = EXCLUDED.seconds, input = EXCLUDED.input, "
-        "clip_start = EXCLUDED.clip_start, clip_duration = EXCLUDED.clip_duration, languages = EXCLUDED.languages, "
-        "doc = EXCLUDED.doc, updated_at = now()",
-        (user_id, digest, name, seconds, input, clip_start, clip_duration, list(languages) if languages is not None else None, _jsonb(doc)))
+# ---------- 구간(clips): 곡 하나에서 구간 여러 개 (검토 문서 16.17) ----------
+def _num(v):
+    """초 단위 값을 소수 2자리 Decimal로(DB의 NUMERIC(9,2)와 같은 정밀도). 같은 구간을 찾을 때 실수 오차로 어긋나지 않게 저장·조회 모두 이 값을 쓴다."""
+    return Decimal(str(round(float(v), 2)))
 
 
-def load_song(conn, user_id, digest):
-    """곡 기록 한 개(없으면 None). 다른 사용자의 곡은 user_id 조건 때문에 절대 나오지 않는다."""
-    return conn.execute("SELECT * FROM songs WHERE user_id = %s AND digest = %s", (user_id, digest)).fetchone()
+def _clip(row):
+    """DB 행의 NUMERIC(Decimal)을 파이썬 float로 바꿔 돌려준다(화면·JSON에서 다루기 쉽게). None이면 None."""
+    if row is None:
+        return None
+    for k in ("song_duration_sec", "clip_start_sec", "clip_duration_sec"):
+        if row.get(k) is not None:
+            row[k] = float(row[k])
+    return row
 
 
-def list_songs(conn, user_id):
-    """내 곡 목록(최근 수정 순). 가사 전체(doc) 대신 가벼운 열과 줄 수(n_lines)만 돌려준다."""
-    return conn.execute(
-        "SELECT digest, name, seconds, input, clip_start, clip_duration, languages, created_at, updated_at, "
-        "COALESCE(jsonb_array_length(doc->'lines'), 0) AS n_lines FROM songs WHERE user_id = %s ORDER BY updated_at DESC", (user_id,)).fetchall()
-
-
-def delete_song(conn, user_id, digest):
-    """곡 기록 하나를 지운다. 지운 개수를 돌려준다."""
-    return conn.execute("DELETE FROM songs WHERE user_id = %s AND digest = %s", (user_id, digest)).rowcount
-
-
-# ---------- 내 문장 ----------
-def save_sentences(conn, user_id, doc):
-    """내 문장 목록(줄 글과 줄마다 확인한 언어)을 통째로 저장한다."""
-    conn.execute("INSERT INTO sentences (user_id, doc) VALUES (%s, %s) "
-                 "ON CONFLICT (user_id) DO UPDATE SET doc = EXCLUDED.doc, updated_at = now()", (user_id, _jsonb(doc)))
-
-
-def load_sentences(conn, user_id):
-    """내 문장 목록 dict(없으면 None)."""
-    row = conn.execute("SELECT doc FROM sentences WHERE user_id = %s", (user_id,)).fetchone()
-    return row["doc"] if row else None
-
-
-# ---------- 채점 시도 ----------
-def append_attempt(conn, user_id, record):
-    """채점 시도 한 번을 저장하고 id를 돌려준다. record 열쇠: source, key, mode, lang, ref_text, hyp_text, score(dict), azure(dict 또는 None), stt."""
+def save_clip(conn, user_id, audio_sha1, clip_start_sec, clip_duration_sec, doc, song_title=None, song_duration_sec=None,
+              input_type=None, languages=None):
+    """구간 기록을 저장하고 clip id를 돌려준다. (사용자, 음원 지문, 시작, 길이)가 같으면 덮어쓰고 수정 시각을 갱신하며, 다르면 새 행이다
+    (같은 곡의 다른 구간은 따로 저장). doc은 가사 줄 등을 담은 dict. 음원 자체는 저장하지 않는다."""
     row = conn.execute(
-        "INSERT INTO attempts (user_id, source, key, mode, lang, ref_text, hyp_text, score, azure, stt) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
-        (user_id, record.get("source"), record.get("key"), record.get("mode"), record.get("lang"), record.get("ref_text"),
-         record.get("hyp_text"), _jsonb(record.get("score")), _jsonb(record.get("azure")), record.get("stt"))).fetchone()
+        "INSERT INTO clips (user_id, audio_sha1, clip_start_sec, clip_duration_sec, song_title, song_duration_sec, input_type, languages, doc) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
+        "ON CONFLICT (user_id, audio_sha1, clip_start_sec, clip_duration_sec) DO UPDATE SET song_title = EXCLUDED.song_title, "
+        "song_duration_sec = EXCLUDED.song_duration_sec, input_type = EXCLUDED.input_type, languages = EXCLUDED.languages, "
+        "doc = EXCLUDED.doc, updated_at = now() RETURNING id",
+        (user_id, audio_sha1, _num(clip_start_sec), _num(clip_duration_sec), song_title,
+         _num(song_duration_sec) if song_duration_sec is not None else None, input_type,
+         list(languages) if languages is not None else None, _jsonb(doc))).fetchone()
     return row["id"]
 
 
-def list_attempts(conn, user_id, limit=500, key=None):
-    """내 시도 목록(최신 순, 최대 limit개). key를 주면 그 문장의 시도만."""
+def load_clip(conn, user_id, audio_sha1, clip_start_sec, clip_duration_sec):
+    """같은 구간의 기록 한 개(없으면 None). user_id 조건 때문에 다른 사용자의 구간은 절대 나오지 않는다."""
+    return _clip(conn.execute(
+        "SELECT * FROM clips WHERE user_id = %s AND audio_sha1 = %s AND clip_start_sec = %s AND clip_duration_sec = %s",
+        (user_id, audio_sha1, _num(clip_start_sec), _num(clip_duration_sec))).fetchone())
+
+
+def load_clip_by_id(conn, user_id, clip_id):
+    """clip id로 기록 한 개(없거나 다른 사용자의 것이면 None)."""
+    return _clip(conn.execute("SELECT * FROM clips WHERE user_id = %s AND id = %s", (user_id, clip_id)).fetchone())
+
+
+_CLIP_LIGHT = ("id, audio_sha1, song_title, song_duration_sec, input_type, clip_start_sec, clip_duration_sec, languages, created_at, updated_at, "
+               "COALESCE(jsonb_array_length(doc->'lines'), 0) AS n_lines")
+
+
+def list_clips(conn, user_id):
+    """내 구간 목록(최근 수정 순). 가사 전체(doc) 대신 가벼운 열과 줄 수(n_lines)만 돌려준다."""
+    rows = conn.execute(f"SELECT {_CLIP_LIGHT} FROM clips WHERE user_id = %s ORDER BY updated_at DESC, id DESC", (user_id,)).fetchall()
+    return [_clip(r) for r in rows]
+
+
+def list_clips_of(conn, user_id, audio_sha1):
+    """같은 음원(곡)에서 저장해 둔 구간들(시작 시각 순)."""
+    rows = conn.execute(f"SELECT {_CLIP_LIGHT} FROM clips WHERE user_id = %s AND audio_sha1 = %s ORDER BY clip_start_sec, clip_duration_sec",
+                        (user_id, audio_sha1)).fetchall()
+    return [_clip(r) for r in rows]
+
+
+# ---------- 내 문장(texts) ----------
+def save_texts(conn, user_id, doc):
+    """내 문장 목록(줄 글과 줄마다 확인한 언어)을 통째로 저장한다(지금은 사용자당 한 묶음)."""
+    conn.execute("INSERT INTO texts (user_id, doc) VALUES (%s, %s) "
+                 "ON CONFLICT (user_id) DO UPDATE SET doc = EXCLUDED.doc, updated_at = now()", (user_id, _jsonb(doc)))
+
+
+def load_texts(conn, user_id):
+    """내 문장 목록 dict(없으면 None)."""
+    row = conn.execute("SELECT doc FROM texts WHERE user_id = %s", (user_id,)).fetchone()
+    return row["doc"] if row else None
+
+
+# ---------- 연습 기록(practices) ----------
+def append_practice(conn, user_id, record):
+    """채점 한 번을 저장하고 id를 돌려준다. record 열쇠: source, key, mode, lang, ref_text, hyp_text, scoring(dict), azure(dict 또는 None),
+    stt_settings(글 또는 dict), clip_id(내 노래의 구간이면 그 id, 아니면 None)."""
+    row = conn.execute(
+        "INSERT INTO practices (user_id, clip_id, source, key, mode, lang, ref_text, hyp_text, scoring, azure, stt_settings) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+        (user_id, record.get("clip_id"), record.get("source"), record.get("key"), record.get("mode"), record.get("lang"),
+         record.get("ref_text"), record.get("hyp_text"), _jsonb(record.get("scoring")), _jsonb(record.get("azure")),
+         _jsonb(record.get("stt_settings")))).fetchone()
+    return row["id"]
+
+
+def list_practices(conn, user_id, limit=500, key=None):
+    """내 연습 목록(최신 순, 최대 limit개). key를 주면 그 문장의 기록만."""
     if key is None:
-        return conn.execute("SELECT * FROM attempts WHERE user_id = %s ORDER BY ts DESC, id DESC LIMIT %s", (user_id, limit)).fetchall()
-    return conn.execute("SELECT * FROM attempts WHERE user_id = %s AND key = %s ORDER BY ts DESC, id DESC LIMIT %s",
+        return conn.execute("SELECT * FROM practices WHERE user_id = %s ORDER BY created_at DESC, id DESC LIMIT %s", (user_id, limit)).fetchall()
+    return conn.execute("SELECT * FROM practices WHERE user_id = %s AND key = %s ORDER BY created_at DESC, id DESC LIMIT %s",
                         (user_id, key, limit)).fetchall()
 
 
-def count_attempts(conn, user_id):
-    return conn.execute("SELECT count(*) AS n FROM attempts WHERE user_id = %s", (user_id,)).fetchone()["n"]
+def count_practices(conn, user_id):
+    return conn.execute("SELECT count(*) AS n FROM practices WHERE user_id = %s", (user_id,)).fetchone()["n"]
 
 
 # ---------- 명령줄: python storage.py migrate | ping | reset-password <아이디> ----------

@@ -40,9 +40,13 @@ def reset_song():
         st.session_state.pop(k, None)
 
 
-def restore_saved(ws, song_path, row):
-    """'저장된 구간·가사 불러오기' 버튼의 on_click: 같은 구간을 다시 자르고 가사를 되살린다. 콜백은 위젯이 만들어지기 전에 실행되어
+def restore_saved(ws, song_path, clip_id):
+    """'저장된 구간·가사 불러오기' 버튼의 on_click: 고른 구간을 다시 자르고 가사를 되살린다. 콜백은 위젯이 만들어지기 전에 실행되어
     구간 슬라이더·길이 선택의 값을 바꿀 수 있다."""
+    row = persist.saved_clip(clip_id)
+    if row is None:
+        st.toast("저장된 구간을 불러오지 못했어요.", icon="⚠️")
+        return
     cut_info = web_song.restore_song(ws, song_path, row)
     if cut_info:
         st.session_state["cut"] = cut_info
@@ -172,46 +176,48 @@ def lines_section(ws, doc, clip_seconds, mix_path, voc_path, has_audio):
         practice_panel(ln["text"], key=f"song_{gen}_{ln['no']}", tts_path=ln["tts_path"] if tts_ok else None, source="song", lang=line_lang)
 
 
+def clip_label(c, with_title=False):
+    """저장된 구간 한 줄 설명: [곡 이름 · ]구간 · 가사 줄 수(· 수정 시각)."""
+    when = c["updated_at"].astimezone().strftime("%m-%d %H:%M") if c.get("updated_at") else ""
+    head = f"{c.get('song_title') or '이름 없음'} · " if with_title else ""
+    return f"{head}{web_song.clip_range_label(c['clip_start_sec'], c['clip_duration_sec'])} · {c['n_lines']}줄" + (f" · {when}" if with_title and when else "")
+
+
 def saved_songs_view():
-    """'저장된 곡' 입력 방식: 서버에 저장한 곡 목록에서 하나를 골라 **소리 없이** 가사·표준 발음·연습을 이어 간다(음원은 저장하지 않으므로).
-    고른 곡의 가사 doc을 새 작업 폴더에 되살리고(web_song.restore_lines), 이후는 업로드한 곡과 같은 lines_section을 쓴다."""
-    rows = [r for r in persist.song_list() if r["n_lines"]]
+    """'저장된 곡' 입력 방식: 서버에 저장한 구간 목록에서 하나를 골라 **소리 없이** 가사·표준 발음·연습을 이어 간다(음원은 저장하지 않으므로).
+    같은 곡의 다른 구간은 목록에서 따로 보인다. 고른 구간의 가사 doc을 새 작업 폴더에 되살리고(web_song.restore_lines), 이후는 업로드한 곡과 같은 lines_section을 쓴다."""
+    rows = sorted((r for r in persist.clip_list() if r["n_lines"]), key=lambda r: (r.get("song_title") or "", r["audio_sha1"], r["clip_start_sec"]))
     if not rows:
         st.info("저장된 곡이 아직 없어요. '음원 파일 업로드'나 '주변 음악 녹음'으로 가사를 인식하면 자동으로 저장돼요(저장을 켜 둔 경우).")
         return
-
-    def label(r):
-        when = r["updated_at"].astimezone().strftime("%m-%d %H:%M") if r.get("updated_at") else ""
-        where = (web_song.clip_range_label(r["clip_start"], r["clip_duration"]) + " · ") if r.get("clip_start") is not None and r.get("clip_duration") else ""
-        return f"{r.get('name') or '이름 없음'} · {where}{r['n_lines']}줄 · {when}"
-
-    by_digest = {r["digest"]: r for r in rows}
-    st.caption("곡 소리는 저장하지 않아서 가사와 표준 발음으로 연습해요. 원곡을 들으려면 같은 파일을 다시 올리세요.")
-    pick = st.selectbox("저장된 곡", list(by_digest), index=None, format_func=lambda d: label(by_digest[d]), placeholder="곡을 고르세요", key="saved_pick")
+    by_id = {r["id"]: r for r in rows}
+    st.caption("곡 소리는 저장하지 않아서 가사와 표준 발음으로 연습해요. 원곡을 들으려면 같은 파일을 다시 올리세요. 같은 곡의 다른 구간은 따로 저장돼 있어요.")
+    pick = st.selectbox("저장된 구간", list(by_id), index=None, format_func=lambda i: clip_label(by_id[i], with_title=True),
+                        placeholder="곡·구간을 고르세요", key="saved_pick")
     if pick is None:
         if "ws" in st.session_state:
             reset_song()
         return
-    row = persist.saved_song(pick)
+    row = persist.saved_clip(pick)
     if row is None:
-        st.error("저장된 곡을 불러오지 못했어요.")
+        st.error("저장된 구간을 불러오지 못했어요.")
         return
-    if st.session_state.get("song_digest") != pick:       # 곡을 바꿨을 때만 작업 폴더를 새로 만들어 가사를 되살린다
+    tag = f"clip:{pick}"
+    if st.session_state.get("song_digest") != tag:        # 구간을 바꿨을 때만 작업 폴더를 새로 만들어 가사를 되살린다
         reset_song()
         ws = web_song.new_workspace()
         web_song.restore_lines(ws, row)
-        st.session_state.update(ws=ws, song_digest=pick, gen=0)
+        st.session_state.update(ws=ws, song_digest=tag, gen=0)
     ws = st.session_state["ws"]
     doc = web_song.load_doc(ws)
     if doc is None:
-        st.error("이 곡에는 가사가 없어요.")
+        st.error("이 구간에는 가사가 없어요.")
         return
-    has_cut = row.get("clip_start") is not None and row.get("clip_duration")
-    persist.autosave_song(pick, ws, row.get("name"), row.get("seconds") or 0, row.get("input") or "file",
-                          cut=(float(row["clip_start"]), float(row["clip_duration"])) if has_cut else None)
+    persist.autosave_clip(row["audio_sha1"], ws, row.get("song_title"), row.get("song_duration_sec") or 0, row.get("input_type") or "file",
+                          cut=(row["clip_start_sec"], row["clip_duration_sec"]))
     if doc.get("languages"):
         st.caption("인식에 쓴 언어: " + " + ".join(languages.name(c) for c in doc["languages"]))
-    clip_seconds = max([float(row["clip_duration"]) if has_cut else 0.0] + [l["end"] for l in doc["lines"]])
+    clip_seconds = max([row["clip_duration_sec"]] + [l["end"] for l in doc["lines"]])
     lines_section(ws, doc, clip_seconds, None, None, False)
 
 
@@ -267,15 +273,16 @@ if clear.button("곡 지우기", key="clear"):
     reset_song()
     st.rerun()
 
-# ---------- 저장된 기록 불러오기 (로그인한 사용자, 이슈 #52) ----------
-saved = persist.saved_song(digest)
-if saved and web_song.load_doc(ws) is None and st.session_state.get("cut") is None:
-    n_saved = len((saved.get("doc") or {}).get("lines") or [])
+# ---------- 저장된 기록 불러오기 (로그인한 사용자, 이슈 #52·#67) ----------
+# 같은 파일에서 저장해 둔 구간이 여러 개일 수 있어 목록에서 고른다.
+saved_clips = [c for c in persist.saved_clips_of(digest) if c["n_lines"]]
+if saved_clips and web_song.load_doc(ws) is None and st.session_state.get("cut") is None:
     with st.container(border=True):
-        st.markdown("**이 곡을 전에 저장했어요**")
-        where = (f"구간 {web_song.clip_range_label(saved['clip_start'], saved['clip_duration'])} · " if saved.get("clip_start") is not None and saved.get("clip_duration") else "")
-        st.caption(f"{where}가사 줄 {n_saved}개. 불러오면 같은 구간을 다시 자르고 가사를 되살려요(인식을 다시 하지 않아요).")
-        st.button("저장된 구간·가사 불러오기", type="primary", key="restore_btn", on_click=restore_saved, args=(ws, st.session_state["song_path"], saved))
+        st.markdown(f"**이 곡을 전에 저장했어요** · 구간 {len(saved_clips)}개")
+        by_id = {c["id"]: c for c in saved_clips}
+        pick_clip = st.selectbox("저장된 구간", list(by_id), format_func=lambda i: clip_label(by_id[i]), key="restore_pick", label_visibility="collapsed")
+        st.caption("불러오면 그 구간을 다시 자르고 가사를 되살려요(인식을 다시 하지 않아요). 다른 구간을 연습하려면 아래에서 새로 고르면 따로 저장돼요.")
+        st.button("저장된 구간·가사 불러오기", type="primary", key="restore_btn", on_click=restore_saved, args=(ws, st.session_state["song_path"], pick_clip))
 
 if is_rec:
     # 주변 음악 녹음은 **녹음 전체를 구간으로** 쓴다(슬라이더·파형 없음). 상태 점검은 안내일 뿐이라 경고가 있어도 계속할 수 있다.
@@ -390,7 +397,7 @@ rec_langs = opts["languages"] or ([sug["top"][0]] if sug and sug.get("top") else
 st.subheader("가사 인식")
 explain.show("song_recog")
 doc = web_song.load_doc(ws)
-persist.autosave_song(digest, ws, src_name, ov["seconds"], "record" if is_rec else "file")      # 구간·가사·언어가 바뀌었으면 서버에 저장(로그인+저장 켬일 때만)
+persist.autosave_clip(digest, ws, src_name, ov["seconds"], "record" if is_rec else "file")      # 구간·가사·언어가 바뀌었으면 서버에 저장(로그인+저장 켬일 때만)
 if st.button("가사 인식하기" if doc is None else "다시 인식하기(고친 가사는 사라져요)", type="primary" if doc is None else "secondary", key="recog_btn", disabled=sug is None):
     with st.spinner("인식하는 중… (medium 모델, CPU에서 20초 구간에 약 20~60초. 서버를 켠 뒤 처음 한 번은 모델을 읽느라 더 걸려요)"):
         try:

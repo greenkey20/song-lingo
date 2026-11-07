@@ -131,11 +131,11 @@ class Gate(Base):
     def test_delete_account_removes_everything(self):
         at = self.signup(self.app())
         uid = at.session_state["uid"]
-        self.store.save_song(None, uid, "d", {"lines": []})
+        self.store.save_clip(None, uid, "d", 0, 10, {"lines": []})
         find(at.sidebar.text_input, "아이디 입력").set_value("alice_1").run()      # 입력 뒤 다시 그려야 삭제 버튼이 켜진다(브라우저에서는 Enter/포커스 이동)
         at = find(at.sidebar.button, "삭제하기").click().run()
         self.assertEqual(self.store.users, {})
-        self.assertEqual(self.store.songs, {})
+        self.assertEqual(self.store.clips, {})
         self.assertEqual([t.label for t in at.tabs], ["로그인", "가입", "게스트"])
 
 
@@ -155,25 +155,25 @@ class SavesAttempts(Base):
     def test_user_attempt_is_saved_with_text_and_score(self):
         at = self.dictate(self.signup(self.app()))
         self.assertFalse(at.exception, [e.value for e in at.exception])
-        self.assertEqual(len(self.store.attempts), 1)
-        a = self.store.attempts[0]
+        self.assertEqual(len(self.store.practices), 1)
+        a = self.store.practices[0]
         self.assertEqual((a["mode"], a["hyp_text"], a["user_id"]), ("dictation", "Hello there.", at.session_state["uid"]))
         self.assertTrue(a["ref_text"])                                              # 문장 글이 함께 저장된다
         self.assertEqual(a["source"], "sample")                                     # 예시 문장
-        self.assertIn("wer", a["score"])
+        self.assertIn("wer", a["scoring"])
 
     def test_save_off_saves_nothing(self):
         at = self.signup(self.app())
         at.session_state["save_on"] = False
         at = self.dictate(at)
-        self.assertEqual(self.store.attempts, [])
+        self.assertEqual(self.store.practices, [])
 
     def test_guest_attempt_is_not_saved_but_kept_in_session(self):
         at = self.app()
         [t for t in at.text_input if t.label == "초대 코드"][-1].set_value(INVITE)
         at = find(at.button, "게스트로 들어가기").click().run()
         at = self.dictate(at)
-        self.assertEqual(self.store.attempts, [])
+        self.assertEqual(self.store.practices, [])
         self.assertEqual(len(at.session_state["session_rows"]), 1)
 
     def test_history_shows_my_saved_attempts(self):
@@ -196,7 +196,7 @@ class SavesSentences(Base):
         at = find(at.button, "언어 알아보기").click().run()
         at = find(at.button, "제안이 있는 줄은 모두 맞아요").click().run()
         uid = at.session_state["uid"]
-        saved = self.store.sentences[uid]["lines"]
+        saved = self.store.texts[uid]["lines"]
         self.assertEqual("\n".join(e["text"] for e in saved), text_before)
         self.assertTrue(all(e["lang"] for e in saved))                                  # 줄마다 확인한 언어가 함께 저장됨
 
@@ -218,7 +218,7 @@ class SavesSentences(Base):
         find(at.button, "예시 문장 불러오기").click()
         at = at.run()
         at = find(at.button, "언어 알아보기").click().run()
-        self.assertEqual(self.store.sentences, {})
+        self.assertEqual(self.store.texts, {})
         self.assertFalse([b for b in at.button if (b.label or "").startswith("저장된 내 문장")])
 
 
@@ -231,8 +231,8 @@ class SavedSongs(Base):
 
     def seed(self, at):
         uid = at.session_state["uid"]
-        self.store.save_song(None, uid, "d1" * 20, {"lines": [dict(self.LINE)], "languages": ["en"], "stt": {}},
-                             name="my.mp3", seconds=100.0, input="file", clip_start=10.0, clip_duration=15.0, languages=["en"])
+        self.cid = self.store.save_clip(None, uid, "d1" * 20, 10.0, 15.0, {"lines": [dict(self.LINE)], "languages": ["en"], "stt": {}},
+                                        song_title="my.mp3", song_duration_sec=100.0, input_type="file", languages=["en"])
         return uid
 
     def open_saved(self, at):
@@ -245,17 +245,37 @@ class SavedSongs(Base):
         uid = self.seed(at)
         at = self.open_saved(at)
         self.assertFalse(at.exception, [e.value for e in at.exception])
-        at.selectbox[0].select("d1" * 20).run()
+        at.selectbox[0].select(self.cid).run()
         self.assertFalse(at.exception, [e.value for e in at.exception])
         self.assertEqual([t.value for t in at.text_input if t.label.startswith("가사")], ["hello wrld"])
         find(at.text_input, "가사 (고치면 아래에 저장 버튼이 나와요)").set_value("hello world")
         at = at.run()
         at = find(at.button, "고친 가사 저장").click().run()
         self.assertFalse(at.exception, [e.value for e in at.exception])
-        doc = self.store.songs[(uid, "d1" * 20)]["doc"]
+        saved = self.store.clips[(uid, "d1" * 20, 10.0, 15.0)]
+        doc = saved["doc"]
         self.assertEqual(doc["lines"][0]["text"], "hello world")
         self.assertEqual(doc["lines"][0]["stt_text"], "hello wrld")                    # 처음 인식한 글은 그대로
-        self.assertEqual(self.store.songs[(uid, "d1" * 20)]["clip_start"], 10.0)       # 구간 정보도 유지
+        self.assertEqual((saved["clip_start_sec"], saved["id"]), (10.0, self.cid))       # 구간 정보와 id도 유지(같은 행을 갱신)
+
+    def test_same_song_two_clips_are_listed_separately(self):
+        at = self.signup(self.app())
+        uid = self.seed(at)
+        other = self.store.save_clip(None, uid, "d1" * 20, 40.0, 15.0, {"lines": [dict(self.LINE)]}, song_title="my.mp3", song_duration_sec=100.0, input_type="file")
+        self.assertNotEqual(other, self.cid)                                          # 같은 곡의 다른 구간은 다른 행
+        at = self.open_saved(at)
+        self.assertEqual(len(at.selectbox[0].options), 2)
+
+    def test_practice_on_saved_clip_records_clip_id(self):
+        at = self.signup(self.app())
+        self.seed(at)
+        at = self.open_saved(at)
+        at.selectbox[0].select(self.cid).run()
+        find(at.text_area, "들은 문장 적기").set_value("hello wrld")
+        at = [b for b in at.button if "dict_go" in (b.key or "")][0].click().run()
+        self.assertFalse(at.exception, [e.value for e in at.exception])
+        song_rows = [p for p in self.store.practices if p["source"] == "song"]
+        self.assertEqual([p["clip_id"] for p in song_rows], [self.cid])               # 내 노래의 연습 기록은 구간과 연결된다
 
     def test_empty_list_message_and_guest_has_no_saved_mode(self):
         at = self.signup(self.app())
