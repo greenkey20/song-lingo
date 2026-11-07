@@ -308,7 +308,23 @@ def count_practices(conn, user_id):
     return conn.execute("SELECT count(*) AS n FROM practices WHERE user_id = %s", (user_id,)).fetchone()["n"]
 
 
-# ---------- 명령줄: python storage.py migrate | ping | reset-password <아이디> ----------
+# ---------- 한글 뜻·표현 설명 공유 캐시(meanings) ----------
+def get_meaning(conn, cache_key, kind, prompt_version):
+    """캐시된 설명 내용(translation_ko는 글, notes는 dict). 없으면 None. 사용자와 무관한 공유 캐시라 user_id 조건이 없다."""
+    row = conn.execute("SELECT content FROM meanings WHERE cache_key = %s AND kind = %s AND prompt_version = %s",
+                       (cache_key, kind, prompt_version)).fetchone()
+    return row["content"] if row else None
+
+
+def put_meaning(conn, cache_key, kind, lang, content, model, prompt_version):
+    """설명을 저장한다. 이미 있으면(같은 키·종류·버전) 아무것도 하지 않는다(먼저 만든 것을 유지). 새로 넣었으면 1, 아니면 0."""
+    return conn.execute(
+        "INSERT INTO meanings (cache_key, kind, lang, content, model, prompt_version) VALUES (%s, %s, %s, %s, %s, %s) "
+        "ON CONFLICT (cache_key, kind, prompt_version) DO NOTHING",
+        (cache_key, kind, lang, _jsonb(content), model, prompt_version)).rowcount
+
+
+# ---------- 명령줄: python storage.py migrate | ping | import-meanings | reset-password <아이디> ----------
 def _main(argv):
     from dotenv import load_dotenv
     load_dotenv(Path(__file__).resolve().parent / ".env")           # 값은 출력하지 않는다
@@ -324,6 +340,12 @@ def _main(argv):
         with connect() as conn:
             done = migrate(conn)
         print("적용한 마이그레이션:", done or "없음(이미 최신)")
+        return 0
+    if cmd == "import-meanings":                                    # 파일 캐시(data/meaning_cache)의 뜻·설명을 DB로 옮김(이미 있는 것은 건너뜀)
+        import meaning
+        with connect() as conn:
+            res = meaning.import_cache_to_db(conn)
+        print("파일 캐시 → DB:", res)
         return 0
     if cmd == "reset-password" and len(argv) == 2:                  # 비밀번호를 잊은 사용자를 관리자가 초기화
         import getpass

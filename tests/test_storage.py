@@ -90,14 +90,14 @@ class WithDb(unittest.TestCase):
 
 class Migrations(WithDb):
     def test_applied_and_idempotent(self):
-        self.assertEqual(self.applied[:2], ["001_init.sql", "002_rename_ids_clips.sql"])
+        self.assertEqual(self.applied[:3], ["001_init.sql", "002_rename_ids_clips.sql", "003_meanings.sql"])
         with self.conn() as c:
             self.assertEqual(storage.migrate(c), [])                    # 두 번째는 할 일이 없다
             versions = [r["version"] for r in c.execute("SELECT version FROM schema_migrations").fetchall()]
             tables = {r["table_name"] for r in c.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = %s",
                                                            (self.schema,)).fetchall()}
         self.assertEqual(versions.count("001_init.sql"), 1)
-        self.assertTrue({"users", "login_tokens", "clips", "texts", "practices", "schema_migrations"} <= tables)
+        self.assertTrue({"users", "login_tokens", "clips", "texts", "practices", "meanings", "schema_migrations"} <= tables)
         self.assertFalse({"songs", "sentences", "attempts"} & tables)             # 옛 이름은 없어졌다
 
     def test_ping(self):
@@ -126,7 +126,8 @@ class MigrateFromV1(unittest.TestCase):
                 conn.execute("INSERT INTO attempts (user_id, source, key, mode, stt) VALUES (%s, 'lyrics', 'k2', 'dictation', NULL)", (uid,))
                 conn.execute("INSERT INTO attempts (user_id, source, key, mode, stt) VALUES (%s, 'lyrics', 'k3', 'read', %s)", (uid, '{"model": "tiny"}'))
             with storage.connect(INFO, schema) as conn:
-                self.assertEqual(storage.migrate(conn), ["002_rename_ids_clips.sql"])
+                applied = storage.migrate(conn)
+                self.assertEqual(applied[0], "002_rename_ids_clips.sql")                    # 001만 적용된 DB에는 002부터(이후 마이그레이션이 늘어도 시험이 깨지지 않게 첫 항목만 확인)
                 clips = storage.list_clips(conn, uid)
                 self.assertEqual(len(clips), 1)                                            # 구간 없는 옛 행은 지워진다
                 c0 = storage.load_clip(conn, uid, "dig1", 65.1, 20)
@@ -342,6 +343,31 @@ class Practices(WithDb):
             storage.append_practice(c, a, {"source": "song", "key": "k", "mode": "read"})
             self.assertEqual(storage.list_practices(c, b), [])
             self.assertEqual(storage.count_practices(c, b), 0)
+
+
+class Meanings(WithDb):
+    NOTES = {"words": [{"word": "bright", "ipa": "braɪt", "meaning": "밝은"}], "expressions": [], "grammar": "", "examples": []}
+
+    def test_put_get_and_first_one_wins(self):
+        with self.conn() as c:
+            self.assertIsNone(storage.get_meaning(c, "k1", "translation_ko", 1))
+            self.assertEqual(storage.put_meaning(c, "k1", "translation_ko", "en", "밝은 방", "gpt-4o-mini", 1), 1)
+            self.assertEqual(storage.get_meaning(c, "k1", "translation_ko", 1), "밝은 방")          # 글(JSON 문자열)이 그대로 돌아온다
+            self.assertEqual(storage.put_meaning(c, "k1", "translation_ko", "en", "다른 뜻", "m", 1), 0)   # 같은 키·종류·버전은 건너뜀
+            self.assertEqual(storage.get_meaning(c, "k1", "translation_ko", 1), "밝은 방")
+            self.assertIsNone(storage.get_meaning(c, "k1", "translation_ko", 2))                    # 버전이 다르면 다른 항목
+            self.assertEqual(storage.put_meaning(c, "k1", "notes", None, self.NOTES, "m", 2), 1)     # 같은 키라도 종류가 다르면 따로
+            self.assertEqual(storage.get_meaning(c, "k1", "notes", 2), self.NOTES)
+
+    def test_kind_is_constrained_and_text_is_not_stored(self):
+        with self.conn() as c:
+            with self.assertRaises(psycopg.errors.CheckViolation):
+                with c.transaction():
+                    storage.put_meaning(c, "k2", "bogus", "en", "x", "m", 1)
+            cols = {r["column_name"] for r in c.execute("SELECT column_name FROM information_schema.columns WHERE table_schema = %s AND table_name = 'meanings'",
+                                                         (self.schema,)).fetchall()}
+        self.assertTrue({"id", "cache_key", "kind", "content", "prompt_version", "created_at"} <= cols)
+        self.assertFalse({"text", "sentence", "user_id"} & cols)                                   # 문장 글·사용자와 연결되지 않는다
 
 
 class Cascade(WithDb):

@@ -13,9 +13,11 @@
 """
 import hashlib
 import json
+import time
 from pathlib import Path
 
 CACHE_DIR = Path("data/meaning_cache")
+TRANSLATION_VERSION, NOTES_VERSION = 1, 2          # DB meanings.prompt_version: 프롬프트·형식을 바꾸면 올린다(NOTES 2 = 파일 이름 *.notes2.json)
 MODEL = "gpt-4o-mini"            # [미확인] 사용자의 키로 쓸 수 있는 모델 이름. 다르면 여기만 고친다
 SYSTEM = ("You translate one sentence or one line of song lyrics into natural, plain Korean. "
           "Output only the Korean meaning on a single line, with no quotes, no romanization and no explanation.")
@@ -25,10 +27,69 @@ def _key(text, lang):
     return hashlib.sha1(f"{lang}\n{str(text).strip()}".encode("utf-8")).hexdigest()[:16]
 
 
+# ---------- 공유 DB 캐시(이슈 #69, 검토 문서 16.17) ----------
+# 조회 순서: 메모리 → DB(meanings, 모든 사용자 공유) → 파일(data/meaning_cache) → OpenAI. 파일에서 찾으면 DB에 채워 넣고, 새로 만들면 DB와 파일에 둘 다 저장한다.
+# DB는 **앱이 켤 때만** 쓴다(`enable_db`): 단위 테스트·노트북은 지금까지처럼 파일만 쓴다. DB가 안 돼도 번역·설명은 멈추지 않고(파일만 사용),
+# 실패하면 잠시(60초) DB를 건너뛰어 화면이 매번 연결 제한시간(3초)을 기다리지 않게 한다. 오류 내용(문장 글)은 남기지 않는다.
+_DB = {"on": False, "down_until": 0.0}
+_MEMO = {}                                           # DB에서 찾은 값의 메모리 캐시(설명은 바뀌지 않으므로 안전). 크기가 커지면 비운다
+_MEMO_MAX = 5000
+DB_RETRY_SECONDS = 60
+
+
+def enable_db(on=True):
+    """공유 DB 캐시를 켜거나 끈다(앱이 시작할 때 storage.enabled()이면 켬)."""
+    _DB["on"] = bool(on)
+    _DB["down_until"] = 0.0
+    _MEMO.clear()
+
+
+def _db_get(kind, key, version):
+    """DB에서 설명 내용을 찾는다(없거나 DB를 안 쓰거나 안 되면 None)."""
+    if not _DB["on"] or time.monotonic() < _DB["down_until"]:
+        return None
+    memo_key = (kind, key, version)
+    if memo_key in _MEMO:
+        return _MEMO[memo_key]
+    try:
+        import storage
+        with storage.connect() as conn:
+            content = storage.get_meaning(conn, key, kind, version)
+    except Exception:
+        _DB["down_until"] = time.monotonic() + DB_RETRY_SECONDS
+        return None
+    if content is not None:
+        if len(_MEMO) >= _MEMO_MAX:
+            _MEMO.clear()
+        _MEMO[memo_key] = content
+    return content
+
+
+def _db_put(kind, key, lang, content, version):
+    """DB에 설명을 저장한다(실패해도 조용히 넘어감: 파일 캐시가 있다)."""
+    if not _DB["on"] or time.monotonic() < _DB["down_until"]:
+        return
+    try:
+        import storage
+        with storage.connect() as conn:
+            storage.put_meaning(conn, key, kind, lang or None, content, MODEL, version)
+    except Exception:
+        _DB["down_until"] = time.monotonic() + DB_RETRY_SECONDS
+
+
 def cached(text, lang="", cache_dir=None):
-    """캐시에 있는 번역(없으면 None). 호출하지 않는다."""
-    path = Path(cache_dir or CACHE_DIR) / f"{_key(text, lang)}.txt"
-    return path.read_text(encoding="utf-8").strip() if path.exists() else None
+    """캐시에 있는 번역(DB → 파일 순, 없으면 None). 호출하지 않는다."""
+    key = _key(text, lang)
+    hit = _db_get("translation_ko", key, TRANSLATION_VERSION)
+    if isinstance(hit, str) and hit.strip():
+        return hit.strip()
+    path = Path(cache_dir or CACHE_DIR) / f"{key}.txt"
+    if not path.exists():
+        return None
+    out = path.read_text(encoding="utf-8").strip()
+    if out:
+        _db_put("translation_ko", key, lang, out, TRANSLATION_VERSION)      # 파일에만 있던 것은 DB에도 채워 둔다
+    return out or None
 
 
 def translate_ko(text, lang="", client=None, cache_dir=None):
@@ -54,6 +115,7 @@ def translate_ko(text, lang="", client=None, cache_dir=None):
     folder = Path(cache_dir or CACHE_DIR)
     folder.mkdir(parents=True, exist_ok=True)
     (folder / f"{_key(text, lang)}.txt").write_text(out, encoding="utf-8")
+    _db_put("translation_ko", _key(text, lang), lang, out, TRANSLATION_VERSION)
     return out
 
 
@@ -100,14 +162,23 @@ def _clean_notes(data):
 
 
 def cached_notes(text, lang="", cache_dir=None):
-    """캐시에 있는 표현 설명(없거나 깨졌으면 None). 호출하지 않는다."""
-    path = Path(cache_dir or CACHE_DIR) / f"{_key(text, lang)}.notes2.json"      # 발음 기호(ipa) 칸을 넣으면서 이름을 바꿈: 옛 설명은 무시하고 새로 받는다
+    """캐시에 있는 표현 설명(DB → 파일 순, 없거나 깨졌으면 None). 호출하지 않는다."""
+    key = _key(text, lang)
+    hit = _db_get("notes", key, NOTES_VERSION)
+    if hit is not None:
+        try:
+            return _clean_notes(hit)
+        except ValueError:              # DB 내용이 깨졌으면 없는 것으로 보고 파일 → 새로 받기로 넘어간다
+            pass
+    path = Path(cache_dir or CACHE_DIR) / f"{key}.notes2.json"      # 발음 기호(ipa) 칸을 넣으면서 이름을 바꿈: 옛 설명은 무시하고 새로 받는다
     if not path.exists():
         return None
     try:
-        return _clean_notes(json.loads(path.read_text(encoding="utf-8")))
+        notes = _clean_notes(json.loads(path.read_text(encoding="utf-8")))
     except ValueError:                  # json.JSONDecodeError도 ValueError의 하위 클래스: 깨진 캐시는 없는 것으로 보고 다시 받는다
         return None
+    _db_put("notes", key, lang, notes, NOTES_VERSION)
+    return notes
 
 
 def explain_sentence(text, lang="", client=None, cache_dir=None):
@@ -133,6 +204,7 @@ def explain_sentence(text, lang="", client=None, cache_dir=None):
     folder = Path(cache_dir or CACHE_DIR)
     folder.mkdir(parents=True, exist_ok=True)
     (folder / f"{_key(text, lang)}.notes2.json").write_text(json.dumps(notes, ensure_ascii=False), encoding="utf-8")
+    _db_put("notes", _key(text, lang), lang, notes, NOTES_VERSION)
     return notes
 
 
@@ -157,3 +229,32 @@ def notes_markdown(notes):
         lines.append("\n**예문**")
         lines += [f"- {x['sentence']}  \n  {x['meaning']}" for x in notes["examples"]]
     return "\n".join(lines)
+
+
+def import_cache_to_db(conn, cache_dir=None):
+    """파일 캐시(`<키>.txt` 번역, `<키>.notes2.json` 표현 설명)를 DB meanings로 옮긴다. 이미 있는 것은 건너뛰고, 깨진 파일은 세지만 옮기지 않는다.
+    파일 이름이 곧 cache_key라서 문장 글 없이 옮길 수 있다(언어는 알 수 없어 NULL). 돌려주는 값: {"translation_ko": 새로 넣은 수, "notes": ..., "skipped": 이미 있음, "bad": 깨진 파일}."""
+    import storage
+    folder = Path(cache_dir or CACHE_DIR)
+    res = {"translation_ko": 0, "notes": 0, "skipped": 0, "bad": 0}
+    if not folder.exists():
+        return res
+    for path in sorted(folder.glob("*.txt")):
+        text = path.read_text(encoding="utf-8").strip()
+        if not text:
+            res["bad"] += 1
+        elif storage.put_meaning(conn, path.stem, "translation_ko", None, text, MODEL, TRANSLATION_VERSION):
+            res["translation_ko"] += 1
+        else:
+            res["skipped"] += 1
+    for path in sorted(folder.glob("*.notes2.json")):
+        try:
+            notes = _clean_notes(json.loads(path.read_text(encoding="utf-8")))
+        except ValueError:
+            res["bad"] += 1
+            continue
+        if storage.put_meaning(conn, path.name[: -len(".notes2.json")], "notes", None, notes, MODEL, NOTES_VERSION):
+            res["notes"] += 1
+        else:
+            res["skipped"] += 1
+    return res

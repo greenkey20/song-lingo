@@ -18,6 +18,10 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "app"))      # app/ui_practice.py 같은 화면 부품을 import하려고
 load_dotenv(ROOT / ".env")                  # OPENAI_API_KEY, (선택) SONGLINGO_SEPARATE_PYTHON을 읽는다. 값은 화면에 보이지 않는다
 
+import meaning  # noqa: E402
+import storage  # noqa: E402
+meaning.enable_db(storage.enabled())        # 한글 뜻·표현 설명의 공유 DB 캐시(이슈 #69): DB 설정이 있을 때만. 안 되면 파일 캐시로 동작한다
+
 st.set_page_config(page_title="song lingo", page_icon=str(Path(__file__).resolve().parent / "assets" / "icon.png"), layout="wide")   # 브라우저 탭 아이콘(정사각형 아이콘 PNG)
 
 # 아이폰 "홈 화면에 추가" 아이콘: iOS는 <head>의 apple-touch-icon 링크를 읽는데 Streamlit은 이 태그를 넣어 주지 않는다. 그래서 JS로 head에 넣는다
