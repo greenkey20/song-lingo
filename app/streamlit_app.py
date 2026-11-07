@@ -7,7 +7,6 @@
 실행(프로젝트 루트에서): ~/venvs/song-lingo-app/bin/python -m streamlit run app/streamlit_app.py
 """
 import sys
-import time
 from pathlib import Path
 
 import streamlit as st
@@ -21,27 +20,20 @@ load_dotenv(ROOT / ".env")                  # OPENAI_API_KEY, (선택) SONGLINGO
 
 st.set_page_config(page_title="song lingo", page_icon=str(Path(__file__).resolve().parent / "assets" / "icon.png"), layout="wide")   # 브라우저 탭 아이콘(정사각형 아이콘 PNG)
 
-# 접근 제한(이슈 #52): 환경변수 SONGLINGO_PASSWORD가 있을 때만 비밀번호를 묻는다(없으면 개발용으로 바로 열림). 이 파일은 사용자가 어느 주소로 들어와도
-# 맨 먼저 실행되므로 st.stop()으로 여기서 멈추면 모든 페이지(/text·/song·/history)가 가려진다. 판단은 access.py, 여기는 화면만.
-import access  # noqa: E402  (sys.path 설정 뒤에 import)
-if access.enabled() and not st.session_state.get("authed"):
-    st.title("song lingo")
-    st.caption("접근 제한이 걸려 있어요. 비밀번호를 입력하세요.")
-    left = access.lock_remaining(st.session_state.get("fails", 0), st.session_state.get("last_fail", 0.0), time.time())
-    with st.form("gate"):
-        typed = st.text_input("비밀번호", type="password")
-        go = st.form_submit_button("들어가기", type="primary", disabled=left > 0)
-    if go:
-        if access.check(typed):
-            st.session_state.update(authed=True, fails=0)
-            st.rerun()
-        st.session_state.update(fails=st.session_state.get("fails", 0) + 1, last_fail=time.time())
-        if access.lock_remaining(st.session_state["fails"], st.session_state["last_fail"], time.time()) > 0:
-            st.rerun()                       # 방금 잠금 한도에 닿았으면 다시 그려서 버튼을 바로 비활성화하고 경고를 보여 준다
-        st.error("비밀번호가 맞지 않아요.")
-    elif left > 0:
-        st.warning(f"여러 번 틀려서 {left}초 뒤에 다시 시도할 수 있어요.")
-    st.stop()
+# 아이폰 "홈 화면에 추가" 아이콘: iOS는 <head>의 apple-touch-icon 링크를 읽는데 Streamlit은 이 태그를 넣어 주지 않는다. 그래서 JS로 head에 넣는다
+# (파일은 app/static/, 서버 설정 enableStaticServing). iOS가 추가 순간의 DOM을 읽는지는 아이폰에서 확인해야 한다 [미확인]. 이미 추가한 아이콘은 지우고 다시 추가해야 바뀐다.
+st.html("""<script>
+if (!document.querySelector('link[rel="apple-touch-icon"]')) {
+  var l = document.createElement('link'); l.rel = 'apple-touch-icon'; l.href = '/app/static/apple-touch-icon.png';
+  document.head.appendChild(l);
+}
+</script>""", unsafe_allow_javascript=True)
+
+# 접근 제한과 사용자 확인(이슈 #52): 아이디·비밀번호 로그인(가입에는 초대 코드 = SONGLINGO_PASSWORD), 로그인 유지, 게스트. 저장소(DB) 설정이 없으면
+# 예전처럼 비밀번호만 묻는다. 이 파일은 사용자가 어느 주소로 들어와도 맨 먼저 실행되므로 run()이 st.stop()으로 여기서 멈추면 모든 페이지가 가려진다.
+# 판단은 account.py·auth.py·access.py, 저장은 storage.py, 화면은 app/auth_gate.py.
+import auth_gate  # noqa: E402  (sys.path 설정 뒤에 import)
+auth_gate.run()
 
 # 주소: 내 문장 /text, 내 노래 /song, 기록 /history. Streamlit은 **기본 페이지의 주소를 항상 "/"로 고정**하고 url_path를 무시하므로,
 # 주소가 "/"일 때는 메뉴에 보이지 않는 기본 페이지가 내 문장으로 보낸다(visibility="hidden", 이슈 #50 후속).
@@ -70,4 +62,5 @@ st.html(f"""<style>
 </style>""")
 import explain  # noqa: E402  (sys.path 설정 뒤에 import)
 st.html(explain.CSS)      # "어떻게 동작하나요?" 상자를 라임색으로(부가 요소 구분)
+auth_gate.sidebar()      # 사이드바 아래쪽: 누구로 쓰는지·저장 켜기/끄기·로그아웃·계정 삭제
 st.navigation([home_page, text_page, song_page, history_page]).run()

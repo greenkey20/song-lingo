@@ -14,6 +14,17 @@ def _res(ref, hyp):
     return {"mode": "dictation", "error": None, "hyp": hyp, "score": scoring.evaluate(ref, hyp)}
 
 
+class SttLabel(unittest.TestCase):
+    def test_dict_settings_become_text_for_a_text_column(self):
+        import stt
+        label = pl.stt_label(stt.settings())                                   # 따라읽기: dict → 글자(TEXT 열에 넣을 수 있음)
+        self.assertIsInstance(label, str)
+        self.assertIn('"model"', label)
+        self.assertIsNone(pl.stt_label(""))                                     # 받아쓰기: 빈 값 → NULL
+        self.assertIsNone(pl.stt_label(None))
+        self.assertEqual(pl.stt_label("tiny"), "tiny")
+
+
 class Log(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

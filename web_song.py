@@ -259,3 +259,33 @@ def make_tts(ws, synth=None, only=None):
 def line_range(line, clip_seconds, pad=0.1):
     """줄 하나의 재생 구간 (시작, 끝)을 앞뒤로 pad초 넓혀 [0, clip_seconds] 안에 맞춘다."""
     return max(0.0, line["start"] - pad), min(float(clip_seconds), line["end"] + pad)
+
+
+# ---------- 사용자별 저장·복원 (이슈 #52, 검토 문서 16.16) ----------
+def song_snapshot(ws, name, seconds, input_kind, cut_info):
+    """서버에 저장할 곡 기록(storage.save_song의 인자 dict). 지금 구간(cut_info = (시작, 길이) 또는 None)과 가사 doc을 담고, 가사가 아직 없으면 줄이 없는 doc을 담는다.
+    **음원·구간 wav·보컬은 담지 않는다**(저장 안 함 결정, 검토 문서 16.16)."""
+    doc = load_doc(ws) or {"lines": []}
+    return {"doc": doc, "name": name, "seconds": float(seconds), "input": input_kind,
+            "clip_start": float(cut_info[0]) if cut_info else None, "clip_duration": float(cut_info[1]) if cut_info else None,
+            "languages": list(doc.get("languages") or [])}
+
+
+def restore_song(ws, song_path, row):
+    """저장해 둔 곡 기록(row)을 작업 폴더로 복원한다: 방금 올린 음원에서 **같은 구간을 다시 자르고**, 가사 doc을 lines.json으로 쓴다(STT를 다시 돌리지 않음).
+    돌려주는 값: (시작, 길이) 또는 구간 정보가 없으면 None. 구간을 다시 자르면 옛 줄 목록이 지워지므로 자르기를 먼저 하고 doc을 나중에 쓴다."""
+    cut_info = None
+    if row.get("clip_start") is not None and row.get("clip_duration"):
+        cut(ws, song_path, float(row["clip_start"]), float(row["clip_duration"]))
+        cut_info = (float(row["clip_start"]), float(row["clip_duration"]))
+    restore_lines(ws, row)
+    return cut_info
+
+
+def restore_lines(ws, row):
+    """저장해 둔 곡 기록(row)의 가사 doc만 작업 폴더의 lines.json으로 되살린다(음원이 없는 '저장된 곡' 모드가 쓴다). 줄이 없으면 False."""
+    doc = row.get("doc") or {}
+    if not doc.get("lines"):
+        return False
+    song_practice.save_doc(CLIP_ID, doc, practice_dir(ws))
+    return True

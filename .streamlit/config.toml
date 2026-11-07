@@ -46,3 +46,7 @@ chartSequentialColors = ["#e5ffe9", "#b0efbc", "#86da99", "#61c37b", "#3fab60", 
 [theme.sidebar]
 backgroundColor = "#eef6ef"
 secondaryBackgroundColor = "#dff3e4"
+
+[server]
+# app/static/ 의 파일을 /app/static/<이름> 주소로 내려 준다(아이폰 홈 화면 아이콘 apple-touch-icon.png용). 이 폴더에는 공개해도 되는 파일만 둔다.
+enableStaticServing = true
