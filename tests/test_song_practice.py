@@ -80,6 +80,55 @@ class Prepare(Base):
         self.assertGreater(len(doc["lines"]), 2)
 
 
+class MergeNext(Base):
+    """줄 합치기(이슈 #73): 글·시간·segment가 합쳐지고 뒷 줄은 사라지며 줄 번호는 다시 매기지 않는다."""
+
+    def setUp(self):
+        super().setUp()
+        self.rec = lambda path, language, **kw: (fake_segments((4, 4, 4)), 1.0)
+        self.prepare()
+        self.lines = song_practice.load_lines("c01", self.out)["lines"]
+        self.assertEqual([l["no"] for l in self.lines], [1, 2, 3])
+
+    def test_merge_joins_text_time_segments_and_drops_the_next_line(self):
+        a, b = self.lines[0], self.lines[1]
+        doc = song_practice.merge_with_next("c01", 1, out_dir=self.out)
+        self.assertEqual([l["no"] for l in doc["lines"]], [1, 3])                       # 2번 줄이 사라지고 3번은 번호 그대로
+        m = doc["lines"][0]
+        self.assertEqual(m["text"], f"{a['text']} {b['text']}")
+        self.assertEqual(m["stt_text"], f"{a['stt_text']} {b['stt_text']}")             # 처음 인식한 글도 이어 붙여 보존
+        self.assertEqual((m["start"], m["end"]), (a["start"], b["end"]))                # 듣는 구간이 합친 글과 맞는다
+        self.assertEqual(m["segment_ids"], sorted(set(a["segment_ids"]) | set(b["segment_ids"])))
+        self.assertEqual((m["source"], m["edited"], m["n_words"]), ("merged", False, a["n_words"] + b["n_words"]))
+        self.assertEqual(song_practice.load_lines("c01", self.out)["lines"], doc["lines"])   # 파일에 저장됨
+
+    def test_no_space_language_joins_without_space_and_edited_text_makes_it_edited(self):
+        song_practice.apply_edits("c01", {1: "fixed one"}, out_dir=self.out)
+        doc = song_practice.merge_with_next("c01", 1, out_dir=self.out, sep="")
+        m = doc["lines"][0]
+        self.assertEqual(m["text"], "fixed one" + self.lines[1]["text"])
+        self.assertEqual((m["edited"], m["status"]), (True, "confirmed"))                # 고친 글이 들어 있으니 edited, 확정 유지
+
+    def test_dropped_next_line_is_skipped(self):
+        song_practice.apply_edits("c01", drop=[2], out_dir=self.out)
+        doc = song_practice.merge_with_next("c01", 1, out_dir=self.out)
+        self.assertEqual([l["no"] for l in doc["lines"]], [1, 2])                       # 3번 줄과 합쳐지고 뺀 2번 줄은 그대로 남는다
+        self.assertEqual(doc["lines"][0]["end"], self.lines[2]["end"])
+        self.assertEqual(doc["lines"][1]["status"], "dropped")
+
+    def test_long_merge_sets_too_long_and_errors_leave_the_file_unchanged(self):
+        doc = song_practice.merge_with_next("c01", 1, out_dir=self.out, max_words=5)
+        self.assertTrue(doc["lines"][0]["too_long"])                                    # 8단어 > 5
+        before = song_practice.load_lines("c01", self.out)
+        for bad in (99, 3):                                                             # 없는 줄, 마지막 줄(다음 줄 없음)
+            with self.assertRaises(ValueError):
+                song_practice.merge_with_next("c01", bad, out_dir=self.out)
+        song_practice.apply_edits("c01", drop=[1], out_dir=self.out)
+        with self.assertRaises(ValueError):                                             # 뺀 줄은 합칠 수 없다
+            song_practice.merge_with_next("c01", 1, out_dir=self.out)
+        self.assertEqual([l["no"] for l in before["lines"]], [1, 3])
+
+
 class Edits(Base):
     def setUp(self):
         super().setUp()

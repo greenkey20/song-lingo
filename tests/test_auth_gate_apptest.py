@@ -245,6 +245,10 @@ class SavedSongs(Base):
                                         song_title="my.mp3", song_duration_sec=100.0, input_type="file", languages=["en"])
         return uid
 
+    @staticmethod
+    def signup_uid(at):
+        return at.session_state["uid"]
+
     def open_saved(self, at):
         at = at.switch_page("views/song.py").run()
         at.session_state["song_mode"] = "저장된 곡"
@@ -277,6 +281,22 @@ class SavedSongs(Base):
         at.selectbox[0].select(self.cid).run()
         self.assertFalse(at.exception, [e.value for e in at.exception])
         self.assertTrue(any("my.mp3" in c.value and "(15초)" in c.value for c in at.caption))   # 선택하면 자세한 정보 한 줄
+
+    def test_merge_with_next_line_saves_one_merged_line(self):
+        at = self.signup(self.app())
+        uid = self.signup_uid(at)
+        second = dict(self.LINE, no=2, start=3.0, end=6.0, stt_text="second line", text="second line")
+        cid = self.store.save_clip(None, uid, "m" * 40, 10.0, 15.0, {"lines": [dict(self.LINE), second], "languages": ["en"], "stt": {}},
+                                   song_title="my.mp3", song_duration_sec=100.0, input_type="file", languages=["en"])
+        at = self.open_saved(at)
+        at.selectbox[0].select(cid).run()
+        at = find(at.button, "다음 줄과 합치기").click().run()
+        self.assertFalse(at.exception, [e.value for e in at.exception])
+        lines = self.store.clips[(uid, "m" * 40, 10.0, 15.0)]["doc"]["lines"]
+        self.assertEqual([(l["no"], l["text"], l["start"], l["end"], l["source"]) for l in lines], [(1, "hello wrld second line", 0.0, 6.0, "merged")])
+        self.assertEqual(lines[0]["stt_text"], "hello wrld second line")                # 합친 처음 인식 글도 보존
+        self.assertEqual([t.value for t in at.text_input if t.label.startswith("가사")], ["hello wrld second line"])   # 화면의 입력칸도 합친 글로
+        self.assertTrue(find(at.button, "다음 줄과 합치기").disabled)                        # 이제 다음 줄이 없다
 
     def test_same_song_two_clips_are_listed_separately(self):
         at = self.signup(self.app())

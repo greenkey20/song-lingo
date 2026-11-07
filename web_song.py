@@ -205,6 +205,11 @@ def confirm_line(ws, no, text):
     return song_practice.apply_edits(CLIP_ID, edits={no: text}, out_dir=practice_dir(ws))
 
 
+def merge_next(ws, no, lang="en"):
+    """줄 no를 다음 줄과 합친다(글은 언어에 맞게: 공백 있는 언어는 공백으로, 일본어·중국어는 붙여서)."""
+    return song_practice.merge_with_next(CLIP_ID, no, out_dir=practice_dir(ws), sep=" " if languages.uses_spaces(lang) else "")
+
+
 def drop_line(ws, no):
     """줄 no를 연습에서 뺀다."""
     return song_practice.apply_edits(CLIP_ID, drop=[no], out_dir=practice_dir(ws))

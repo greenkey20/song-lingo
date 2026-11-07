@@ -131,6 +131,43 @@ def apply_edits(clip_id, edits=None, confirm=(), drop=(), out_dir=SONG_DIR):
     return doc
 
 
+def merge_with_next(clip_id, no, out_dir=SONG_DIR, sep=" ", max_sec=6.0, max_words=14):
+    """줄 no를 **바로 다음 줄(연습에서 뺀 줄은 건너뜀)과 한 줄로 합친다**. 합친 뒤의 문서(dict)를 돌려준다. 이슈 #73.
+
+    합치는 규칙: 글은 sep으로 이어 붙이고(일본어·중국어는 sep=""), 시간은 앞 줄의 start ~ 뒷 줄의 end(그래서 원곡·보컬 재생 구간이 합친 글과 맞는다),
+    segment_ids는 합집합, n_words는 합, 신뢰 낮음은 하나라도 있으면 True, `source`는 "merged". 처음 인식한 글(stt_text)도 이어 붙여 보존하므로
+    고치지 않고 합치기만 했다면 edited는 False다(`edited = text != stt_text`). 둘 중 하나라도 확정(confirmed)이었으면 확정으로 둔다.
+    **뒷 줄은 목록에서 없애고 줄 번호는 다시 매기지 않는다**(번호를 바꾸면 줄 id·연습 기록 연결이 다른 줄로 넘어가기 때문). 표준 발음 파일 정보는 비운다(글이 바뀜).
+    합칠 수 없으면 ValueError: 없는 줄, 연습에서 뺀 줄, 다음 줄이 없음. 합친 줄이 길어지면(6초·14단어 초과) too_long을 켠다."""
+    doc = load_lines(clip_id, out_dir)
+    lines = doc["lines"]
+    idx = next((i for i, l in enumerate(lines) if l["no"] == no), None)
+    if idx is None:
+        raise ValueError(f"줄 {no}번이 없습니다.")
+    a = lines[idx]
+    if a["status"] == "dropped":
+        raise ValueError("연습에서 뺀 줄은 합칠 수 없습니다.")
+    j = next((k for k in range(idx + 1, len(lines)) if lines[k]["status"] != "dropped"), None)
+    if j is None:
+        raise ValueError("합칠 다음 줄이 없습니다.")
+    b = lines[j]
+    a["text"] = f"{a['text']}{sep}{b['text']}".strip()
+    a["stt_text"] = f"{a['stt_text']}{sep}{b['stt_text']}".strip()
+    a["start"], a["end"] = min(a["start"], b["start"]), max(a["end"], b["end"])
+    a["segment_ids"] = sorted(set(a.get("segment_ids") or []) | set(b.get("segment_ids") or []))
+    a["n_words"] = (a.get("n_words") or 0) + (b.get("n_words") or 0)
+    a["low_confidence"] = bool(a["low_confidence"] or b["low_confidence"])
+    a["source"] = "merged"
+    a["edited"] = a["text"] != a["stt_text"]
+    a["status"] = "confirmed" if "confirmed" in (a["status"], b["status"]) else a["status"]
+    a["too_long"] = a["end"] - a["start"] > max_sec or a["n_words"] > max_words
+    a["tts_path"] = a["tts_text"] = None
+    del lines[j]
+    doc["edited_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    _write_json(lines_path(clip_id, out_dir), doc)
+    return doc
+
+
 def confirmed_lines(clip_id, out_dir=SONG_DIR):
     """연습에 쓸 줄(status=confirmed)만 [{"no","start","end","text"}]로 돌려준다."""
     return [{k: l[k] for k in ("no", "start", "end", "text")} for l in load_lines(clip_id, out_dir)["lines"] if l["status"] == "confirmed"]
