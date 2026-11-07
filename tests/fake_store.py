@@ -93,7 +93,9 @@ class FakeStore:
 
     @staticmethod
     def _light(v):
-        return {k: x for k, x in v.items() if k != "doc"} | {"n_lines": len(v["doc"].get("lines", []))}
+        lines = v["doc"].get("lines", [])
+        first = next((l["text"] for l in lines if l.get("status") != "dropped"), None)
+        return {k: x for k, x in v.items() if k != "doc"} | {"n_lines": len(lines), "first_text": first, "created_at": v.get("created_at") or v["updated_at"]}
 
     def list_clips(self, conn, uid):
         return [self._light(v) for v in sorted(self.clips.values(), key=lambda v: v["updated_at"], reverse=True) if v["user_id"] == uid]

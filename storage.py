@@ -337,11 +337,12 @@ def load_clip_by_id(conn, user_id, clip_id):
 
 
 _CLIP_LIGHT = ("id, audio_sha1, song_title, song_duration_sec, input_type, clip_start_sec, clip_duration_sec, languages, created_at, updated_at, "
-               "(SELECT count(*) FROM lines WHERE lines.clip_id = clips.id) AS n_lines")
+               "(SELECT count(*) FROM lines WHERE lines.clip_id = clips.id) AS n_lines, "
+               "(SELECT text FROM lines WHERE lines.clip_id = clips.id AND status <> 'dropped' ORDER BY line_no LIMIT 1) AS first_text")
 
 
 def list_clips(conn, user_id):
-    """내 구간 목록(최근 수정 순). 가사 전체 대신 가벼운 열과 줄 수(n_lines)만 돌려준다."""
+    """내 구간 목록(최근 수정 순). 가사 전체 대신 가벼운 열, 줄 수(n_lines), 첫 줄 글(first_text: 목록에서 구간을 알아보는 단서)만 돌려준다."""
     rows = conn.execute(f"SELECT {_CLIP_LIGHT} FROM clips WHERE user_id = %s ORDER BY updated_at DESC, id DESC", (user_id,)).fetchall()
     return [_clip(r) for r in rows]
 

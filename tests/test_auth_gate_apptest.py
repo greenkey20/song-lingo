@@ -268,6 +268,16 @@ class SavedSongs(Base):
         self.assertEqual(doc["lines"][0]["stt_text"], "hello wrld")                    # 처음 인식한 글은 그대로
         self.assertEqual((saved["clip_start_sec"], saved["id"]), (10.0, self.cid))       # 구간 정보와 id도 유지(같은 행을 갱신)
 
+    def test_saved_list_label_has_preview_and_detail_caption(self):
+        at = self.signup(self.app())
+        uid = self.seed(at)
+        at = self.open_saved(at)
+        label = at.selectbox[0].options[0]
+        self.assertIn("“hello wrld”", label)                                          # 첫 줄 미리보기가 목록에 보인다
+        at.selectbox[0].select(self.cid).run()
+        self.assertFalse(at.exception, [e.value for e in at.exception])
+        self.assertTrue(any("my.mp3" in c.value and "(15초)" in c.value for c in at.caption))   # 선택하면 자세한 정보 한 줄
+
     def test_same_song_two_clips_are_listed_separately(self):
         at = self.signup(self.app())
         uid = self.seed(at)

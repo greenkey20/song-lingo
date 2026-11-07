@@ -284,6 +284,16 @@ class Clips(WithDb):
             self.assertEqual({x["id"]: x["n_lines"] for x in storage.list_clips(c, uid)}, {a: 2, b: 0, d: 2})
             self.assertNotIn("doc", of[0])                                    # 목록에는 가사 전체를 싣지 않는다
 
+    def test_list_has_first_text_skipping_dropped_lines(self):
+        uid, _ = self.new_user()
+        doc = {"lines": [{"no": 1, "text": "hidden", "status": "dropped"}, {"no": 2, "text": "shown first", "status": "candidate"}]}
+        with self.conn() as c:
+            a = storage.save_clip(c, uid, "p", 0, 10, doc)
+            b = storage.save_clip(c, uid, "p", 20, 10, {"lines": []})
+            got = {x["id"]: x["first_text"] for x in storage.list_clips(c, uid)}
+            self.assertEqual(got, {a: "shown first", b: None})                          # 뺀 줄은 미리보기에서 제외, 줄이 없으면 None
+            self.assertEqual({x["id"]: x["first_text"] for x in storage.list_clips_of(c, uid, "p")}, got)
+
     def test_float_noise_does_not_create_a_second_row(self):
         uid, _ = self.new_user()
         with self.conn() as c:

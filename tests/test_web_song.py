@@ -327,5 +327,31 @@ class SaveRestore(unittest.TestCase):
 
 
 
+class ClipLabels(unittest.TestCase):
+    """저장된 구간 목록의 글(이슈 #73): 좁은 화면에서 잘려도 구분되도록 알아볼 단서를 앞에 둔다."""
+    from datetime import datetime, timezone
+    REC = {"id": 1, "input_type": "record", "song_title": "recording.wav", "clip_start_sec": 0.0, "clip_duration_sec": 20.0, "n_lines": 8,
+           "first_text": "w1 w2 w3 w4 w5 w6 w7 w8 w9 w10 w11 w12 w13 w14 w15", "languages": ["en"], "created_at": datetime(2026, 11, 7, 19, 12, tzinfo=timezone.utc)}
+    FILE = dict(REC, id=2, input_type="file", song_title="my song.mp3", clip_start_sec=65.0, clip_duration_sec=15.0, first_text="hello", languages=["en", "ja"])
+
+    def test_recording_title_is_save_time_in_seoul_not_recording_wav(self):
+        self.assertEqual(web_song.clip_title(self.REC), "🎙 녹음 11-08 04:12")              # 19:12 UTC = 04:12 서울
+        self.assertEqual(web_song.clip_title(self.FILE), "my song.mp3")
+        self.assertNotIn("recording.wav", web_song.clip_label(self.REC, with_title=True))
+
+    def test_label_puts_distinguishing_parts_first_and_shortens_preview(self):
+        lab = web_song.clip_label(self.REC, with_title=True)
+        self.assertTrue(lab.startswith("🎙 녹음 11-08 04:12 · “w1 w2 w3 w4 w5 w6…”") or lab.startswith("🎙 녹음 11-08 04:12 · “"))
+        self.assertIn("…”", lab)                                                         # 긴 첫 줄은 줄여서
+        self.assertTrue(lab.endswith("8줄"))
+        self.assertEqual(web_song.clip_label(self.FILE), "“hello” · 00:01:05 ~ 00:01:20 · 8줄")   # 같은 파일 안에서는 제목 생략
+        self.assertEqual(web_song.clip_label(dict(self.FILE, first_text=None, n_lines=2)), "00:01:05 ~ 00:01:20 · 2줄")
+
+    def test_detail_has_title_range_lines_languages_and_time(self):
+        d = web_song.clip_detail(self.FILE)
+        for part in ("my song.mp3", "00:01:05 ~ 00:01:20", "(15초)", "8줄", "영어 + 일본어", "저장 11-08 04:12"):
+            self.assertIn(part, d)
+
+
 if __name__ == "__main__":
     unittest.main()
