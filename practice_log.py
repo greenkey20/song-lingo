@@ -13,9 +13,8 @@
 """
 import csv
 import hashlib
-import json
 import time
-from datetime import timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -23,6 +22,7 @@ import scoring
 import stt
 import tts
 
+SEOUL = ZoneInfo("Asia/Seoul")      # 기록 시각은 서버 시간대(UTC일 수 있음)와 관계없이 항상 서울 시간으로 적는다
 LOG_PATH = Path("results/practice_log.csv")
 FIELDS = ["ts", "source", "key", "mode", "wer", "cer", "S", "D", "I", "n_words", "n_chars", "stt", "unify"]
 NUMERIC = ("wer", "cer", "S", "D", "I", "n_words", "n_chars")
@@ -45,35 +45,25 @@ def make_record(source, text, mode, res, sentences=None, now=None):
         return None
     sc = res["score"]
     w, c = sc["wer"], sc["cer"]
-    return {"ts": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)), "source": source,
+    return {"ts": datetime.fromtimestamp(time.time() if now is None else now, SEOUL).strftime("%Y-%m-%d %H:%M:%S"), "source": source,
             "key": sentence_key(text, sentences), "mode": mode,
             "wer": round(w["rate"], 4), "cer": round(c["rate"], 4), "S": w["S"], "D": w["D"], "I": w["I"],
             "n_words": w["N"], "n_chars": c["N"],
             "stt": (stt.settings() if mode == "read" else ""), "unify": True}
 
 
-def stt_label(settings):
-    """기록 한 줄의 stt 값(따라읽기는 stt.settings()의 **dict**, 받아쓰기는 "")을 DB의 글(TEXT) 열에 넣을 문자열로 바꾼다. 빈 값이면 None.
-    dict를 그대로 TEXT 열에 넣으면 저장이 실패해 따라읽기 기록이 통째로 안 남는다(11-08에 발견)."""
-    if not settings:
-        return None
-    if isinstance(settings, dict):
-        return json.dumps(settings, ensure_ascii=False, sort_keys=True)
-    return str(settings)
-
-
-def row_from_attempt(a):
-    """DB의 시도 한 행(storage.list_attempts)을 기록 CSV 한 줄과 **같은 모양**의 dict로 바꾼다(기록 화면의 그래프·표를 그대로 쓰려고).
+def row_from_practice(a):
+    """DB의 연습 한 행(storage.list_practices)을 기록 CSV 한 줄과 **같은 모양**의 dict로 바꾼다(기록 화면의 그래프·표를 그대로 쓰려고).
     점수가 없는 시도(Azure 평가 등)는 None. 시각은 서울 시간으로 보여 준다(DB에는 UTC로 저장됨)."""
-    sc = a.get("score")
+    sc = a.get("scoring")
     if not isinstance(sc, dict) or a.get("mode") not in MODES:
         return None
     try:
         w, c = sc["wer"], sc["cer"]
-        ts = a["ts"].astimezone(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M:%S")
+        ts = a["created_at"].astimezone(SEOUL).strftime("%Y-%m-%d %H:%M:%S")
         return {"ts": ts, "source": a.get("source") or "", "key": a["key"], "mode": a["mode"],
                 "wer": round(w["rate"], 4), "cer": round(c["rate"], 4), "S": int(w["S"]), "D": int(w["D"]), "I": int(w["I"]),
-                "n_words": int(w["N"]), "n_chars": int(c["N"]), "stt": a.get("stt") or "", "unify": True}
+                "n_words": int(w["N"]), "n_chars": int(c["N"]), "stt": a.get("stt_settings") or "", "unify": True}
     except (KeyError, TypeError, ValueError, AttributeError):
         return None
 

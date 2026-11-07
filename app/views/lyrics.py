@@ -55,7 +55,7 @@ def load_example():
 
 
 # ---------- 0. 저장된 내 문장 불러오기 (로그인한 사용자, 입력칸이 비어 있을 때만) ----------
-saved = persist.saved_sentences()
+saved = persist.saved_texts()
 if saved and (saved.get("lines")) and not st.session_state.get("lyrics", "").strip():
     st.button(f"저장된 내 문장 불러오기 ({len(saved['lines'])}줄)", type="primary", key="lyr_restore", on_click=restore_sentences, args=(saved,))
 
@@ -128,7 +128,7 @@ for n, (ln, k) in enumerate(zip(lines, keys), 1):
             if note:
                 st.caption(note)
 
-persist.autosave_sentences([{"text": ln, "languages": answers[n]["languages"] if n in answers else None,
+persist.autosave_texts([{"text": ln, "languages": answers[n]["languages"] if n in answers else None,
                            "lang": answers[n]["lang"] if n in answers else None} for n, ln in enumerate(lines, 1)])      # 로그인+저장 켬일 때만
 if not answers:
     st.info("줄마다 언어를 확인하면 아래에서 표준 발음을 만들고 연습할 수 있어요.")

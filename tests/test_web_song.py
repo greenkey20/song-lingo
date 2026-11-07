@@ -297,8 +297,8 @@ class SaveRestore(unittest.TestCase):
         ws, song = self.workspace()
         snap = web_song.song_snapshot(ws, "곡.wav", 30.0, "file", (5, 10))
         self.assertEqual(snap["doc"], {"lines": []})
-        self.assertEqual((snap["clip_start"], snap["clip_duration"], snap["input"], snap["languages"]), (5.0, 10.0, "file", []))
-        self.assertEqual(web_song.song_snapshot(ws, "곡", 30, "file", None)["clip_start"], None)
+        self.assertEqual((snap["clip_start_sec"], snap["clip_duration_sec"], snap["input_type"], snap["languages"]), (5.0, 10.0, "file", []))
+        self.assertEqual(web_song.song_snapshot(ws, "곡", 30, "file", None)["clip_start_sec"], None)
 
     def test_roundtrip_restores_clip_and_lines_in_a_new_workspace(self):
         ws, song = self.workspace()
@@ -321,7 +321,7 @@ class SaveRestore(unittest.TestCase):
 
     def test_restore_without_clip_info_or_lines_is_harmless(self):
         ws, song = self.workspace()
-        row = {"clip_start": None, "clip_duration": None, "doc": {"lines": []}}
+        row = {"clip_start_sec": None, "clip_duration_sec": None, "doc": {"lines": []}}
         self.assertIsNone(web_song.restore_song(ws, song, row))
         self.assertIsNone(web_song.load_doc(ws))
 

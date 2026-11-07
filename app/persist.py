@@ -31,7 +31,12 @@ def _source(key, source):
     return "sample" if key.startswith("s") and not key.startswith("h_") else source
 
 
-def save_attempt(source, text, mode, res, lang=None):
+def _clip_id_for(source):
+    """내 노래에서 연습한 것이면 지금 구간의 clip id(autosave_clip이 세션에 보관), 아니면 None. 내 문장·예시 문장은 구간과 무관하다."""
+    return st.session_state.get("clip_id") if source == "song" else None
+
+
+def save_practice(source, text, mode, res, lang=None):
     """따라읽기·받아쓰기 채점 결과 한 번을 저장한다. res는 practice.read·dictation의 결과. 점수가 없으면(오류) 저장하지 않는다."""
     if not auth_gate.save_enabled():
         return False
@@ -39,20 +44,21 @@ def save_attempt(source, text, mode, res, lang=None):
     if rec is None:
         return False
     record = {"source": _source(rec["key"], rec["source"]), "key": rec["key"], "mode": mode, "lang": lang, "ref_text": text, "hyp_text": res.get("hyp"),
-              "score": res["score"], "azure": None, "stt": practice_log.stt_label(rec["stt"])}
+              "scoring": res["score"], "azure": None, "stt_settings": rec["stt"] or None, "clip_id": _clip_id_for(source)}
     uid = st.session_state["uid"]
-    return _run(lambda conn: storage.append_attempt(conn, uid, record))
+    return _run(lambda conn: storage.append_practice(conn, uid, record))
 
 
 def save_azure(source, text, lang, azure_result):
-    """Azure 발음 평가 결과 한 번을 저장한다(점수와 단어별 결과만, 녹음은 저장하지 않음)."""
+    """Azure 발음 평가 결과 한 번을 저장한다(점수와 단어별 결과만, 녹음은 저장하지 않음). 인식된 글은 hyp_text에 둔다."""
     if not auth_gate.save_enabled() or not azure_result:
         return False
     key = practice_log.sentence_key(text)
     record = {"source": _source(key, source), "key": key, "mode": "azure", "lang": lang, "ref_text": text,
-              "hyp_text": None, "score": None, "azure": azure_result, "stt": None}
+              "hyp_text": azure_result.get("text") or None, "scoring": None, "azure": azure_result, "stt_settings": None,
+              "clip_id": _clip_id_for(source)}
     uid = st.session_state["uid"]
-    return _run(lambda conn: storage.append_attempt(conn, uid, record))
+    return _run(lambda conn: storage.append_practice(conn, uid, record))
 
 
 def _call(action):
@@ -69,81 +75,113 @@ def _digest_of(obj):
     return hashlib.sha1(json.dumps(obj, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")).hexdigest()
 
 
-# ---------- 곡 기록 ----------
-def saved_song(digest):
-    """이 곡(음원 지문)으로 서버에 저장된 기록. 없거나 게스트면 None. 곡마다 한 번만 읽어 세션에 둔다."""
-    if not auth_gate.is_user():
-        return None
-    ss = st.session_state
-    key = f"saved_row_{digest}"
-    if key not in ss:
-        uid = ss["uid"]
-        ok, row = _call(lambda conn: storage.load_song(conn, uid, digest))
-        if not ok:
-            return None                                   # 읽기 실패는 캐시하지 않는다(다음에 다시 시도)
-        ss[key] = row
-    return ss[key]
-
-
-def song_list():
-    """저장된 내 곡 목록(최근 수정 순, 가벼운 열 + 줄 수 n_lines). 게스트이거나 읽기에 실패하면 빈 목록."""
+# ---------- 구간(clips) ----------
+def clip_list():
+    """저장된 내 구간 목록(최근 수정 순, 가벼운 열 + 줄 수 n_lines). 게스트이거나 읽기에 실패하면 빈 목록."""
     if not auth_gate.is_user():
         return []
     uid = st.session_state["uid"]
-    ok, rows = _call(lambda conn: storage.list_songs(conn, uid))
+    ok, rows = _call(lambda conn: storage.list_clips(conn, uid))
     return rows if ok and rows else []
 
 
-def autosave_song(digest, ws, name, seconds, input_kind, cut=None):
-    """지금 작업(구간·가사 줄·언어)이 바뀌었으면 서버에 저장한다(스크립트가 다시 실행될 때마다 부르고, 안 바뀌었으면 아무것도 안 함).
-    **덮어쓰기 보호**: 같은 곡의 저장본에 가사가 있는데 이 세션에서는 아직 가사를 불러오지도 새로 인식하지도 않았다면 저장하지 않는다
+def saved_clips_of(audio_sha1):
+    """같은 음원(곡)에서 저장해 둔 구간들(시작 시각 순, 가벼운 열). 없거나 게스트면 빈 목록. 곡마다 한 번만 읽어 세션에 둔다."""
+    if not auth_gate.is_user():
+        return []
+    ss = st.session_state
+    key = f"saved_clips_{audio_sha1}"
+    if key not in ss:
+        uid = ss["uid"]
+        ok, rows = _call(lambda conn: storage.list_clips_of(conn, uid, audio_sha1))
+        if not ok:
+            return []                                      # 읽기 실패는 캐시하지 않는다(다음에 다시 시도)
+        ss[key] = rows or []
+    return ss[key]
+
+
+def saved_clip(clip_id):
+    """clip id로 저장된 구간 기록 전체(가사 doc 포함). 없거나 게스트면 None."""
+    if not auth_gate.is_user():
+        return None
+    uid = st.session_state["uid"]
+    ok, row = _call(lambda conn: storage.load_clip_by_id(conn, uid, clip_id))
+    return row if ok else None
+
+
+def _saved_same_clip(audio_sha1, start, duration):
+    """(음원, 시작, 길이)가 같은 저장본 전체 기록. 없으면 None."""
+    uid = st.session_state["uid"]
+    ok, row = _call(lambda conn: storage.load_clip(conn, uid, audio_sha1, start, duration))
+    return row if ok else None
+
+
+def autosave_clip(audio_sha1, ws, name, seconds, input_kind, cut=None):
+    """지금 작업(구간·가사 줄·언어)이 바뀌었으면 서버에 저장하고, 이 구간의 clip id를 세션(`clip_id`)에 보관한다(연습 기록이 어느 구간인지 잇는 데 쓴다).
+    스크립트가 다시 실행될 때마다 부르고, 안 바뀌었으면 아무것도 안 한다. **구간(시작·길이)을 정한 뒤에만** 행을 만든다(구간이 없으면 저장하지 않음).
+    **덮어쓰기 보호**: 같은 구간의 저장본에 가사가 있는데 이 세션에서는 아직 가사를 불러오지도 새로 인식하지도 않았다면 저장하지 않는다
     (같은 곡을 다시 올리고 구간만 고르다가 저장된 가사를 빈 기록으로 덮어쓰는 사고를 막는다).
     cut: (시작, 길이). 안 주면 세션의 지금 구간을 쓴다(소리 없이 저장본만 여는 '저장된 곡' 모드는 저장된 구간을 직접 넘긴다)."""
+    ss = st.session_state
+    ss["clip_id"] = None                                    # 저장되지 않는 경우(게스트·저장 끔·구간 없음)에는 연습 기록에 clip_id를 달지 않는다
     if not auth_gate.save_enabled():
         return False
-    ss = st.session_state
-    snap = web_song.song_snapshot(ws, name, seconds, input_kind, cut or ss.get("cut"))
-    row = saved_song(digest)
+    cut = cut or ss.get("cut")
+    if not cut:
+        return False
+    start, duration = float(cut[0]), float(cut[1])
+    snap = web_song.song_snapshot(ws, name, seconds, input_kind, (start, duration))
+    uid = ss["uid"]
+    key = (audio_sha1, round(start, 2), round(duration, 2))
+    row = _saved_same_clip(audio_sha1, start, duration)
     if row and (row.get("doc") or {}).get("lines") and not snap["doc"].get("lines"):
+        ss["clip_id"] = row["id"]
         return False
     h = _digest_of(snap)
-    if ss.get("saved_song_hash") == (digest, h):
+    state = ss.get("saved_clip_state")                      # (구간 열쇠, 내용 해시, clip id): 마지막으로 저장한 것
+    if state and state[0] == key and state[1] == h:
+        ss["clip_id"] = state[2]
         return True
-    uid = ss["uid"]
-    if _run(lambda conn: storage.save_song(conn, uid, digest, **snap)):
-        ss["saved_song_hash"] = (digest, h)
-        ss.pop(f"saved_row_{digest}", None)               # 다음에 읽을 때 방금 저장한 내용으로 새로 읽는다
+    holder = {}
+
+    def act(conn):
+        holder["id"] = storage.save_clip(conn, uid, audio_sha1, start, duration, snap["doc"], song_title=snap["song_title"],
+                                         song_duration_sec=snap["song_duration_sec"], input_type=snap["input_type"], languages=snap["languages"])
+    if _run(act):
+        ss["saved_clip_state"] = (key, h, holder["id"])
+        ss["clip_id"] = holder["id"]
+        ss.pop(f"saved_clips_{audio_sha1}", None)           # 다음에 읽을 때 방금 저장한 내용으로 새로 읽는다
         return True
     return False
 
 
-# ---------- 내 문장 ----------
-def saved_sentences():
+# ---------- 내 문장(texts) ----------
+def saved_texts():
     """서버에 저장된 내 문장 목록 dict({"lines": [{"text", "languages", "lang"}]}) 또는 None. 세션에 한 번만 읽어 둔다."""
     if not auth_gate.is_user():
         return None
     ss = st.session_state
-    if "saved_sentences" not in ss:
+    if "saved_texts" not in ss:
         uid = ss["uid"]
-        ok, doc = _call(lambda conn: storage.load_sentences(conn, uid))
+        ok, doc = _call(lambda conn: storage.load_texts(conn, uid))
         if not ok:
             return None
-        ss["saved_sentences"] = doc
-    return ss["saved_sentences"]
+        ss["saved_texts"] = doc
+    return ss["saved_texts"]
 
 
-def autosave_sentences(entries):
+def autosave_texts(entries):
     """내 문장 줄 목록(entries: [{"text", "languages", "lang"}])이 바뀌었으면 저장한다. 줄이 없으면 저장하지 않는다."""
     if not auth_gate.save_enabled() or not entries:
         return False
     doc = {"lines": entries}
     ss = st.session_state
     h = _digest_of(doc)
-    if ss.get("saved_sentences_hash") == h:
+    if ss.get("saved_texts_hash") == h:
         return True
     uid = ss["uid"]
-    if _run(lambda conn: storage.save_sentences(conn, uid, doc)):
-        ss["saved_sentences_hash"] = h
-        ss["saved_sentences"] = doc
+    if _run(lambda conn: storage.save_texts(conn, uid, doc)):
+        ss["saved_texts_hash"] = h
+        ss["saved_texts"] = doc
         return True
     return False
