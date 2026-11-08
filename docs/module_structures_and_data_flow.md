@@ -2,7 +2,9 @@
 
 > **목적**: 새 모듈이 추가되거나 기존 호출 순서가 바뀌어도 구조를 쉽게 갱신할 수 있도록, 기능별 호출 관계·데이터 전달 형태·모듈 책임을 한곳에 기록한다.
 >
-> **기준 소스**: `greenkey20/song-lingo` 저장소 `main` 브랜치, 2026-11-05 확인. 실행 흐름은 현재 코드 기준이며, 계획서에만 있는 기능은 별도로 표시한다.
+> **기준 소스**: `greenkey20/song-lingo` 저장소 `main` 브랜치. 2026-11-05 판을 **2026-11-09에 갱신**했다(서버 로그인·저장, 내 문장 묶음, 저장된 곡, 줄 합치기, 언어 확인, 한글 뜻·표현 설명, 일본어 읽기, Azure 발음 평가 반영). 실행 흐름은 현재 코드 기준이며, 계획서에만 있는 기능은 별도로 표시한다.
+>
+> **갱신 이력**: 11-05 최초(ChatGPT 검토본) → 11-09 서버 저장·화면 연결·새 모듈 반영(Claude Code). 새 절은 **4-2(로그인·저장)** 와 **4-3(한글 뜻·표현 설명)**.
 >
 > **갱신 방법**: Mermaid 코드 블록의 노드·화살표를 수정하면 된다. GitHub Markdown에서는 Mermaid 다이어그램이 렌더링된다. VS Code에서는 Mermaid 미리보기를 지원하는 Markdown 확장으로 확인할 수 있다.
 
@@ -72,7 +74,9 @@ flowchart TD
 ```mermaid
 flowchart TB
     subgraph UI[Streamlit 화면 계층]
-        L[app/views/lyrics.py<br/>가사 입력]
+        AP[app/streamlit_app.py<br/>메뉴·접근 제한]
+        AG[app/auth_gate.py<br/>로그인·가입·게스트]
+        L[app/views/lyrics.py<br/>내 문장]
         S[app/views/song.py<br/>내 노래]
         H[app/views/history.py<br/>기록]
         P[app/ui_practice.py<br/>공통 연습 패널]
@@ -83,6 +87,7 @@ flowchart TB
         WS[web_song.py]
         PR[practice.py]
         LOG[practice_log.py]
+        PS[app/persist.py<br/>화면 ↔ 저장 연결]
     end
 
     subgraph CORE[핵심 처리 모듈]
@@ -97,6 +102,19 @@ flowchart TB
         AL[align.py]
         V[visualisation.py]
         REC[recorder.py]
+        LG[languages.py]
+        JP[japanese.py]
+        ME[meaning.py]
+        AZ[azure_pronunciation.py]
+    end
+
+    subgraph STORE[서버 저장 계층]
+        AC[account.py<br/>가입·로그인 판단]
+        AUTH[auth.py<br/>해시·토큰·잠금 규칙]
+        ACC[access.py<br/>초대 코드]
+        ST[storage.py<br/>SQL 읽기·쓰기]
+        MIG[migrations/*.sql<br/>001~005]
+        DB[(PostgreSQL)]
     end
 
     subgraph LOCAL[로컬 녹음 도구]
@@ -105,16 +123,35 @@ flowchart TB
 
     RT --> REC
     RT --> Q
+    AP --> AG
+    AG --> AC
+    AG --> ACC
+    AC --> AUTH
+    AC --> ST
+    ST --> DB
+    MIG -. 앱 시작 때 적용 .-> ST
     L --> WP
+    L --> LG
     S --> WS
     S --> V
+    S --> LG
     L --> P
     S --> P
     P --> PR
-    P --> LOG
+    P --> PS
+    P --> AZ
+    P --> ME
+    P --> V
+    L --> PS
+    S --> PS
+    PS --> LOG
+    PS --> ST
+    H --> ST
     H --> LOG
+    ME -. 공유 캐시 .-> ST
     WP --> TTS
     WP --> SC
+    WP --> JP
     WS --> AU
     WS --> SEP
     WS --> SP
@@ -122,7 +159,7 @@ flowchart TB
     PR --> Q
     PR --> STT
     PR --> SC
-    PR -. 선택적 오류 시간 분석 .-> AL
+    PR -. 오류 구간 분석 .-> AL
     Q --> AU
     Q --> V
     SP --> STT
@@ -135,20 +172,23 @@ flowchart TB
 
 **화살표 해석**
 - 실선: 현재 코드에서 실제 호출 관계가 확인되는 경로
-- 점선: 모듈과 함수는 구현되어 있지만 현재 Streamlit 연습 UI의 기본 채점 경로에는 연결되지 않은 선택 기능
-- `UI`는 화면·사용자 이벤트를 담당하고, `FLOW`는 여러 처리 모듈을 순서대로 호출하며, `CORE`는 구체적인 계산·파일·모델 작업을 담당한다.
+- 점선: 조건부·보조 경로(오류 구간 분석은 따라 읽기 결과 아래에 표시되고, 마이그레이션은 앱이 시작할 때 한 번 적용되며, 한글 뜻 캐시는 DB가 켜져 있을 때만 DB를 쓴다)
+- `UI`는 화면·사용자 이벤트를 담당하고, `FLOW`는 여러 처리 모듈을 순서대로 호출하며, `CORE`는 구체적인 계산·파일·모델 작업을, `STORE`는 **사용자별 서버 저장**(계정·로그인 유지·구간·문장 묶음·줄·연습 기록)을 담당한다.
+- **화면 계층은 위젯 배치만 한다.** 계산은 루트 모듈, 저장은 `persist.py`(화면 ↔ 저장 연결) → `storage.py`(SQL)가 한다. 자세한 흐름은 4-2절.
 
 ---
 
-## 2. 가사 입력 모드 — 따라 읽기
+## 2. 내 문장 모드 (옛 이름: 가사 입력) — 언어 확인부터 연습·저장까지
 
-사용자가 직접 입력하거나 붙여 넣은 가사를 한 줄씩 연습하는 경로다.
+사용자가 직접 입력하거나 붙여 넣은 문장·가사를 **줄마다 언어를 확인한 뒤** 한 줄씩 연습하는 경로다(11-05에 메뉴 이름을 "가사 입력"에서 "내 문장"으로 바꿨다, 파일은 `app/views/lyrics.py` 그대로). 입력창 하나의 내용 전체가 **문장 묶음 하나**로 서버에 저장된다(4-2절).
 
 ```mermaid
 flowchart TD
-    U[사용자가 가사 입력] --> L[app/views/lyrics.py]
+    U[사용자가 문장 입력] --> L[app/views/lyrics.py]
     L --> SPLIT[web_practice.split_lyrics]
-    SPLIT --> LINE[사용자가 연습할 줄 선택]
+    SPLIT --> LANG[언어 알아보기: languages.suggest_line_language<br/>줄마다 제안 → 네/아니오/모르겠어요]
+    LANG --> SAVE1[persist.autosave_texts → storage.save_texts<br/>묶음·줄 저장 로그인+저장 켬일 때만]
+    LANG --> LINE[사용자가 연습할 줄 선택]
     LINE --> TARGET[web_practice.tts_target]
     TARGET --> CACHE{TTS 캐시 존재?}
     CACHE -->|예| PLAY[기존 WAV 재생]
@@ -168,8 +208,8 @@ flowchart TD
     QUALITY --> STT[stt.recognize]
     STT --> EVAL[scoring.evaluate]
     EVAL --> RESULT[결과 dict]
-    RESULT --> LOG[practice_log.make_record / append]
-    LOG --> DISPLAY[오류율·오류 종류·단어 대조 표시]
+    RESULT --> LOG[ui_practice._log:<br/>persist.save_practice → storage.append_practice<br/>게스트는 세션 목록, DB 설정이 없으면 CSV]
+    LOG --> DISPLAY[오류율·오류 종류·단어 대조·틀린 구간·소리 모양 표시]
 
     MODE -->|받아쓰기| TEXT[사용자가 들은 문장을 텍스트로 입력]
     TEXT --> DICT[practice.dictation]
@@ -189,6 +229,7 @@ sequenceDiagram
     participant S as stt.py
     participant C as scoring.py
     participant L as practice_log.py
+    participant PS as app/persist.py
 
     UI->>P: practice.read(prep, recording_bytes)
     P->>A: as_source(recording_bytes)
@@ -203,8 +244,9 @@ sequenceDiagram
     P->>C: evaluate(reference text, recognized text, language)
     C-->>P: WER, CER, S/D/I, alignment ops
     P-->>UI: result dict
-    UI->>L: make_record(...) then append(...)
-    UI->>UI: render result and quality warnings
+    UI->>L: make_record(...)
+    UI->>PS: persist.save_practice(..., line_no)<br/>로그인+저장 켬이면 DB에 기록(clip_id·line_id 연결)
+    UI->>UI: render result, quality warnings, error spans
 ```
 
 **중요한 세부사항**
@@ -212,13 +254,16 @@ sequenceDiagram
 2. `quality.analyze()`는 `audio.to_16k_mono()`와 `visualisation.stft_power()` 등을 이용해 측정한다.
 3. STT에는 품질 점검을 위해 만든 16 kHz 배열이 아니라 원본 `src`(bytes/파일 객체)를 넘긴다. 저장소 주석에 따르면 노래 입력에서 직접 변환한 배열과 faster-whisper가 파일에서 디코딩한 결과가 달라질 수 있기 때문이야.
 4. 품질 경고가 있어도 현재 코드는 STT와 채점을 계속한다.
-5. 채점 이후 `app/ui_practice.py`가 결과를 표시하고, 성공한 결과는 `practice_log.py`로 저장한다.
+5. 채점 이후 `app/ui_practice.py`가 결과를 표시하고, 성공한 결과는 `practice_log.make_record`로 기록 한 줄을 만든 뒤 **`persist.save_practice`가 서버 DB에 저장**한다(문장 글·인식문·점수 포함). 게스트는 이번 세션의 목록에만, DB 설정이 없는 개발 환경은 CSV에 남긴다.
+6. 따라 읽기 결과 아래에는 틀린 구간 표시(`web_practice.error_spans` → `practice.locate_errors` → `visualisation.plot_error_spans`)와 소리 모양 비교(`visualisation.plot_sound_panels`)가 붙는다. **Azure 발음 평가**는 사용자가 버튼을 눌렀을 때만 `azure_pronunciation.assess`로 녹음을 보내고(자동 전송 없음), 결과는 `persist.save_azure`가 저장한다.
 
 ### 받아쓰기 모드의 차이
 
 받아쓰기는 마이크 녹음이 아니므로 `recorder.py`, `audio.py`, `quality.py`, `stt.py`를 거치지 않아.
 
-`사용자 입력 문자열 → practice.dictation() → scoring.evaluate() → 결과 표시 및 practice_log 저장`
+`사용자 입력 문자열 → practice.dictation() → scoring.evaluate() → 결과 표시 및 persist.save_practice 저장`
+
+**일본어·중국어**는 공백이 없어 단어(WER) 대신 글자(CER)를 주 지표로 보고, 일본어는 `japanese.py`(pykakasi)가 한자·가타카나를 히라가나 읽기와 로마자로 바꿔 기준·인식을 읽기로 채점한다(`web_practice.apply_japanese_reading`).
 
 ---
 
@@ -243,16 +288,19 @@ flowchart TD
     LOAD --> RESAMPLE[44.1 kHz 스테레오 변환]
     RESAMPLE --> MIX[recorder.save_wav: mix WAV 저장]
 
-    MIX --> RECOG[가사 인식 버튼]
+    MIX --> DETECT[언어 알아보기: web_song.detect_clip_language<br/>→ stt.detect_language medium<br/>제안 → 사용자 확인 languages.stt_options]
+    DETECT --> RECOG[가사 인식 버튼]
     RECOG --> PREP[song_practice.prepare_lines]
     PREP --> SEG[stt.recognize_segments<br/>medium · VAD off · word timestamps]
     SEG --> LINES[song_lines.split_into_lines]
     LINES --> JSON[lines.json 저장]
-    JSON --> REVIEW[사용자가 줄별 가사 확인·수정·제외]
-    REVIEW --> CONF[confirmed 줄]
+    JSON --> REVIEW[사용자가 줄별 가사 확인·수정·제외·합치기<br/>apply_edits / merge_with_next]
+    JSON --> SAVE[persist.autosave_clip → storage.save_clip<br/>구간 행 + lines 저장 구간을 정한 뒤에만]
+    REVIEW --> SAVE
+    REVIEW --> CONF[연습할 줄]
 
     CONF --> LISTEN{들을 소리 선택}
-    LISTEN -->|원곡| ORIG[원곡 구간 재생]
+    LISTEN -->|원곡| ORIG[원곡 구간 재생<br/>앞뒤 5초 옵션 line_range pad]
     LISTEN -->|보컬만| VOC[web_song.make_vocals]
     VOC --> SUB[separate.separate_clip_subprocess]
     SUB --> WORKER[scripts/separate_worker.py]
@@ -274,11 +322,15 @@ flowchart TD
 ```
 
 **내 노래 경로에서 기억할 점**
+- **언어를 먼저 확인한다**: 구간을 정한 뒤 `stt.detect_language`가 앱이 지원하는 언어 안에서 확률 순위를 매겨 **제안**하고, 사용자가 네/아니오(+선택)/모르겠어요로 확인한다. 그 답이 가사 인식의 `language`·`multilingual` 옵션을 정한다(`languages.stt_options`).
+- **줄 확인·수정**: 가사 글 수정(`apply_edits`, 처음 인식한 글 `stt_text`는 보존), 연습에서 빼기, **다음 줄과 합치기**(`song_practice.merge_with_next`: 글·시간·segment를 합치고 줄 번호는 다시 매기지 않음). **줄 나누기 UI는 없다**(자동 나누기는 인식 때 `song_lines`가 한다).
+- **저장**: 구간을 정하면 구간 행(`clips`)과 줄(`lines`)이 서버에 저장되고(로그인+저장 켬일 때만), **음원·잘라 낸 wav·보컬은 저장하지 않는다.** 같은 곡의 다른 구간은 따로 저장된다(4-2절). 같은 파일을 다시 올리면 "저장된 구간·가사 불러오기", 소리 없이 이어 쓰려면 입력 방식 "저장된 곡".
 - 업로드한 음악 파일은 가사 추출을 위해 `audio.py`와 `stt.py`를 거치지만, 현재 `quality.py`의 녹음 품질 점검 흐름은 거치지 않아. `quality.py`는 공통 연습 패널에서 사용자가 따라 읽은 발화를 점검하는 용도야.
 - 가사 추출에는 `stt.recognize_segments()`가 호출되고, 모델 크기는 `song_practice.SONG_MODEL = "medium"`으로 지정돼 있다.
 - 인식된 STT segment를 `song_lines.py`가 줄 단위로 쪼개거나 합친다. 이 단계는 AI 모델 추론이 아니라 시간·단어 수·쉼 길이에 기반한 규칙 기반 처리야.
 - 가사 후보는 사용자가 확인·수정해야 연습 대상으로 확정된다.
 - 보컬 분리는 선택 기능이다. 가사 인식은 현재 설계상 원곡에 대해 실행하며, 보컬 분리는 듣기 보조용으로 별도 실행한다.
+- 줄 듣기에서 "앞뒤 5초도 함께 듣기"를 켜면 `web_song.line_range(pad=5)`로 재생 구간(`st.audio`의 `start_time`·`end_time`)이 넓어진다(구간의 처음·끝을 넘지 않음). 재생 속도는 브라우저 플레이어 메뉴 기능이다.
 - `recorder.save_wav()`가 mix/vocals 파일 저장에 재사용되지만, 이 경로에서 `Recorder.start()/stop()`으로 마이크 녹음을 하는 것은 아니다.
 
 ---
@@ -322,7 +374,7 @@ flowchart TD
     TOKENS --> PLOT
 ```
 
-**현재 연결 상태**: `practice.locate_errors()`, `align.py`, `visualisation.plot_error_spans()`는 구현돼 있어. 하지만 확인한 현재 Streamlit의 `app/ui_practice.py` 결과 화면은 WER/CER·단어 대조·녹음 재생을 보여 주며, `practice.locate_errors()`를 호출해 오류 시간 구간 그림을 렌더링하지는 않아. 즉, **모듈 구현 완료와 웹 UI 연결 완료는 다른 상태**야.
+**현재 연결 상태(11-09)**: 11-05 판에서는 UI에 연결되지 않았지만 **지금은 연결됐다.** 따라 읽기 결과 아래에 `web_practice.error_spans`(= `practice.locate_errors` 재사용)가 틀린 구간을 소리 그림 위에 표시하고(`visualisation.plot_error_spans`), 표준 발음과 내 녹음의 소리 모양 비교(`visualisation.plot_sound_panels`: 파형·FFT·STFT·Log-Mel 2×2)도 붙는다. 틀린 구간이 없으면 "틀린 구간 없음"으로 안내한다.
 
 ### `visualisation.py`의 현재 사용처 요약
 
@@ -331,7 +383,131 @@ flowchart TD
 | `stft_power()` / `to_db()` | `quality.py`                                         | 무음 프레임 에너지 산출                                              |
 | `plot_song_selection()`    | `app/views/song.py`                                  | 업로드한 곡에서 구간 선택을 위한 파형 개요                           |
 | `plot_sound_pair()`        | 실험·노트북 경로                                     | TTS와 사용자 음성의 파형·STFT·Log-Mel 비교                           |
-| `plot_error_spans()`       | `practice.locate_errors()` 결과와 결합하는 분석 경로 | 오류 블록이 표시된 음성 비교 그림; 현재 기본 웹 결과 화면에는 미연결 |
+| `plot_sound_panels()`      | `app/ui_practice.py` (따라 읽기 결과 아래)           | TTS와 내 녹음의 파형·FFT·STFT·Log-Mel 2×2 비교(발음 평가가 아닌 참고) |
+| `plot_error_spans()`       | `app/ui_practice.py` ← `web_practice.error_spans`    | 틀린 구간을 표시한 음성 비교 그림(따라 읽기 결과 아래)               |
+
+---
+
+## 4-2. 로그인·저장·불러오기 흐름 (서버 저장, 이슈 #63~#75)
+
+브라우저를 닫아도(특히 아이폰) 연습 기록과 곡·문장 작업이 남도록 **사용자별로 서버(PostgreSQL)에 저장**한다. 판단·설계는 검토 문서 16.16·16.17, 개념은 아래 표를 본다.
+
+### 4-2-1. 누가 어떤 모듈을 맡나
+
+| 모듈 | 책임 | 하지 않는 것 |
+|---|---|---|
+| `app/streamlit_app.py` | 메뉴(내 문장·내 노래·기록)와 **맨 앞의 접근 제한**: 모든 페이지 앞에서 `auth_gate.run()`을 부르고 통과하지 못하면 `st.stop()` | 계산·저장 |
+| `app/auth_gate.py` | 로그인·가입·게스트 화면, 로그인 유지 쿠키(JS로 쓰고 `st.context.cookies`로 읽음), 사이드바(저장 켜기/끄기·로그아웃·계정 삭제) | 비밀번호 검사·SQL |
+| `account.py` | 가입·로그인·로그인 유지·로그아웃의 **판단**(주입한 `store`로 시험 가능). 아이디가 있는지 알려 주지 않는 같은 오류 문구 | 화면·SQL |
+| `auth.py` | **순수 규칙**: scrypt 해시, 아이디·비밀번호 규칙, 로그인 유지 토큰(DB에는 sha256 해시만), 5회 실패 5분 잠금 | DB·화면 |
+| `access.py` | 가입·게스트 입장에 필요한 **초대 코드**(`SONGLINGO_PASSWORD`)와 세션 실패 잠금. 환경변수가 없으면 개발용으로 열림 | 사용자 계정 |
+| `storage.py` | **SQL 읽기·쓰기 전부**: 연결(호출마다 열고 닫음, 제한 3초), 마이그레이션 적용, 사용자·토큰·구간·문장 묶음·줄·연습 기록·한글 뜻 캐시. 모든 사용자별 질의는 `user_id` 조건 | 화면·세션 |
+| `migrations/001~005_*.sql` | 스키마(이미 적용된 파일은 고치지 않고 새 번호를 추가). 001 초기 → 002 이름·id·구간 여러 개 → 003 `meanings` → 004 `lines` → 005 문장 묶음 여러 개 | — |
+| `app/persist.py` | **화면 ↔ 저장 연결**: 스크립트가 다시 실행될 때마다 `autosave_*`를 불러 내용이 바뀐 경우에만 저장하고, 저장한 행·줄의 id를 세션에 보관해 연습 기록에 연결 | 계산·SQL |
+
+### 4-2-2. 로그인과 로그인 유지
+
+```mermaid
+sequenceDiagram
+    participant B as 브라우저
+    participant AP as streamlit_app.py
+    participant AG as auth_gate.py
+    participant AC as account.py
+    participant ST as storage.py
+    participant DB as PostgreSQL
+
+    B->>AP: 접속 (새 세션)
+    AP->>AG: run()
+    AG->>AG: 마이그레이션 한 번 적용 (프로세스당)
+    alt 쿠키 sl_auth가 있음
+        AG->>AC: resume(token)
+        AC->>ST: user_by_token (sha256 해시로 조회, 만료 30일 갱신)
+        ST->>DB: SELECT login_tokens
+        DB-->>AG: 사용자 → 세션에 uid·uname·save_on
+    else 쿠키 없음 또는 만료
+        AG-->>B: 탭 3개(로그인·가입·게스트)
+        B->>AG: 아이디·비밀번호 (가입은 초대 코드 포함)
+        AG->>AC: login / signup
+        AC->>ST: get_user, 실패 횟수·잠금 기록
+        AC->>AC: auth.verify_password (scrypt), 5회 실패 시 5분 잠금
+        AC-->>AG: 성공 + 로그인 유지 토큰
+        AG-->>B: 쿠키 sl_auth를 자바스크립트로 설정
+    end
+    AG-->>AP: 통과(또는 st.stop)
+```
+
+- **게스트**는 초대 코드만 맞으면 들어오지만 **아무것도 저장하지 않는다**(기록은 이번 세션의 목록에만).
+- DB 설정(`DB_NAME`·`DB_USER`)이 없으면 저장 기능이 꺼지고 예전처럼 비밀번호 한 칸만 묻는 게스트 동작이다(개발 환경). DB가 죽어 있으면 게스트만 들어올 수 있다.
+
+### 4-2-3. 저장 데이터 모델
+
+```mermaid
+erDiagram
+    users ||--o{ login_tokens : "로그인 유지"
+    users ||--o{ clips : "구간(곡 하나에 여러 개)"
+    users ||--o{ texts : "문장 묶음(최대 50)"
+    users ||--o{ lines : "소유"
+    users ||--o{ practices : "채점 기록"
+    clips ||--o{ lines : "clip_id (내 노래의 연습 줄)"
+    texts ||--o{ lines : "text_id (내 문장의 줄)"
+    clips |o--o{ practices : "clip_id"
+    lines |o--o{ practices : "line_id"
+    meanings }o..o{ lines : "문장 해시로 조회(외래키 없음)"
+```
+
+| 테이블 | 한 행 = | 중요한 점 |
+|---|---|---|
+| `users` | 계정 | 비밀번호는 scrypt 해시, 저장 켜기/끄기 `save_on`, 실패 횟수·잠금 |
+| `login_tokens` | 로그인 유지 토큰 | 토큰 원문은 저장하지 않고 해시만 |
+| `clips` | 곡의 **구간 하나**(`UNIQUE (user_id, audio_sha1, 시작, 길이)`) | 같은 곡의 다른 구간은 다른 행. 음원은 저장하지 않고 지문 `audio_sha1`만. STT 설정·원본 segments는 `recognition` |
+| `texts` | 내 문장 **묶음 하나**(입력창 하나의 내용 전체) | 사용자당 최대 50개, 제목은 입력했을 때만(없으면 화면이 첫 줄로 자동 제목), 삭제 허용 |
+| `lines` | 연습 **줄 하나**(`clip_id` 또는 `text_id` 중 하나만) | 처음 인식한 글 `stt_text`와 연습에 쓰는 글 `text`가 따로 있음. 표준 발음 경로는 저장하지 않고 글로 TTS 캐시를 찾음 |
+| `practices` | 채점 **한 번**(따라 읽기·받아쓰기·Azure) | 기준 글·인식문·점수(`scoring`)·Azure 결과·STT 설정, `clip_id`·`line_id`로 연결(줄이 지워져도 기록은 남음) |
+| `meanings` | 한글 뜻·표현 설명 1건 | **모든 사용자가 공유하는 캐시**, 문장 글 대신 해시(`cache_key`)만 |
+
+**저장하지 않는 것**: 업로드한 음원, 잘라 낸 구간 wav, 보컬 분리 결과, 내 녹음, TTS 소리(서버 디스크 `data/tts_cache/`의 파일, 줄의 글 해시로 찾음), 비밀번호·토큰 원문, API 키.
+
+### 4-2-4. 자동 저장과 불러오기
+
+```mermaid
+flowchart TD
+    RUN[화면 스크립트가 다시 실행됨] --> AUTO{로그인 + 저장 켬?}
+    AUTO -->|아니오| SKIP[아무것도 안 함]
+    AUTO -->|예| DIG[내용 지문 digest 계산]
+    DIG --> SAME{지난번 저장과 같음?}
+    SAME -->|예| SKIPDB[DB를 부르지 않음]
+    SAME -->|아니오| SAVE[storage.save_clip / save_texts<br/>줄 번호 기준 upsert: 바뀐 줄만 갱신]
+    SAVE --> IDS[저장한 clip_id·line_id를 세션에 보관]
+    IDS --> PRACTICE[연습 기록 persist.save_practice가<br/>clip_id·line_id로 줄과 연결]
+    PRACTICE --> HIST[기록 메뉴: storage.list_practices]
+
+    LOAD1[내 노래: 같은 파일 다시 올림] --> L1[persist.saved_clips_of → 구간 선택 → web_song.restore_song<br/>구간을 다시 자르고 줄 복원]
+    LOAD2[내 노래: 저장된 곡 입력 방식] --> L2[persist.clip_list → 구간 선택 → web_song.restore_lines<br/>소리 없이 가사·표준 발음·연습]
+    LOAD3[내 문장: 저장된 묶음 선택] --> L3[persist.text_sets → persist.saved_text<br/>입력칸·제목·줄마다 확인한 언어 복원]
+```
+
+- **덮어쓰기 보호**(`persist.autosave_clip`): 같은 구간의 저장본에 가사가 있는데 이 세션은 아직 가사를 불러오지도 새로 인식하지도 않았다면 저장하지 않는다(같은 곡을 다시 올리고 구간만 고르다가 빈 기록으로 덮는 사고를 막는다).
+- **묶음 상한**: 사용자당 50개. 넘으면 새 묶음은 저장되지 않고 경고, 오래된 묶음을 삭제하면 다시 저장된다. **내 노래 구간은 삭제 기능이 없다**(계정 삭제 때만 함께 지워짐).
+- 표준 발음 파일은 DB가 아니라 **서버 디스크 캐시**에 있고, 불러온 줄은 글의 해시로 파일을 찾는다(있으면 과금 없이 바로 재생, 없으면 버튼으로 만들기).
+
+---
+
+## 4-3. 한글 뜻·표현 설명 조회 (`meaning.py`)
+
+```mermaid
+flowchart TD
+    Q[줄 글 + 언어] --> K[cache_key = sha1 언어·글 앞 16자]
+    K --> M{메모리 캐시}
+    M -->|있음| OUT[화면에 표시]
+    M -->|없음| D{DB meanings<br/>앱이 켠 경우만}
+    D -->|있음| OUT
+    D -->|없음 또는 DB 장애| F{파일 data/meaning_cache}
+    F -->|있음| FILL[DB에도 채워 둠] --> OUT
+    F -->|없음| BTN[버튼을 눌렀을 때만 OpenAI 호출·과금] --> SAVE[DB와 파일에 저장] --> OUT
+```
+
+- 예시 문장의 한글 뜻은 **직접 쓴 뜻**을 그대로 보여 준다(호출 없음). 그 밖은 버튼으로 AI가 번역(`translate_ko`)하고, 표현 설명(`explain_sentence`: 단어·IPA·표현·문법·예문 2개, JSON)도 같은 방식이다. 항상 "AI 번역·설명 · 참고용"으로 표시한다.
+- DB가 안 되면 번역·설명은 멈추지 않고 파일 캐시만 쓴다(60초 동안 DB를 건너뜀). 문장 글은 저장하지 않고 해시만 저장한다.
 
 ---
 
@@ -351,8 +527,18 @@ flowchart TD
 | `song_practice.prepare_lines()`     | `stt.recognize_segments`, `song_lines.split_into_lines`    | mix WAV → segment → 가사 줄 후보       | 내 노래               |
 | `web_song.make_vocals()`            | `separate.separate_clip_subprocess`, Demucs                | mix WAV → vocals WAV                   | 선택적 보컬 듣기      |
 | `web_song.make_tts()`               | `song_practice.make_tts`, `tts.tts_wav`                    | 확정 가사 → 표준 발음 WAV              | 내 노래               |
-| `app/ui_practice.py`                | `practice_log.make_record`, `append`                       | 채점 결과 → CSV 한 행                  | 연습 기록             |
-| `app/views/history.py`              | `practice_log.read_all`, Pandas                            | CSV → 기록 표·WER 추이                 | 기록                  |
+| `app/ui_practice.py`                | `practice_log.make_record`, `persist.save_practice`        | 채점 결과 → 기록 dict → DB 한 행       | 연습 기록(서버 DB)    |
+| `app/ui_practice.py`                | `azure_pronunciation.assess` (버튼), `persist.save_azure`  | 녹음 bytes·기준 글·로캘 → 발음 평가 결과 | Azure 발음 평가(선택) |
+| `app/ui_practice.py`                | `web_practice.error_spans`, `visualisation.plot_error_spans`, `plot_sound_panels` | 결과·녹음 → 틀린 구간·소리 모양 그림 | 따라 읽기 결과        |
+| `app/views/history.py`              | `storage.list_practices`, `practice_log.row_from_practice`, Pandas | DB 행 → 기록 표·WER 추이        | 기록(게스트는 세션 목록, DB 없으면 CSV) |
+| `app/streamlit_app.py`              | `auth_gate.run`, `meaning.enable_db`                       | 접속 → 로그인·게스트 통과              | 모든 페이지 앞        |
+| `auth_gate.py`                      | `account.login/signup/resume`, `access.check`              | 폼 입력 → 세션(uid·save_on)            | 로그인·로그인 유지    |
+| `account.py`                        | `auth.hash_password/verify_password`, `storage.*`          | 아이디·비밀번호 → 사용자·토큰          | 계정                  |
+| `app/views/lyrics.py`               | `languages.suggest_line_language`, `persist.autosave_texts` | 줄 → 언어 제안, 줄 목록 → 문장 묶음 저장 | 내 문장            |
+| `app/views/song.py`                 | `web_song.detect_clip_language`, `persist.autosave_clip`, `web_song.merge_next` | 구간 → 언어 제안, 구간·줄 저장, 줄 합치기 | 내 노래          |
+| `persist.autosave_clip`             | `storage.save_clip`, `storage.clip_line_ids`               | doc → `clips`·`lines` 행, 줄 번호 → id | 내 노래 저장          |
+| `persist.autosave_texts`            | `storage.save_texts`, `storage.text_line_ids`              | 줄 목록 → `texts`·`lines` 행           | 내 문장 저장          |
+| `meaning.cached/translate_ko/explain_sentence` | `storage.get_meaning/put_meaning`, OpenAI Chat   | 문장·언어 → 뜻·설명 JSON               | 한글 뜻·표현 설명     |
 
 ---
 
@@ -367,21 +553,58 @@ flowchart TD
 | CTranslate2       | 추론 엔진        | faster-whisper 내부                                         | 효율적인 Whisper 추론 실행                                            |
 | PyTorch           | 딥러닝 실행      | Demucs 실행 환경                                            | Demucs 모델 실행                                                      |
 | Demucs            | 음원 분리 모델   | `separate.py`                                               | 보컬·드럼·베이스·기타/기타 소리 분리                                  |
-| OpenAI Python SDK | 외부 AI API      | `tts.py`                                                    | TTS 음성 생성                                                         |
+| OpenAI Python SDK | 외부 AI API      | `tts.py`, `meaning.py`                                      | TTS 음성 생성, 한글 뜻·표현 설명(채팅 모델)                           |
 | Matplotlib        | 시각화           | `visualisation.py`                                          | 파형·스펙트로그램·Log-Mel 그림                                        |
 | Streamlit         | 웹 UI            | `app/`                                                      | 파일 업로드, 브라우저 녹음, 버튼, 세션 상태, 결과 표시                |
 | Pandas            | 표·기록          | `app/views/history.py`, `clip_compare.py`                   | CSV/실험 결과 분석                                                    |
 | sounddevice       | 로컬 마이크 입력 | `recorder.py`                                               | 로컬 마이크 스트림 수집; Streamlit 브라우저 녹음 경로는 사용하지 않음 |
-| python-dotenv     | 환경 설정        | `app/streamlit_app.py`                                      | `.env`에서 환경변수 로드                                              |
+| python-dotenv     | 환경 설정        | `app/streamlit_app.py`, `storage.py`                        | `.env`에서 환경변수 로드                                              |
+| PostgreSQL · psycopg 3 | 서버 저장    | `storage.py`, `migrations/`                                 | 사용자별 데이터 저장(JSONB, 외래키·연쇄 삭제, 마이그레이션)           |
+| `hashlib.scrypt` · `hmac` · `secrets` | 계정 보안 | `auth.py`                                           | 비밀번호 해시, 시간 일정 비교, 로그인 유지 토큰(표준 라이브러리)      |
+| pykakasi          | 일본어 읽기      | `japanese.py`                                               | 한자·가타카나 → 히라가나 읽기·로마자                                  |
+| Azure Speech SDK  | 발음 평가        | `azure_pronunciation.py`                                    | 정확도·유창성·완성도·운율(버튼을 눌렀을 때만, 앱 환경에만 설치)       |
+| `unittest` · Streamlit `AppTest` | 시험  | `tests/`                                                    | 단위 테스트, 로그인·저장 화면 흐름 시험(가짜 저장소 `tests/fake_store.py`) |
 
 ---
 
-## 7. 아직 구현되지 않았거나 제품 경로에 연결되지 않은 로직
+## 7. 구현 상태와 아직 없는 것 (2026-11-09 현행화)
 
-상태는 현재 저장소 코드와 개발 계획서 기준이다.
+상태는 현재 저장소 코드와 개발 계획서 기준이다. 11-05 판에서 "미구현·UI 미연결"이던 항목 중 **구현·연결된 것**을 먼저 적는다.
 
-| 기능                                         | 현재 상태                      | 구현 예정 위치·관련 기술                                 | 비고                                                           |
-| -------------------------------------------- | ------------------------------ | -------------------------------------------------------- | -------------------------------------------------------------- |
+### 7-1. 11-05 이후 구현·연결된 것
+
+| 기능 | 현재 상태 | 위치 |
+|---|---|---|
+| 문장 뜻·연관 단어·표현 설명 | **구현됨**(버튼, AI 참고용 표시, DB 공유 캐시). 계획의 `explain.py`는 만들지 않고 `meaning.py`에 구현(화면 설명 글은 `app/explain.py`). 직접 검수표는 남음(이슈 #15) | `meaning.py`, `app/ui_practice.py` |
+| 일본어 등 다국어 | **구현됨**: 줄마다 언어 제안·확인, 일본어 히라가나 읽기·로마자, 일본어·중국어 CER 중심, Azure 로캘 | `languages.py`, `japanese.py`, `web_practice.py` |
+| 오류 위치 그림의 Streamlit 통합 | **구현됨**(따라 읽기 결과 아래) | `web_practice.error_spans`, `visualisation.plot_error_spans` |
+| TTS·사용자 녹음의 소리 모양 비교 UI | **구현됨**(파형·FFT·STFT·Log-Mel 2×2) | `visualisation.plot_sound_panels` |
+| 발음 평가(Azure) | **구현됨**(선택, 버튼을 눌렀을 때만, 자동 전송 없음) | `azure_pronunciation.py` |
+| 주변 음악 녹음 입력(내 노래) | **구현됨**: 파일 업로드와 같은 흐름 | `app/views/song.py` |
+| 서버 배포·접근 제한 | **구현됨**: Oracle VM + Cloudflare 터널, HTTPS, 비밀번호(초대 코드) | 검토 문서 16.15·16.15.1 |
+| 사용자별 서버 저장 | **구현됨**: 로그인·로그인 유지·게스트, 구간·문장 묶음·줄·연습 기록, 저장된 곡·묶음 불러오기 | 4-2절, 검토 문서 16.16·16.17 |
+| 줄 합치기, 앞뒤 5초 듣기 | **구현됨** | `song_practice.merge_with_next`, `web_song.line_range` |
+| 재생 제어 | **기본 플레이어로 대체**: 속도는 브라우저 메뉴, 앞뒤 5초는 스위치. 계획의 `player.py`(HTML 플레이어)는 만들지 않음 | 이슈 #12 |
+
+### 7-2. 아직 없거나 연결되지 않은 것
+
+| 기능 | 현재 상태 | 비고 |
+|---|---|---|
+| 기록 화면의 인식문(`practices.hyp_text`) 보기 | 미구현 | DB에는 저장되어 있고 화면 표에는 점수만 나옴(개선 후보) |
+| 줄 **나누기** UI | 미구현 | 자동 나누기는 `song_lines`가 인식 때 함, 합치기만 UI 있음 |
+| 줄 단위 보컬 파일 생성 | 미구현 | 현재는 전체 구간 보컬 WAV를 시간 범위로 재생 |
+| 내 노래 구간 삭제 | 만들지 않음(의도) | 계정 삭제 때만 함께 지워짐 |
+| 옛 `clips.doc`·`texts.doc` 열 삭제 | 예정(발표 이후) | 004에서 줄 테이블로 옮기고 열은 남겨 둠(되돌리기 대비) |
+| `songlingo/` 패키지로 모듈 정리 | 미착수(발표 이후, 이슈 #24) | 지금은 루트에 flat 구조 |
+| TTS 목소리·억양 선택 | 미착수(이슈 #54) | 기본 voice `alloy` 고정 |
+| Whisper confidence와 실제 오류율의 관계 분석 | 미구현 | 기존 `low_confidence`는 휴리스틱 표시이지 통계 검증이 아님 |
+| Log-Mel 기반 녹음 품질 분류기 | 미구현·선택 과제 | 현재 `quality.py`의 규칙 기반 점검과 별개 |
+| SNR별 잡음 견고성 실험 | 미구현·선택 과제 | 합성 잡음 조건에서의 실험 |
+| Demucs 원리 탐구(이슈 #35) | 일부(합성 입력 노트북) | `experiments/model anatomy/` |
+
+> **사용자의 노래를 채점하는 기능은 없다**(이 앱은 노래방이 아니다). 노래는 가사를 얻고 듣기 위한 입력이다.
+
+-------------------------------------------- | ------------------------------ | -------------------------------------------------------- | -------------------------------------------------------------- |
 | 문장 뜻·연관 단어·표현 설명                  | 미구현                         | 신규 `explain.py`, OpenAI Chat API                       | 결과 직접 검수 필요                                            |
 | 전용 플레이어 제어                           | 미구현/축소                    | 계획상 `player.py`, HTML Audio                           | 현재는 Streamlit 기본 오디오 플레이어 사용                     |
 | 일본어 등 다국어 end-to-end 지원             | 부분 구현                      | `stt.py`, `tts.py`, `scoring.py`                         | 정규화 일부 분기는 있으나 앱 전 흐름이 다국어 완성 상태는 아님 |
@@ -434,6 +657,11 @@ flowchart TD
 8. `separate.py`와 `scripts/separate_worker.py` — Demucs 실행과 subprocess 구조
 9. `align.py`와 `visualisation.py` — 오류 위치 추정 및 신호 시각화
 10. `web_song.py`, `practice_log.py`, `app/views/history.py` — 파일 생명주기와 기록
+11. `languages.py`, `japanese.py`, `meaning.py` — 언어 제안, 일본어 읽기, 한글 뜻·표현 설명(캐시 순서)
+12. `migrations/001~005`, `storage.py`(`connect`·`migrate`·`save_clip`·`_sync_lines`) — 저장 구조와 줄 단위 upsert
+13. `auth.py` → `account.py` → `app/auth_gate.py` → `app/persist.py` — 로그인 규칙, 화면, 화면↔저장 연결
+
+상세한 읽는 포인트와 어려운 곳은 `docs/작업_일지.md` 2-3절에 있다.
 
 ---
 
@@ -460,3 +688,6 @@ flowchart TD
 - [app/views/song.py](https://github.com/greenkey20/song-lingo/blob/main/app/views/song.py)
 - [app/views/lyrics.py](https://github.com/greenkey20/song-lingo/blob/main/app/views/lyrics.py)
 - [app/views/history.py](https://github.com/greenkey20/song-lingo/blob/main/app/views/history.py)
+- [storage.py](https://github.com/greenkey20/song-lingo/blob/main/storage.py), [migrations/](https://github.com/greenkey20/song-lingo/tree/main/migrations)
+- [auth.py](https://github.com/greenkey20/song-lingo/blob/main/auth.py), [account.py](https://github.com/greenkey20/song-lingo/blob/main/account.py), [app/auth_gate.py](https://github.com/greenkey20/song-lingo/blob/main/app/auth_gate.py), [app/persist.py](https://github.com/greenkey20/song-lingo/blob/main/app/persist.py)
+- [meaning.py](https://github.com/greenkey20/song-lingo/blob/main/meaning.py), [languages.py](https://github.com/greenkey20/song-lingo/blob/main/languages.py), [japanese.py](https://github.com/greenkey20/song-lingo/blob/main/japanese.py), [azure_pronunciation.py](https://github.com/greenkey20/song-lingo/blob/main/azure_pronunciation.py)
