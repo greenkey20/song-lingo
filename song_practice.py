@@ -29,6 +29,7 @@ STATUSES = ("candidate", "confirmed", "dropped")
 
 
 def lines_path(clip_id, out_dir=SONG_DIR):
+    """구간 `clip_id`의 줄 목록 파일 경로(`<폴더>/<clip_id>/lines.json`)."""
     return Path(out_dir) / clip_id / "lines.json"
 
 
@@ -85,6 +86,7 @@ def prepare_lines(clip_id, work_dir=separate.WORK_DIR, out_dir=SONG_DIR, model_s
 
 
 def _num(value):
+    """값을 float으로(비어 있거나 숫자가 아니면 None). 구간 기록 CSV의 빈 칸 처리용."""
     try:
         return float(value)
     except (TypeError, ValueError):

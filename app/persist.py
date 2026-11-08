@@ -3,6 +3,12 @@
 계산은 `practice_log.py`(문장 열쇠·기록 한 줄), 저장은 `storage.py`, 누가 로그인했는지는 `app/auth_gate.py`(세션 상태)가 맡는다. 여기서는 그 셋을 이어 붙이기만 한다.
 - 가사·인식문은 **로그·오류 메시지에 남기지 않는다**: 실패하면 오류 종류만 알리고 내용은 넘기지 않는다.
 - 게스트나 저장을 끈 사용자는 아무것도 하지 않는다.
+
+흐름: 화면이 스크립트를 다시 실행할 때마다 `autosave_*`를 부른다 → 지난번 저장과 **내용 지문(`_digest_of`)이 같으면 아무것도 안 함** → 다르면 DB에 저장하고
+저장된 행·줄의 id를 세션에 보관한다(연습 기록이 `clip_id`·`line_id`로 이어지게). 어려운 곳: `autosave_clip`의 **덮어쓰기 보호**(저장본에 가사가 있는데 이 세션은
+아직 가사가 없으면 빈 기록으로 덮지 않음), `autosave_texts`의 **상한·삭제된 묶음 처리**.
+
+수업과의 관계: [수업에 없음] 이 파일 전체(Streamlit 세션 상태 `st.session_state`와 서버 저장). 수업(1~7강)은 노트북에서 소리를 다루는 내용이고 화면·저장은 다루지 않는다.
 """
 import hashlib
 import json
@@ -87,6 +93,7 @@ def _call(action):
 
 
 def _digest_of(obj):
+    """JSON으로 바꿀 수 있는 값의 sha1 지문(키 순서와 무관). '지난번 저장한 것과 같은가'를 비교해 같으면 DB를 다시 부르지 않는 데 쓴다."""
     return hashlib.sha1(json.dumps(obj, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")).hexdigest()
 
 
@@ -199,6 +206,7 @@ def saved_text(text_id):
 
 
 def _forget_text_state():
+    """지금 문장 묶음의 저장 상태(마지막 저장 지문, 줄 id, 상한 표시)를 잊는다. 묶음을 바꾸거나 새로 시작할 때 이전 묶음의 값이 남지 않게 한다."""
     for k in ("saved_texts_hash", "text_line_ids", "text_limit"):
         st.session_state.pop(k, None)
 

@@ -24,6 +24,7 @@ SYSTEM = ("You translate one sentence or one line of song lyrics into natural, p
 
 
 def _key(text, lang):
+    """문장+언어의 캐시 열쇠: `sha1(언어 + 줄바꿈 + 앞뒤 공백 뺀 글)`의 앞 16자. **글은 저장하지 않고 이 열쇠만** 파일 이름·DB(meanings.cache_key)에 쓴다. 규칙을 바꾸면 기존 캐시를 못 찾으므로 바꾸지 않는다."""
     return hashlib.sha1(f"{lang}\n{str(text).strip()}".encode("utf-8")).hexdigest()[:16]
 
 

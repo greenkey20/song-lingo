@@ -49,10 +49,12 @@ def _cookie_html(value, max_age):
 
 
 def _set_cookie(token):
+    """로그인 유지 쿠키를 브라우저에 쓴다(자바스크립트로 `document.cookie`를 설정: Streamlit이 서버에서 쿠키를 쓰는 기능이 없어서)."""
     st.html(_cookie_html(token, auth.TOKEN_DAYS * 86400), unsafe_allow_javascript=True)
 
 
 def _clear_cookie():
+    """로그인 유지 쿠키를 지운다(만료 시간을 0으로 덮어씀)."""
     st.html(_cookie_html("", 0), unsafe_allow_javascript=True)
 
 
@@ -130,6 +132,7 @@ def _guest_form(db_alive):
 
 
 def _login_form():
+    """'로그인' 탭의 폼: 아이디·비밀번호·로그인 유지 체크. 성공하면 세션을 채우고 화면을 다시 그린다(`account.login`이 판단, 실패 문구는 아이디 존재 여부를 알려 주지 않는 같은 문구)."""
     with st.form("form_login"):
         username = st.text_input("아이디")
         password = st.text_input("비밀번호", type="password")
@@ -151,6 +154,7 @@ def _login_form():
 
 
 def _signup_form():
+    """'가입' 탭의 폼: 초대 코드(접근 제한이 켜져 있을 때)·아이디·비밀번호·확인. 규칙 검사와 저장은 `account.signup`이 한다."""
     with st.form("form_signup"):
         code = st.text_input("초대 코드", type="password") if access.enabled() else ""
         username = st.text_input("아이디 (3~20자, 영문·숫자·한글·_ . -)")
@@ -232,6 +236,7 @@ def run():
 
 # ---------- 사이드바 사용자 상자 ----------
 def _on_toggle():
+    """사이드바 '저장' 스위치의 on_change: 세션과 DB(`users.save_on`)에 저장 켜기/끄기를 반영한다. DB가 안 되면 세션 값만 바꾸고 `save_error`를 켜서 사이드바에 안내한다."""
     on = st.session_state.get("save_toggle", True)
     st.session_state["save_on"] = on
     try:
@@ -242,6 +247,7 @@ def _on_toggle():
 
 
 def _logout():
+    """로그아웃: 서버의 로그인 유지 토큰을 지우고(`account.end_session`) 브라우저 쿠키도 지우도록 표시한 뒤 세션을 비운다."""
     try:
         with storage.connect() as conn:
             account.end_session(conn, st.session_state.get("remember_token"))

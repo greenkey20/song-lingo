@@ -6,6 +6,10 @@
 - 답: 네 → 제안한 언어 / 아니오 → 사용자가 고른 언어들(여러 개 가능, 첫 번째가 주 언어) / 모르겠어요 → 제안한 언어를 쓰되 "추정"으로 표시.
 - 계산은 languages.py·web_practice.py·practice.py가 하고 이 파일은 화면 배치만 한다. 문장은 세션에만 있고 저장하지 않는다.
 - 표준 발음(OpenAI TTS)은 줄의 언어를 확인한 뒤 **버튼을 눌러야** 만들어진다(새 문장은 과금, 예시 문장·이미 만든 문장은 캐시라 무료). TTS는 글의 언어를 따라 읽으므로 언어를 따로 넘기지 않는다.
+- **문장 묶음**(이슈 #75): 입력창 하나의 내용 전체가 한 묶음이다. 입력을 고치는 동안은 같은 묶음이 자동 저장으로 갱신되고(`persist.autosave_texts`), "새 묶음으로 시작"을 눌러야
+  새 묶음이 만들어진다. 선택 상자·불러오기·삭제는 위쪽, 제목 입력칸은 입력창 아래. 줄마다의 위젯 열쇠는 `web_practice.line_keys`(반복된 줄도 겹치지 않게).
+
+수업과의 관계: [수업에 없음] 이 파일 전체(Streamlit 화면 배치). 점수 계산·소리 처리는 수업과 자습 노트북에서 온 루트 모듈이 하고 여기서는 부르기만 한다.
 """
 import streamlit as st
 
@@ -75,10 +79,12 @@ def new_text_set():
 
 
 def ask_delete():
+    """'이 묶음 삭제' 버튼의 on_click: 삭제 확인 단계를 켠다(실수로 지우지 않게 두 번 누르게 함)."""
     st.session_state["lyr_confirm_del"] = True
 
 
 def cancel_delete():
+    """'취소' 버튼의 on_click: 삭제 확인 단계를 끈다."""
     st.session_state["lyr_confirm_del"] = False
 
 
