@@ -55,7 +55,7 @@ class FakeStore:
         del self.users[uid]
         self.tokens = {h: t for h, t in self.tokens.items() if t["user_id"] != uid}
         self.clips = {k: v for k, v in self.clips.items() if v["user_id"] != uid}
-        self.texts.pop(uid, None)
+        self.texts = {k: v for k, v in self.texts.items() if v["user_id"] != uid}
         self.practices = [a for a in self.practices if a["user_id"] != uid]
         return 1
 
@@ -112,11 +112,43 @@ class FakeStore:
         clip = self.load_clip_by_id(conn, uid, clip_id)
         return {l["no"]: self._line_id("clip", clip_id, l["no"]) for l in (clip["doc"].get("lines", []) if clip else [])}
 
-    def text_line_ids(self, conn, uid):
-        return {i: self._line_id("text", uid, i) for i, _ in enumerate((self.texts.get(uid) or {}).get("lines", []), 1)}
+    def text_line_ids(self, conn, uid, text_id):
+        t = self.texts.get(text_id)
+        return {i: self._line_id("text", text_id, i) for i, _ in enumerate((t["doc"].get("lines", []) if t and t["user_id"] == uid else []), 1)}
 
-    def save_texts(self, conn, uid, doc): self.texts[uid] = doc
-    def load_texts(self, conn, uid): return self.texts.get(uid)
+    def count_texts(self, conn, uid): return sum(1 for t in self.texts.values() if t["user_id"] == uid)
+
+    def save_texts(self, conn, uid, doc, text_id=None, title=None):
+        title = (title or "").strip() or None
+        now = datetime.now(timezone.utc)
+        if text_id is None:
+            if self.count_texts(conn, uid) >= real.MAX_TEXT_SETS:
+                raise real.TextSetLimit("limit")
+            text_id = self._new_id()
+            self.texts[text_id] = {"id": text_id, "user_id": uid, "created_at": now}
+        elif text_id not in self.texts or self.texts[text_id]["user_id"] != uid:
+            raise real.TextSetMissing("missing")
+        self.texts[text_id].update(title=title, doc=doc, updated_at=now)
+        self.calls.append(("save_texts", uid, text_id))
+        return text_id
+
+    def list_texts(self, conn, uid):
+        rows = sorted((t for t in self.texts.values() if t["user_id"] == uid), key=lambda t: (t["updated_at"], t["id"]), reverse=True)
+        return [{"id": t["id"], "title": t["title"], "created_at": t["created_at"], "updated_at": t["updated_at"],
+                 "n_lines": len(t["doc"].get("lines", [])), "first_text": next((l["text"] for l in t["doc"].get("lines", [])), None)} for t in rows]
+
+    def load_text_by_id(self, conn, uid, text_id):
+        t = self.texts.get(text_id)
+        if not t or t["user_id"] != uid:
+            return None
+        return {"id": text_id, "title": t["title"], "lines": [dict(l) for l in t["doc"].get("lines", [])]}
+
+    def delete_text(self, conn, uid, text_id):
+        t = self.texts.get(text_id)
+        if not t or t["user_id"] != uid:
+            return 0
+        del self.texts[text_id]
+        return 1
 
     def append_practice(self, conn, uid, record):
         self.calls.append(("append_practice", uid, record.get("mode")))

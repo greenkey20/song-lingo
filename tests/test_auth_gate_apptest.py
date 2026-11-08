@@ -187,7 +187,17 @@ class SavesAttempts(Base):
 
 @unittest.skipIf(AppTest is None, "streamlit이 없는 환경이라 건너뜁니다")
 class SavesSentences(Base):
-    """내 문장 목록과 줄마다 확인한 언어가 서버에 저장되고, 다음 세션(로그인)에서 불러와지는지 시험한다."""
+    """내 문장 묶음(여러 개)과 줄마다 확인한 언어가 서버에 저장되고, 다음 세션에서 골라 불러와지는지, 제목·새 묶음·삭제·상한을 시험한다."""
+
+    def type_and_check(self, at, text):
+        """입력 → 언어 알아보기 → 모두 맞아요(자동 저장까지)."""
+        find(at.text_area, "문장").set_value(text)
+        at = at.run()
+        at = find(at.button, "언어 알아보기").click().run()
+        return find(at.button, "제안이 있는 줄은 모두 맞아요").click().run()
+
+    def sets(self, uid):
+        return sorted((t for t in self.store.texts.values() if t["user_id"] == uid), key=lambda t: t["id"])
 
     def test_sentences_saved_then_restored_in_a_new_session(self):
         at = self.signup(self.app())
@@ -197,9 +207,10 @@ class SavesSentences(Base):
         at = find(at.button, "언어 알아보기").click().run()
         at = find(at.button, "제안이 있는 줄은 모두 맞아요").click().run()
         uid = at.session_state["uid"]
-        saved = self.store.texts[uid]["lines"]
+        saved = self.sets(uid)[0]["doc"]["lines"]
         self.assertEqual("\n".join(e["text"] for e in saved), text_before)
         self.assertTrue(all(e["lang"] for e in saved))                                  # 줄마다 확인한 언어가 함께 저장됨
+        set_id = self.sets(uid)[0]["id"]
 
         # 브라우저를 닫았다 연 것처럼 새 세션에서 로그인
         at2 = self.app()
@@ -207,10 +218,75 @@ class SavesSentences(Base):
         find(at2.text_input, "비밀번호").set_value("long-password-1")
         at2 = find(at2.button, "로그인").click().run()
         self.assertEqual(at2.session_state["lyrics"], "")
-        at2 = find(at2.button, "저장된 내 문장 불러오기", startswith=True).click().run()
+        find(at2.selectbox, "저장된 묶음").select(set_id).run()
+        at2 = find(at2.selectbox, "저장된 묶음").select(set_id).run()
+        at2 = find(at2.button, "불러오기").click().run()
         self.assertFalse(at2.exception, [e.value for e in at2.exception])
         self.assertEqual(at2.session_state["lyrics"], text_before)
+        self.assertEqual(at2.session_state["text_id"], set_id)                             # 불러온 묶음이 지금 묶음
         self.assertTrue(at2.session_state["lyr_det"])                                    # 언어 확인 단계가 이미 끝난 상태로 복원
+
+    def test_new_set_keeps_the_old_one_and_editing_updates_the_same_set(self):
+        at = self.signup(self.app())
+        uid = at.session_state["uid"]
+        at = self.type_and_check(at, "Hello there.\nWe sing together.")
+        self.assertEqual(len(self.sets(uid)), 1)                                          # 입력창 하나 = 묶음 하나(줄이 2개여도)
+        at = self.type_and_check(at, "Hello there.\nWe sing together.\nOne more line.")  # 같은 입력창을 고침 → 같은 묶음 갱신
+        self.assertEqual(len(self.sets(uid)), 1)
+        self.assertEqual(len(self.sets(uid)[0]["doc"]["lines"]), 3)
+        at = find(at.button, "새 묶음으로 시작").click().run()
+        self.assertEqual((at.session_state["lyrics"], at.session_state["lyr_title"]), ("", ""))
+        at = self.type_and_check(at, "A brand new set.")
+        sets = self.sets(uid)
+        self.assertEqual(len(sets), 2)                                                    # 새 묶음이 만들어지고
+        self.assertEqual(len(sets[0]["doc"]["lines"]), 3)                                 # 이전 묶음은 그대로
+        self.assertEqual([e["text"] for e in sets[1]["doc"]["lines"]], ["A brand new set."])
+
+    def test_title_is_saved_and_auto_title_is_shown_when_empty(self):
+        at = self.signup(self.app())
+        uid = at.session_state["uid"]
+        at = self.type_and_check(at, "Hello there, how are you today?")
+        self.assertIsNone(self.sets(uid)[0]["title"])                                     # 제목을 안 쓰면 저장하지 않는다
+        self.assertIn("“Hello there, h…”", find(at.selectbox, "저장된 묶음").options[0])   # 자동 제목: 첫 줄 앞 14자
+        find(at.text_input, "제목 (선택)").set_value("  아침 연습  ")
+        at = at.run()
+        self.assertEqual(self.sets(uid)[0]["title"], "아침 연습")                          # 같은 칸에서 이름 바꾸기, 앞뒤 공백 제거
+        self.assertEqual(len(self.sets(uid)), 1)
+        self.assertTrue(find(at.selectbox, "저장된 묶음").options[0].startswith("아침 연습 · "))
+
+    def test_delete_needs_confirmation_and_clears_the_input(self):
+        at = self.signup(self.app())
+        uid = at.session_state["uid"]
+        at = self.type_and_check(at, "Hello there.")
+        at = find(at.button, "이 묶음 삭제").click().run()
+        self.assertEqual(len(self.sets(uid)), 1)                                          # 첫 클릭은 확인만
+        at = find(at.button, "취소").click().run()
+        self.assertEqual(len(self.sets(uid)), 1)
+        at = find(at.button, "이 묶음 삭제").click().run()
+        at = find(at.button, "삭제하기").click().run()
+        self.assertFalse(at.exception, [e.value for e in at.exception])
+        self.assertEqual(self.sets(uid), [])
+        self.assertEqual(at.session_state["lyrics"], "")                                  # 입력칸도 비워진다
+
+    def test_limit_of_50_sets_blocks_new_ones_until_a_delete(self):
+        at = self.signup(self.app())
+        uid = at.session_state["uid"]
+        first = None
+        for i in range(50):
+            sid = self.store.save_texts(None, uid, {"lines": [{"text": f"seed line {i}", "languages": ["en"], "lang": "en"}]})
+            first = first or sid
+        at = at.run()
+        at = self.type_and_check(at, "A line that does not fit.")
+        self.assertEqual(len(self.sets(uid)), 50)                                         # 51번째는 저장되지 않는다
+        self.assertTrue(any("50개" in w.value for w in at.warning))
+        find(at.selectbox, "저장된 묶음").select(first).run()
+        at = find(at.selectbox, "저장된 묶음").select(first).run()
+        at = find(at.button, "불러오기").click().run()
+        at = find(at.button, "이 묶음 삭제").click().run()
+        at = find(at.button, "삭제하기").click().run()
+        self.assertEqual(len(self.sets(uid)), 49)
+        at = self.type_and_check(at, "A line that fits now.")
+        self.assertEqual(len(self.sets(uid)), 50)                                         # 하나 지우니 다시 저장된다
 
     def test_repeated_lines_do_not_crash_language_check(self):
         """같은 줄이 여러 번 나와도(후렴) '언어 알아보기'가 위젯 열쇠 중복으로 죽지 않는다(11-08 서버에서 발견한 오류)."""
@@ -221,7 +297,7 @@ class SavesSentences(Base):
         self.assertFalse(at.exception, [e.value for e in at.exception])
         self.assertEqual(len(at.radio), 4)                                              # 줄마다 따로 확인할 수 있다
 
-    def test_guest_cannot_save_or_see_restore_button(self):
+    def test_guest_cannot_save_and_sees_no_set_controls(self):
         at = self.app()
         [t for t in at.text_input if t.label == "초대 코드"][-1].set_value(INVITE)
         at = find(at.button, "게스트로 들어가기").click().run()
@@ -229,7 +305,8 @@ class SavesSentences(Base):
         at = at.run()
         at = find(at.button, "언어 알아보기").click().run()
         self.assertEqual(self.store.texts, {})
-        self.assertFalse([b for b in at.button if (b.label or "").startswith("저장된 내 문장")])
+        self.assertFalse([b for b in at.button if (b.label or "") in ("불러오기", "새 묶음으로 시작", "이 묶음 삭제")])
+        self.assertFalse([x for x in at.text_input if x.label == "제목 (선택)"])
 
 
 @unittest.skipIf(AppTest is None, "streamlit이 없는 환경이라 건너뜁니다")

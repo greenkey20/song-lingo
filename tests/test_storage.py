@@ -90,7 +90,7 @@ class WithDb(unittest.TestCase):
 
 class Migrations(WithDb):
     def test_applied_and_idempotent(self):
-        self.assertEqual(self.applied[:4], ["001_init.sql", "002_rename_ids_clips.sql", "003_meanings.sql", "004_lines.sql"])
+        self.assertEqual(self.applied[:5], ["001_init.sql", "002_rename_ids_clips.sql", "003_meanings.sql", "004_lines.sql", "005_text_sets.sql"])
         with self.conn() as c:
             self.assertEqual(storage.migrate(c), [])                    # 두 번째는 할 일이 없다
             versions = [r["version"] for r in c.execute("SELECT version FROM schema_migrations").fetchall()]
@@ -133,7 +133,8 @@ class MigrateFromV1(unittest.TestCase):
                 c0 = storage.load_clip(conn, uid, "dig1", 65.1, 20)
                 self.assertEqual((c0["song_title"], c0["song_duration_sec"], c0["input_type"], c0["languages"]), ("곡", 213.4, "file", ["en"]))
                 self.assertEqual([l["no"] for l in c0["doc"]["lines"]], [1])                   # 004까지 적용돼도 doc은 줄 테이블에서 조립되어 돌아온다
-                self.assertEqual(storage.load_texts(conn, uid), {"lines": [{"text": "hi", "languages": None, "lang": None}]})
+                (only,) = storage.list_texts(conn, uid)
+                self.assertEqual(storage.load_text_by_id(conn, uid, only["id"])["lines"], [{"text": "hi", "languages": None, "lang": None}])
                 rows = {r["key"]: r for r in storage.list_practices(conn, uid)}
                 self.assertEqual(rows["k1"]["scoring"], {"wer": {}})
                 self.assertEqual(rows["k1"]["stt_settings"], "tiny")                       # 글이던 값은 JSON 글자로
@@ -313,14 +314,6 @@ class Clips(WithDb):
             storage.save_clip(c, b, "same-sha", 0, 10, {"lines": []}, song_title="B의 곡")   # 같은 지문·구간이어도 사용자별로 따로
             self.assertEqual(storage.load_clip(c, a, "same-sha", 0, 10)["song_title"], "A의 곡")
 
-    def test_texts(self):
-        uid, _ = self.new_user()
-        with self.conn() as c:
-            self.assertIsNone(storage.load_texts(c, uid))
-            storage.save_texts(c, uid, {"lines": [{"text": "朝の光", "lang": "ja"}]})
-            storage.save_texts(c, uid, {"lines": [{"text": "Bonjour", "lang": "fr"}]})
-            self.assertEqual(storage.load_texts(c, uid)["lines"][0]["lang"], "fr")
-
 
 class Practices(WithDb):
     def test_append_list_order_filter_and_json(self):
@@ -444,23 +437,22 @@ class Lines(WithDb):
     def test_texts_lines(self):
         uid, _ = self.new_user()
         with self.conn() as c:
-            storage.save_texts(c, uid, {"lines": [{"text": "Hello", "languages": ["en"], "lang": "en"}, {"text": "朝の光", "languages": ["ja", "en"], "lang": "ja"},
-                                                  {"text": "unknown", "languages": None, "lang": None}]})
-            got = storage.load_texts(c, uid)["lines"]
+            tid = storage.save_texts(c, uid, {"lines": [{"text": "Hello", "languages": ["en"], "lang": "en"}, {"text": "朝の光", "languages": ["ja", "en"], "lang": "ja"},
+                                                        {"text": "unknown", "languages": None, "lang": None}]})
+            got = storage.load_text_by_id(c, uid, tid)["lines"]
             self.assertEqual([(l["text"], l["languages"], l["lang"]) for l in got], [("Hello", ["en"], "en"), ("朝の光", ["ja", "en"], "ja"), ("unknown", None, None)])
-            ids = storage.text_line_ids(c, uid)
+            ids = storage.text_line_ids(c, uid, tid)
             self.assertEqual(sorted(ids), [1, 2, 3])
-            storage.save_texts(c, uid, {"lines": [{"text": "Hello", "languages": ["en"], "lang": "en"}]})      # 줄이 줄어듦
-            self.assertEqual(len(storage.load_texts(c, uid)["lines"]), 1)
-            self.assertEqual(storage.text_line_ids(c, uid), {1: ids[1]})                  # 남은 줄의 id는 그대로
-            self.assertEqual(c.execute("SELECT count(*) AS n FROM texts WHERE user_id = %s", (uid,)).fetchone()["n"], 1)
+            storage.save_texts(c, uid, {"lines": [{"text": "Hello", "languages": ["en"], "lang": "en"}]}, text_id=tid)      # 줄이 줄어듦(같은 묶음 갱신)
+            self.assertEqual(len(storage.load_text_by_id(c, uid, tid)["lines"]), 1)
+            self.assertEqual(storage.text_line_ids(c, uid, tid), {1: ids[1]})             # 남은 줄의 id는 그대로
+            self.assertEqual(storage.count_texts(c, uid), 1)
 
     def test_clip_xor_text_and_status_constraints(self):
         uid, _ = self.new_user()
         with self.conn() as c:
             cid = storage.save_clip(c, uid, "s", 0, 10, self.doc("a b"))
-            storage.save_texts(c, uid, {"lines": [{"text": "x"}]})
-            tid = c.execute("SELECT id FROM texts WHERE user_id = %s", (uid,)).fetchone()["id"]
+            tid = storage.save_texts(c, uid, {"lines": [{"text": "x"}]})
             sql = "INSERT INTO lines (user_id, original_source_type, clip_id, text_id, line_no, text) VALUES (%s, %s, %s, %s, 9, 't')"
             for args in ((uid, "clip", cid, tid), (uid, "clip", None, None), (uid, "text", cid, None), (uid, "other", cid, None)):
                 with self.assertRaises(psycopg.errors.CheckViolation):                   # clip_id와 text_id는 정확히 하나만
@@ -508,7 +500,7 @@ class MigrateFromV2(unittest.TestCase):
                     {"text": "Hello", "languages": ["en"], "lang": "en"}, {"text": "朝の光", "languages": None, "lang": "ja"}]})))
                 conn.execute("INSERT INTO practices (user_id, source, key, mode) VALUES (%s, 'song', 'k', 'read')", (uid,))
             with storage.connect(INFO, schema) as conn:
-                self.assertEqual(storage.migrate(conn), ["004_lines.sql"])
+                self.assertEqual(storage.migrate(conn), ["004_lines.sql", "005_text_sets.sql"])
                 got = storage.load_clip(conn, uid, "x", 10, 20)["doc"]
                 l1, l2 = got["lines"]
                 self.assertEqual((l1["text"], l1["stt_text"], l1["edited"], l1["status"], l1["source"], l1["low_confidence"], l1["n_words"], l1["segment_ids"]),
@@ -516,12 +508,95 @@ class MigrateFromV2(unittest.TestCase):
                 self.assertEqual((l1["start"], l1["end"], l1["lang"]), (0.5, 3.25, "en"))
                 self.assertEqual((l2["status"], l2["edited"], l2["segment_ids"]), ("dropped", False, []))            # 빠진 값은 기본값
                 self.assertEqual((got["stt"], got["languages"], got["segments"]), (doc["stt"], ["en"], doc["segments"]))   # 줄 밖의 내용은 recognition으로
-                self.assertEqual(storage.load_texts(conn, uid), {"lines": [{"text": "Hello", "languages": ["en"], "lang": "en"},
-                                                                          {"text": "朝の光", "languages": None, "lang": "ja"}]})
+                (old_set,) = storage.list_texts(conn, uid)
+                self.assertEqual(storage.load_text_by_id(conn, uid, old_set["id"])["lines"], [{"text": "Hello", "languages": ["en"], "lang": "en"},
+                                                                                              {"text": "朝の光", "languages": None, "lang": "ja"}])
+                new_set = storage.save_texts(conn, uid, {"lines": [{"text": "second set"}]})       # 005 뒤에는 사용자당 묶음이 여러 개
+                self.assertNotEqual(new_set, old_set["id"])
+                self.assertEqual(storage.count_texts(conn, uid), 2)
                 self.assertEqual(conn.execute("SELECT count(*) AS n FROM practices WHERE line_id IS NULL").fetchone()["n"], 1)   # 기존 기록은 줄과 연결 없음
         finally:
             with psycopg.connect(INFO, autocommit=True) as c:
                 c.execute(f'DROP SCHEMA "{schema}" CASCADE')
+
+
+class TextSets(WithDb):
+    """내 문장 묶음 여러 개(5단계 005): 사용자당 여러 묶음, 제목, 목록, 갱신·삭제, 상한, 사용자 격리."""
+
+    @staticmethod
+    def doc(*texts):
+        return {"lines": [{"text": t, "languages": ["en"], "lang": "en"} for t in texts]}
+
+    def test_several_sets_per_user_listed_newest_first_with_preview(self):
+        uid, _ = self.new_user()
+        with self.conn() as c:
+            a = storage.save_texts(c, uid, self.doc("first line of A", "second"), title="  내 제목  ")
+        with self.conn() as c:                                                           # 저장마다 별도 트랜잭션(now()는 트랜잭션 시작 시각)
+            b = storage.save_texts(c, uid, self.doc("only line of B"))
+        with self.conn() as c:
+            rows = storage.list_texts(c, uid)
+            self.assertEqual([r["id"] for r in rows], [b, a])                            # 최근 수정 순
+            by = {r["id"]: r for r in rows}
+            self.assertEqual((by[a]["title"], by[a]["n_lines"], by[a]["first_text"]), ("내 제목", 2, "first line of A"))   # 제목은 앞뒤 공백 제거
+            self.assertEqual((by[b]["title"], by[b]["n_lines"]), (None, 1))               # 제목을 안 쓰면 NULL(화면이 자동 제목을 보여 줌)
+            self.assertNotIn("lines", rows[0])                                            # 목록에는 줄 전체를 싣지 않는다
+
+    def test_update_by_id_changes_title_and_lines_but_not_the_other_set(self):
+        uid, _ = self.new_user()
+        with self.conn() as c:
+            a = storage.save_texts(c, uid, self.doc("a1", "a2"))
+            b = storage.save_texts(c, uid, self.doc("b1"))
+            self.assertEqual(storage.save_texts(c, uid, self.doc("a1", "a2", "a3"), text_id=a, title="새 이름"), a)
+            got = storage.load_text_by_id(c, uid, a)
+            self.assertEqual((got["title"], [l["text"] for l in got["lines"]]), ("새 이름", ["a1", "a2", "a3"]))
+            self.assertEqual([l["text"] for l in storage.load_text_by_id(c, uid, b)["lines"]], ["b1"])
+            storage.save_texts(c, uid, self.doc("a1", "a2", "a3"), text_id=a, title="")       # 제목을 비우면 자동 제목으로 돌아간다
+            self.assertIsNone(storage.load_text_by_id(c, uid, a)["title"])
+
+    def test_users_are_isolated(self):
+        a, _ = self.new_user()
+        b, _ = self.new_user()
+        with self.conn() as c:
+            tid = storage.save_texts(c, a, self.doc("mine"))
+            self.assertIsNone(storage.load_text_by_id(c, b, tid))                          # 남의 묶음은 읽을 수 없다
+            self.assertEqual(storage.list_texts(c, b), [])
+            self.assertEqual(storage.text_line_ids(c, b, tid), {})
+            self.assertEqual(storage.delete_text(c, b, tid), 0)                            # 지울 수도 없다
+            with self.assertRaises(storage.TextSetMissing):
+                storage.save_texts(c, b, self.doc("hijack"), text_id=tid)                   # 갱신도 못 한다
+            self.assertEqual([l["text"] for l in storage.load_text_by_id(c, a, tid)["lines"]], ["mine"])
+
+    def test_missing_set_raises(self):
+        uid, _ = self.new_user()
+        with self.conn() as c:
+            with self.assertRaises(storage.TextSetMissing):
+                storage.save_texts(c, uid, self.doc("x"), text_id=999999999)
+
+    def test_limit_is_50_per_user_and_a_delete_frees_a_slot(self):
+        uid, _ = self.new_user()
+        other, _ = self.new_user()
+        with self.conn() as c:
+            ids = [storage.save_texts(c, uid, self.doc(f"line {i}")) for i in range(storage.MAX_TEXT_SETS)]
+            self.assertEqual(storage.count_texts(c, uid), 50)
+            with self.assertRaises(storage.TextSetLimit):
+                with c.transaction():
+                    storage.save_texts(c, uid, self.doc("one too many"))
+            storage.save_texts(c, uid, self.doc("edit is fine"), text_id=ids[0])           # 기존 묶음 갱신은 상한과 무관
+            storage.save_texts(c, other, self.doc("other user is separate"))               # 상한은 사용자별
+            self.assertEqual(storage.delete_text(c, uid, ids[1]), 1)
+            storage.save_texts(c, uid, self.doc("fits now"))
+            self.assertEqual(storage.count_texts(c, uid), 50)
+
+    def test_delete_removes_lines_but_keeps_practices(self):
+        uid, _ = self.new_user()
+        with self.conn() as c:
+            tid = storage.save_texts(c, uid, self.doc("a b", "c d"))
+            lid = storage.text_line_ids(c, uid, tid)[1]
+            pid = storage.append_practice(c, uid, {"source": "lyrics", "key": "k", "mode": "dictation", "ref_text": "a b", "line_id": lid})
+            self.assertEqual(storage.delete_text(c, uid, tid), 1)
+            self.assertEqual(c.execute("SELECT count(*) AS n FROM lines WHERE user_id = %s", (uid,)).fetchone()["n"], 0)      # 줄은 함께 삭제
+            row = c.execute("SELECT line_id, ref_text FROM practices WHERE id = %s", (pid,)).fetchone()
+            self.assertEqual((row["line_id"], row["ref_text"]), (None, "a b"))               # 연습 기록은 남고 줄 연결만 끊긴다
 
 
 class Cascade(WithDb):
@@ -532,6 +607,7 @@ class Cascade(WithDb):
             storage.add_token(c, uid, auth.token_hash("t"), auth.token_expiry(NOW))
             cid = storage.save_clip(c, uid, "d", 0, 10, {"lines": []})
             storage.save_texts(c, uid, {"lines": []})
+            storage.save_texts(c, uid, {"lines": [{"text": "second set"}]})
             storage.append_practice(c, uid, {"source": "song", "key": "k", "mode": "read", "clip_id": cid})
             other_cid = storage.save_clip(c, other, "d", 0, 10, {"lines": []})
             self.assertEqual(storage.delete_user(c, uid), 1)
