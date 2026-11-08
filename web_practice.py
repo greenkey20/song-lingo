@@ -249,6 +249,7 @@ def quality_chips(quality):
 
 
 def chips_html(chips):
+    """(글, 좋음 여부) 목록을 ✓/! 알약 모양 HTML로 만든다. 사용자 글이 섞일 수 있어 `html.escape`로 걸러 `unsafe_allow_html`에 안전하게 넣는다."""
     return "".join(f'<span class="sl-chip {"ok" if ok else "warn"}">{"✓" if ok else "!"} {html.escape(t)}</span>' for t, ok in chips)
 
 

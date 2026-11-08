@@ -129,6 +129,7 @@ def _default(o):
 
 
 def _jsonb(obj):
+    """파이썬 값을 JSONB 열에 넣을 수 있게 감싼다(numpy 숫자·집합 등은 `_default`가 바꿈, 한글은 그대로 `ensure_ascii=False`). None이면 None(= SQL NULL)."""
     return None if obj is None else Jsonb(obj, dumps=lambda o: json.dumps(o, default=_default, ensure_ascii=False))
 
 
@@ -150,6 +151,7 @@ def get_user(conn, username):
 
 
 def get_user_by_id(conn, user_id):
+    """사용자 id로 사용자 행 하나(없으면 None). 로그인 유지 토큰으로 사용자를 찾은 뒤 닉네임·저장 설정을 읽을 때 쓴다."""
     return conn.execute("SELECT * FROM users WHERE id = %s", (user_id,)).fetchone()
 
 
@@ -211,6 +213,7 @@ def purge_expired_tokens(conn, now):
 
 # ---------- 줄(lines): 구간·내 문장의 줄 단위 저장 (검토 문서 16.17 3단계) ----------
 def _num3(v):
+    """초 단위 값을 소수 3자리 Decimal로(줄의 시작·끝 시각, DB의 NUMERIC(9,3)). None이면 None."""
     return Decimal(str(round(float(v), 3))) if v is not None else None
 
 
@@ -369,6 +372,7 @@ def save_texts(conn, user_id, doc, text_id=None, title=None):
 
 
 def count_texts(conn, user_id):
+    """사용자의 문장 묶음 개수(상한 MAX_TEXT_SETS 검사에 쓴다)."""
     return conn.execute("SELECT count(*) AS n FROM texts WHERE user_id = %s", (user_id,)).fetchone()["n"]
 
 
@@ -416,6 +420,7 @@ def list_practices(conn, user_id, limit=500, key=None):
 
 
 def count_practices(conn, user_id):
+    """사용자의 연습 기록 개수."""
     return conn.execute("SELECT count(*) AS n FROM practices WHERE user_id = %s", (user_id,)).fetchone()["n"]
 
 
@@ -437,6 +442,7 @@ def put_meaning(conn, cache_key, kind, lang, content, model, prompt_version):
 
 # ---------- 명령줄: python storage.py migrate | ping | import-meanings | reset-password <아이디> ----------
 def _main(argv):
+    """명령줄 진입점: `python storage.py ping | migrate | import-meanings | reset-password <아이디>`. 접속 정보는 `.env`에서 읽고 **값은 출력하지 않는다**. 성공하면 0, 실패·설정 없음이면 1을 돌려준다."""
     from dotenv import load_dotenv
     load_dotenv(Path(__file__).resolve().parent / ".env")           # 값은 출력하지 않는다
     if not enabled():

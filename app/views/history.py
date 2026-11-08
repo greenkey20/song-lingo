@@ -5,6 +5,10 @@
 - **게스트**(서버 DB 모드): 이번 세션에서 한 연습만(저장되지 않음, 공유 CSV는 쓰지 않는다).
 - **저장소 설정이 없을 때**(내 컴퓨터 개발): 기록 CSV(practice_log.py). CSV에는 문장 글이 없고 key만 있어서, 글은 sentences.csv(예시 문장)나
   이번 세션에서 연습한 글(session_state)에서 key로 찾고 못 찾으면 key를 그대로 보여 준다.
+
+주의: 표에는 점수(WER·CER·S/D/I)만 나오고 **인식문(`practices.hyp_text`)은 아직 화면에 없다**(DB에는 저장돼 있음, 개선 후보).
+
+수업과의 관계: [수업에 없음] 이 파일 전체(Streamlit 화면). 그래프는 `st.line_chart`, 표는 pandas `DataFrame`(수업 1~7강에는 없음, 자습 노트북 WER·CER과는 점수 정의가 같음).
 """
 import io
 

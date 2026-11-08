@@ -64,10 +64,12 @@ def delete_workspace(ws):
 
 
 def work_dir(ws):
+    """작업 폴더 안의 `work/`(잘라 낸 구간 wav·보컬 분리 결과 등 오디오가 놓이는 곳)."""
     return Path(ws) / "work"
 
 
 def practice_dir(ws):
+    """작업 폴더 안의 `practice/`(줄 목록 `lines.json`과 표준 발음 정보가 놓이는 곳)."""
     return Path(ws) / "practice"
 
 

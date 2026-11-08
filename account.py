@@ -17,6 +17,7 @@ FAIL_MESSAGE = "아이디나 비밀번호가 맞지 않아요."
 
 
 def _now():
+    """지금 시각(UTC, 시간대 정보 포함). 토큰 만료·잠금 계산의 기준 시각을 한곳에서 만들고, 시험에서는 `now=` 인자로 대신 넣을 수 있다."""
     return datetime.now(timezone.utc)
 
 

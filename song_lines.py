@@ -25,18 +25,22 @@ LOW_LOGPROB = -0.6            # 평균 로그확률이 이보다 낮으면 인�
 
 
 def _n_words(line):
+    """줄의 단어 수: 단어별 시간이 있으면 그 개수, 없으면 공백으로 나눈 개수(일본어 등 공백 없는 글은 1로 셈)."""
     return len(line["words"]) if line["words"] is not None else len(line["text"].split())
 
 
 def _dur(line):
+    """줄의 길이(초) = 끝 − 시작."""
     return line["end"] - line["start"]
 
 
 def _too_long(line, max_sec, max_words):
+    """줄이 너무 긴가: 길이가 max_sec를 넘거나 단어 수가 max_words를 넘으면 True."""
     return _dur(line) > max_sec or _n_words(line) > max_words
 
 
 def _from_segment(i, seg):
+    """Whisper 구간 하나(seg)를 '줄' 하나로 바꾼다(처음에는 구간 하나 = 줄 하나, 나중에 쪼개거나 합친다). `parts`에 원본 구간을 남겨 신뢰 지표를 추적한다."""
     words = seg.get("words")
     return {"start": seg["start"], "end": seg["end"], "text": seg["text"].strip(), "words": words,
             "segment_ids": [i], "source": "segment", "parts": [seg]}
@@ -59,6 +63,7 @@ def _split_once(line, sep=" "):
 
 
 def _split_long(line, max_sec, max_words, sep=" "):
+    """너무 긴 줄을 단어 사이 가장 큰 쉼에서 둘로 나누고, 나뉜 조각이 아직 길면 되풀이한다. 단어 시간이 없어 못 나누면 그대로 두고 too_long 표시만 한다."""
     if not _too_long(line, max_sec, max_words):
         return [line]
     halves = _split_once(line, sep)
@@ -68,6 +73,7 @@ def _split_long(line, max_sec, max_words, sep=" "):
 
 
 def _merge(a, b, sep=" "):
+    """두 줄(a, b)을 한 줄로 합친다: 글은 sep으로 잇고 시간은 a.start~b.end, segment_ids·원본 구간은 중복 없이 합친다(`source`는 "merged")."""
     words = (a["words"] or []) + (b["words"] or []) if a["words"] is not None and b["words"] is not None else None
     return {"start": a["start"], "end": b["end"], "text": (a["text"] + sep + b["text"]).strip(), "words": words,
             "segment_ids": a["segment_ids"] + [i for i in b["segment_ids"] if i not in a["segment_ids"]],
@@ -75,6 +81,7 @@ def _merge(a, b, sep=" "):
 
 
 def _merge_short(lines, min_sec, min_words, max_sec, max_words, max_merge_gap, sep=" "):
+    """너무 짧은 줄(min_sec 미만 또는 min_words 미만)을 앞뒤 줄과 합친다. 쉼이 짧은 이웃부터 시도하고, 쉼이 max_merge_gap 이하이고 합쳐도 너무 길지 않을 때만 합친다(자막처럼 한두 단어가 따로 떨어지는 것을 막는다). 합친 줄은 앞 줄과 또 합칠 수 있어 다시 검사한다."""
     lines = list(lines)
     i = 0
     while i < len(lines):
@@ -102,6 +109,7 @@ def _merge_short(lines, min_sec, min_words, max_sec, max_words, max_merge_gap, s
 
 
 def _low_confidence(parts):
+    """부모 구간 중 하나라도 압축률이 높거나(LOW_COMPRESSION 초과) 평균 로그확률이 낮으면(LOW_LOGPROB 미만) True: 인식이 불안정하다는 **힌트**(줄을 버리지는 않음)."""
     return any((p.get("compression_ratio") or 0) > LOW_COMPRESSION or (p.get("avg_logprob") if p.get("avg_logprob") is not None else 0) < LOW_LOGPROB
                for p in parts)
 

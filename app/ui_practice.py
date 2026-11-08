@@ -241,6 +241,7 @@ def _result_html(res, prep):
 
 
 def _show_result(res, prep, mode):
+    """채점 결과 한 번(res)을 화면에 그린다. 오류가 있으면 안내만 보여 주고, 없으면 점수 카드, 녹음 상태 경고(안내일 뿐 채점은 그대로 진행), 기준 문장 대 인식한 녹음(받아쓰기는 내가 적은 글)의 단어(공백 없는 언어는 글자) 대조를 보여 준다."""
     if res["error"]:
         st.warning(res["error"])
         return
