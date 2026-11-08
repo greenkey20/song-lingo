@@ -296,8 +296,11 @@ def make_tts(ws, synth=None, only=None):
     return song_practice.make_tts(CLIP_ID, out_dir=practice_dir(ws), generate=True, synth=synth, statuses=PRACTICE_STATUSES, only=only)
 
 
+CONTEXT_PAD = 5.0      # '앞뒤 5초도 함께 듣기'를 켰을 때 줄 앞뒤로 더하는 초(앞뒤 문맥을 들어 보려는 용도, 이슈 #12)
+
+
 def line_range(line, clip_seconds, pad=0.1):
-    """줄 하나의 재생 구간 (시작, 끝)을 앞뒤로 pad초 넓혀 [0, clip_seconds] 안에 맞춘다."""
+    """줄 하나의 재생 구간 (시작, 끝)을 앞뒤로 pad초 넓혀 [0, clip_seconds] 안에 맞춘다(구간의 처음·끝을 넘지 않음). pad=CONTEXT_PAD면 앞뒤 문맥까지 듣는다."""
     return max(0.0, line["start"] - pad), min(float(clip_seconds), line["end"] + pad)
 
 

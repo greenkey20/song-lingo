@@ -120,7 +120,12 @@ def lines_section(ws, doc, clip_seconds, mix_path, voc_path, has_audio):
     else:
         src = "표준 발음"
         st.caption("곡 소리는 저장하지 않아서 원본 음악·보컬만은 들을 수 없어요. 들으려면 '음원 파일 업로드'에서 같은 곡을 다시 올리세요.")
-    a, b = web_song.line_range(ln, clip_seconds)
+    wide = False
+    if has_audio and src != "표준 발음":
+        wide = st.toggle(f"앞뒤 {int(web_song.CONTEXT_PAD)}초도 함께 듣기", key="listen_wide",
+                         help="이 줄 앞뒤의 소리까지 이어서 들어요(문맥 확인용). 구간의 처음·끝을 넘지는 않아요. 재생 속도는 플레이어의 ⋮ 메뉴에서 바꿀 수 있어요(브라우저 기능).")
+    pad = web_song.CONTEXT_PAD if wide else 0.1
+    a, b = web_song.line_range(ln, clip_seconds, pad=pad)
     vs = web_song.vocals_status(ws) if has_audio else {"state": "none"}
     if vs["state"] == "running" and src != "보컬만":
         st.caption(f"보컬 분리가 뒤에서 진행 중이에요({int(vs['elapsed'])}초 경과). '보컬만'을 고르면 상태를 볼 수 있어요.")
@@ -179,7 +184,7 @@ def lines_section(ws, doc, clip_seconds, mix_path, voc_path, has_audio):
                 st.rerun()
     else:
         st.audio(mix_path, format="audio/wav", start_time=a, end_time=b)
-        st.caption("원곡의 이 줄 부분이에요(앞뒤 0.1초 여유).")
+        st.caption("원곡의 이 줄 부분이에요" + (f"(앞뒤 {int(pad)}초 포함)." if wide else "(앞뒤 0.1초 여유)."))
 
     # ---------- 6. 연습 ----------
     st.subheader("연습")

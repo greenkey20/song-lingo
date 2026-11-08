@@ -327,6 +327,19 @@ class SaveRestore(unittest.TestCase):
 
 
 
+class ListenContext(unittest.TestCase):
+    """줄 듣기의 '앞뒤 5초도 함께 듣기'(이슈 #12): line_range의 pad가 구간 안으로 잘리는지."""
+    LINE = {"start": 8.0, "end": 11.0}
+
+    def test_default_pad_is_tenth_of_a_second_and_context_pad_is_five(self):
+        self.assertEqual(web_song.line_range(self.LINE, 30), (7.9, 11.1))
+        self.assertEqual(web_song.line_range(self.LINE, 30, pad=web_song.CONTEXT_PAD), (3.0, 16.0))
+
+    def test_context_is_clamped_to_the_clip(self):
+        self.assertEqual(web_song.line_range({"start": 1.0, "end": 3.0}, 8, pad=5.0), (0.0, 8.0))     # 처음·끝을 넘지 않는다
+        self.assertEqual(web_song.line_range({"start": 27.0, "end": 29.5}, 30, pad=5.0), (22.0, 30.0))
+
+
 class ClipLabels(unittest.TestCase):
     """저장된 구간 목록의 글(이슈 #73): 좁은 화면에서 잘려도 구분되도록 알아볼 단서를 앞에 둔다."""
     from datetime import datetime, timezone
