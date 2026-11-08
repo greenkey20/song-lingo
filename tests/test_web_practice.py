@@ -23,6 +23,15 @@ class Lyrics(unittest.TestCase):
         self.assertEqual(keys[0], wp.line_keys(["Hello there."])[0])                   # 첫 번째 줄의 열쇠는 그대로(반복이 아닐 때와 같음)
         self.assertEqual(wp.line_keys([]), [])
 
+    def test_text_set_label_uses_title_or_auto_title_from_first_line(self):
+        from datetime import datetime, timezone
+        when = datetime(2026, 11, 8, 9, 10, tzinfo=timezone.utc)                       # 18:10 서울
+        auto = wp.text_set_label({"title": None, "first_text": "Hello there, how are you?", "n_lines": 10, "updated_at": when})
+        self.assertEqual(auto, "“Hello there, h…” · 10줄 · 11-08 18:10")                 # 제목이 없으면 첫 줄 앞 14자(자동 제목)
+        self.assertEqual(wp.text_set_label({"title": " 아침 연습 ", "first_text": "x", "n_lines": 3, "updated_at": when}), "아침 연습 · 3줄 · 11-08 18:10")
+        self.assertEqual(wp.text_set_label({"title": None, "first_text": "short", "n_lines": 1, "updated_at": when}), "“short” · 1줄 · 11-08 18:10")
+        self.assertTrue(wp.text_set_label({"title": None, "first_text": None, "n_lines": 0, "updated_at": None}).startswith("빈 묶음"))
+
     def test_example_lyrics_by_id(self):
         sents = [{"id": "1", "sentence": "One."}, {"id": "2", "sentence": "Two."}, {"id": "9", "sentence": "Nine."}]
         self.assertEqual(wp.example_lyrics(("2", "1", "7"), sents), "Two.\nOne.")

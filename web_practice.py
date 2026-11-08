@@ -9,6 +9,7 @@
   모든 글자를 `html.escape`로 바꿔 넣는다(HTML 태그로 해석되는 것을 막는 기본 안전장치).
 """
 import html
+from zoneinfo import ZoneInfo
 
 import numpy as np
 
@@ -65,6 +66,17 @@ def example_set(name, sentences=None):
 def split_lyrics(text):
     """가사 글을 줄 목록으로 나눈다(앞뒤 공백을 지우고 빈 줄은 뺀다)."""
     return [ln.strip() for ln in str(text).splitlines() if ln.strip()]
+
+
+def text_set_label(s):
+    """저장된 내 문장 묶음을 고르는 상자의 한 줄 글(좁은 화면에서 잘려도 알아보도록 앞쪽에 단서): `제목 · N줄 · 11-08 18:10`.
+    제목을 입력하지 않았으면 **첫 줄 앞 14자**로 자동 제목을 보여 준다(저장하지 않고 보여 줄 때 계산해서, 첫 줄을 고치면 제목도 따라간다).
+    s는 storage.list_texts의 한 행(title·first_text·n_lines·updated_at)."""
+    first = (s.get("first_text") or "").strip()
+    name = (s.get("title") or "").strip() or (f"“{first[:14]}{'…' if len(first) > 14 else ''}”" if first else "빈 묶음")
+    t = s.get("updated_at") or s.get("created_at")
+    when = t.astimezone(ZoneInfo("Asia/Seoul")).strftime("%m-%d %H:%M") if t else ""
+    return " · ".join(x for x in (name, f"{s.get('n_lines', 0)}줄", when) if x)
 
 
 def line_keys(lines):

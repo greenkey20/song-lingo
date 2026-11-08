@@ -21,17 +21,32 @@ SOURCE = {"script": "문자 체계로 본 것", "words": "자주 쓰는 낱말�
 
 st.title("내 문장")
 st.caption("연습할 문장이나 가사를 한 줄에 하나씩 쓰거나 붙여 넣어요. 어떤 언어인지 몰라도 돼요. "
-           + ("로그인하면 이 문장 목록이 서버에 저장돼서 다음에 이어서 쓸 수 있어요(저장을 끄면 저장하지 않아요)." if auth_gate.is_user()
+           + ("로그인하면 입력한 내용이 **묶음**으로 서버에 저장돼서(최대 50개) 다음에 골라서 이어 쓸 수 있어요(저장을 끄면 저장하지 않아요)." if auth_gate.is_user()
               else "게스트로는 이 화면에만 있고 저장되지 않아요."))
 
 if "lyrics" not in st.session_state:
     st.session_state["lyrics"] = ""
 
 
-def restore_sentences(saved):
-    """'저장된 내 문장 불러오기' 버튼의 on_click: 저장해 둔 줄과 줄마다 확인한 언어를 입력칸과 언어 확인 단계에 되살린다(콜백은 위젯이 만들어지기 전에 실행됨)."""
+def _clear_answers():
+    """줄마다 확인한 언어 답과 '언어 알아보기' 결과를 비운다(다른 묶음을 불러오거나 새로 시작할 때 이전 묶음의 답이 남지 않게)."""
+    for k in [k for k in st.session_state if str(k).startswith(("lyr_ans_", "lyr_pick_"))]:
+        del st.session_state[k]
+    for k in ("lyr_det", "lyr_det_for"):
+        st.session_state.pop(k, None)
+
+
+def restore_text_set(set_id):
+    """'불러오기' 버튼의 on_click: 저장된 묶음의 글·제목·줄마다 확인한 언어를 입력칸과 언어 확인 단계에 되살리고 그 묶음을 '지금 묶음'으로 한다
+    (콜백은 위젯이 만들어지기 전에 실행됨). 이후 자동 저장은 이 묶음을 갱신한다."""
+    saved = persist.saved_text(set_id) if set_id is not None else None
+    if not saved:
+        st.toast("묶음을 불러오지 못했어요.", icon="⚠️")
+        return
     entries = saved.get("lines") or []
+    _clear_answers()
     st.session_state["lyrics"] = "\n".join(e["text"] for e in entries)
+    st.session_state["lyr_title"] = saved.get("title") or ""
     dets = {}
     for e, k in zip(entries, wp.line_keys([e["text"] for e in entries])):      # 아래 keys와 같은 공식(같은 글이 반복되면 열쇠에 번호가 붙는다)
         ln = e["text"]
@@ -46,6 +61,35 @@ def restore_sentences(saved):
                 st.session_state[f"lyr_pick_{k}"] = [c for c in langs if c in languages.COMMON]
     st.session_state["lyr_det"] = dets
     st.session_state["lyr_det_for"] = True
+    st.session_state["lyr_confirm_del"] = False
+    persist.use_text(set_id)
+
+
+def new_text_set():
+    """'새 묶음으로 시작' 버튼의 on_click: 입력칸·제목·언어 답을 비우고 지금 묶음과의 연결을 끊는다(다음 입력의 첫 저장이 새 묶음이 된다)."""
+    _clear_answers()
+    st.session_state["lyrics"] = ""
+    st.session_state["lyr_title"] = ""
+    st.session_state["lyr_confirm_del"] = False
+    persist.start_new_text()
+
+
+def ask_delete():
+    st.session_state["lyr_confirm_del"] = True
+
+
+def cancel_delete():
+    st.session_state["lyr_confirm_del"] = False
+
+
+def do_delete(set_id):
+    """'삭제하기' 버튼의 on_click: 묶음을 지우고(줄은 함께, 연습 기록은 남음) 입력칸을 비운다."""
+    if persist.delete_text_set(set_id):
+        new_text_set()
+        st.session_state["lyr_set_pick"] = None
+        st.toast("묶음을 삭제했어요.")
+    else:
+        st.session_state["lyr_confirm_del"] = False
 
 
 def load_example():
@@ -53,14 +97,38 @@ def load_example():
     st.session_state["lyrics"] = wp.example_set(st.session_state["lyr_example"])
 
 
-# ---------- 0. 저장된 내 문장 불러오기 (로그인한 사용자, 입력칸이 비어 있을 때만) ----------
-saved = persist.saved_texts()
-if saved and (saved.get("lines")) and not st.session_state.get("lyrics", "").strip():
-    st.button(f"저장된 내 문장 불러오기 ({len(saved['lines'])}줄)", type="primary", key="lyr_restore", on_click=restore_sentences, args=(saved,))
+# ---------- 0. 저장된 묶음 (로그인한 사용자) ----------
+# 묶음 하나 = 입력창 하나의 내용 전체. 입력을 고치는 동안은 같은 묶음이 자동 저장으로 갱신되고, "새 묶음으로 시작"을 눌러야 새 묶음이 만들어진다.
+if auth_gate.is_user():
+    sets = persist.text_sets()
+    by_id = {x["id"]: x for x in sets}
+    cur = st.session_state.get("text_id")
+    with st.container(border=True):
+        if sets:
+            pick = st.selectbox("저장된 묶음", list(by_id), index=None, format_func=lambda i: wp.text_set_label(by_id[i]), key="lyr_set_pick",
+                                placeholder=f"저장된 묶음 {len(sets)}개 · 골라서 불러오기")
+            b1, b2 = st.columns(2)
+            b1.button("불러오기", type="primary", key="lyr_set_load", on_click=restore_text_set, args=(pick,), disabled=pick is None, width="stretch")
+            b2.button("새 묶음으로 시작", key="lyr_set_new", on_click=new_text_set, width="stretch")
+        else:
+            st.caption("저장된 묶음이 아직 없어요. 아래에 입력하면 첫 묶음으로 자동 저장돼요(저장을 켜 둔 경우).")
+        if cur in by_id:
+            st.caption(f"지금 묶음: {wp.text_set_label(by_id[cur])}")
+            if st.session_state.get("lyr_confirm_del"):
+                st.warning(f"이 묶음({by_id[cur]['n_lines']}줄)을 삭제할까요? 연습 기록은 남아요.")
+                d1, d2 = st.columns(2)
+                d1.button("삭제하기", type="primary", key="lyr_del_yes", on_click=do_delete, args=(cur,), width="stretch")
+                d2.button("취소", key="lyr_del_no", on_click=cancel_delete, width="stretch")
+            else:
+                st.button("이 묶음 삭제", key="lyr_del_ask", on_click=ask_delete)
+        elif sets:
+            st.caption("지금은 저장되지 않은 새 입력이에요. 입력하면 새 묶음으로 저장돼요.")
 
 # ---------- 1. 입력 (맨 위) ----------
 text = st.text_area("문장", key="lyrics", height=150, label_visibility="collapsed",
                     placeholder="연습할 문장이나 가사를 한 줄에 하나씩 적거나 붙여 넣으세요. (영어, 일본어, 프랑스어 …)")
+if auth_gate.is_user():
+    st.text_input("제목 (선택)", key="lyr_title", max_chars=60, placeholder="제목 (선택): 비우면 첫 줄과 저장 시각으로 보여 드려요")
 e1, e2, e3 = st.columns([1.3, 1.3, 3], vertical_alignment="center")
 e1.selectbox("예시 묶음", wp.EXAMPLE_NAMES, key="lyr_example", label_visibility="collapsed")
 e2.button("예시 문장 불러오기", on_click=load_example)
@@ -128,7 +196,12 @@ for n, (ln, k) in enumerate(zip(lines, keys), 1):
                 st.caption(note)
 
 persist.autosave_texts([{"text": ln, "languages": answers[n]["languages"] if n in answers else None,
-                           "lang": answers[n]["lang"] if n in answers else None} for n, ln in enumerate(lines, 1)])      # 로그인+저장 켬일 때만
+                         "lang": answers[n]["lang"] if n in answers else None} for n, ln in enumerate(lines, 1)],
+                       title=st.session_state.get("lyr_title"))      # 로그인+저장 켬일 때만. 지금 묶음을 갱신하고, 묶음이 없으면 새로 만든다
+if st.session_state.pop("text_rerun", False):
+    st.rerun()                                                              # 저장했거나 상한에 처음 걸렸을 때: 최신 묶음 목록으로 화면을 다시 그린다(무한 반복 아님: 다음 실행에서는 저장할 것이 없다)
+if st.session_state.get("text_limit"):
+    st.warning("저장된 묶음이 50개예요. 새 묶음은 저장되지 않아요. 위에서 오래된 묶음을 삭제하면 다시 저장돼요(연습은 계속 할 수 있어요).")
 if not answers:
     st.info("줄마다 언어를 확인하면 아래에서 표준 발음을 만들고 연습할 수 있어요.")
     st.stop()

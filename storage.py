@@ -209,22 +209,6 @@ def purge_expired_tokens(conn, now):
     return conn.execute("DELETE FROM login_tokens WHERE expires_at <= %s", (now,)).rowcount
 
 
-# ---------- 구간(clips): 곡 하나에서 구간 여러 개 (검토 문서 16.17) ----------
-def _num(v):
-    """초 단위 값을 소수 2자리 Decimal로(DB의 NUMERIC(9,2)와 같은 정밀도). 같은 구간을 찾을 때 실수 오차로 어긋나지 않게 저장·조회 모두 이 값을 쓴다."""
-    return Decimal(str(round(float(v), 2)))
-
-
-def _clip(row):
-    """DB 행의 NUMERIC(Decimal)을 파이썬 float로 바꿔 돌려준다(화면·JSON에서 다루기 쉽게). None이면 None."""
-    if row is None:
-        return None
-    for k in ("song_duration_sec", "clip_start_sec", "clip_duration_sec"):
-        if row.get(k) is not None:
-            row[k] = float(row[k])
-    return row
-
-
 # ---------- 줄(lines): 구간·내 문장의 줄 단위 저장 (검토 문서 16.17 3단계) ----------
 def _num3(v):
     return Decimal(str(round(float(v), 3))) if v is not None else None
@@ -272,10 +256,10 @@ def clip_line_ids(conn, user_id, clip_id):
     return {r["line_no"]: r["id"] for r in conn.execute("SELECT id, line_no FROM lines WHERE user_id = %s AND clip_id = %s", (user_id, clip_id)).fetchall()}
 
 
-def text_line_ids(conn, user_id):
-    """내 문장 묶음의 {줄 번호: lines.id}."""
+def text_line_ids(conn, user_id, text_id):
+    """내 문장 묶음의 {줄 번호: lines.id}(남의 묶음이면 빈 dict)."""
     return {r["line_no"]: r["id"] for r in conn.execute(
-        "SELECT l.id, l.line_no FROM lines l JOIN texts t ON t.id = l.text_id WHERE l.user_id = %s AND t.user_id = %s", (user_id, user_id)).fetchall()}
+        "SELECT l.id, l.line_no FROM lines l JOIN texts t ON t.id = l.text_id WHERE l.text_id = %s AND t.user_id = %s", (text_id, user_id)).fetchall()}
 
 
 # ---------- 구간(clips): 곡 하나에서 구간 여러 개 (검토 문서 16.17) ----------
@@ -354,20 +338,60 @@ def list_clips_of(conn, user_id, audio_sha1):
     return [_clip(r) for r in rows]
 
 
-# ---------- 내 문장(texts) ----------
-def save_texts(conn, user_id, doc):
-    """내 문장 목록(줄 글과 줄마다 확인한 언어)을 저장한다(지금은 사용자당 한 묶음). 줄은 lines 테이블에, 묶음 행에는 수정 시각만 갱신한다."""
-    row = conn.execute("INSERT INTO texts (user_id) VALUES (%s) ON CONFLICT (user_id) DO UPDATE SET updated_at = now() RETURNING id", (user_id,)).fetchone()
+# ---------- 내 문장 묶음(texts): 사용자당 여러 개 (검토 문서 16.17 13절) ----------
+MAX_TEXT_SETS = 50            # 사용자당 문장 묶음 상한(사용자 결정 11-08)
+
+
+class TextSetLimit(StorageError):
+    """묶음이 상한(MAX_TEXT_SETS)에 이르러 새로 만들 수 없다(오래된 묶음을 삭제하면 다시 만들 수 있다)."""
+
+
+class TextSetMissing(StorageError):
+    """갱신하려던 묶음이 없다(다른 곳에서 삭제됨)."""
+
+
+def save_texts(conn, user_id, doc, text_id=None, title=None):
+    """내 문장 묶음을 저장하고 묶음 id를 돌려준다. text_id가 없으면 **새 묶음**(상한을 넘으면 TextSetLimit), 있으면 그 묶음을 갱신한다
+    (없거나 남의 것이면 TextSetMissing). doc은 {"lines": [{"text","languages","lang"}]}: 줄은 lines 테이블에 줄 번호 기준으로 저장한다.
+    title: 사용자가 입력한 제목(앞뒤 공백을 지우고, 비면 None = 화면이 자동 제목을 보여 줌)."""
+    title = (title or "").strip() or None
+    if text_id is None:
+        if count_texts(conn, user_id) >= MAX_TEXT_SETS:
+            raise TextSetLimit("문장 묶음이 최대 개수에 이르렀습니다.")
+        row = conn.execute("INSERT INTO texts (user_id, title) VALUES (%s, %s) RETURNING id", (user_id, title)).fetchone()
+    else:
+        row = conn.execute("UPDATE texts SET title = %s, updated_at = now() WHERE id = %s AND user_id = %s RETURNING id",
+                           (title, text_id, user_id)).fetchone()
+        if row is None:
+            raise TextSetMissing("문장 묶음을 찾을 수 없습니다.")
     _sync_lines(conn, user_id, "text", row["id"], (doc or {}).get("lines") or [])
+    return row["id"]
 
 
-def load_texts(conn, user_id):
-    """내 문장 목록 dict {"lines": [{"text","languages","lang"}]}(저장된 묶음이 없으면 None)."""
-    row = conn.execute("SELECT id FROM texts WHERE user_id = %s", (user_id,)).fetchone()
+def count_texts(conn, user_id):
+    return conn.execute("SELECT count(*) AS n FROM texts WHERE user_id = %s", (user_id,)).fetchone()["n"]
+
+
+def list_texts(conn, user_id):
+    """내 문장 묶음 목록(최근 수정 순). 줄 전체 대신 id·제목·시각·줄 수(n_lines)·첫 줄 글(first_text: 목록에서 알아보는 단서)만 돌려준다."""
+    return conn.execute(
+        "SELECT id, title, created_at, updated_at, (SELECT count(*) FROM lines WHERE lines.text_id = texts.id) AS n_lines, "
+        "(SELECT text FROM lines WHERE lines.text_id = texts.id ORDER BY line_no LIMIT 1) AS first_text "
+        "FROM texts WHERE user_id = %s ORDER BY updated_at DESC, id DESC", (user_id,)).fetchall()
+
+
+def load_text_by_id(conn, user_id, text_id):
+    """묶음 하나 {"id","title","lines": [{"text","languages","lang"}]}(없거나 남의 것이면 None)."""
+    row = conn.execute("SELECT id, title FROM texts WHERE id = %s AND user_id = %s", (text_id, user_id)).fetchone()
     if row is None:
         return None
     rows = conn.execute("SELECT text, languages, lang FROM lines WHERE text_id = %s ORDER BY line_no", (row["id"],)).fetchall()
-    return {"lines": [{"text": r["text"], "languages": r["languages"], "lang": r["lang"]} for r in rows]}
+    return {"id": row["id"], "title": row["title"], "lines": [{"text": r["text"], "languages": r["languages"], "lang": r["lang"]} for r in rows]}
+
+
+def delete_text(conn, user_id, text_id):
+    """문장 묶음 하나를 지운다(줄은 연쇄 삭제, 연습 기록은 남고 line_id만 NULL). 지운 개수를 돌려준다. 남의 묶음은 지울 수 없다."""
+    return conn.execute("DELETE FROM texts WHERE id = %s AND user_id = %s", (text_id, user_id)).rowcount
 
 
 # ---------- 연습 기록(practices) ----------

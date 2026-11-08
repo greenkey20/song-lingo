@@ -173,39 +173,99 @@ def autosave_clip(audio_sha1, ws, name, seconds, input_kind, cut=None):
     return False
 
 
-# ---------- 내 문장(texts) ----------
-def saved_texts():
-    """서버에 저장된 내 문장 목록 dict({"lines": [{"text", "languages", "lang"}]}) 또는 None. 세션에 한 번만 읽어 둔다."""
+# ---------- 내 문장 묶음(texts): 사용자당 여러 개 (검토 문서 16.17 13절) ----------
+# 묶음 하나 = 내 문장 입력창 하나의 내용 전체. 세션의 `text_id`가 "지금 편집 중인 묶음"이고, 없으면(새로 시작) 첫 저장이 새 묶음을 만든다.
+def text_sets():
+    """저장된 내 문장 묶음 목록(최근 수정 순, 가벼운 열). 게스트이거나 읽기에 실패하면 빈 목록. 세션에 한 번 읽어 두고 저장·삭제 때 비운다."""
+    if not auth_gate.is_user():
+        return []
+    ss = st.session_state
+    if "text_sets" not in ss:
+        uid = ss["uid"]
+        ok, rows = _call(lambda conn: storage.list_texts(conn, uid))
+        if not ok:
+            return []                                      # 읽기 실패는 캐시하지 않는다(다음에 다시 시도)
+        ss["text_sets"] = rows or []
+    return ss["text_sets"]
+
+
+def saved_text(text_id):
+    """묶음 하나 {"id","title","lines"}(없거나 게스트면 None)."""
     if not auth_gate.is_user():
         return None
+    uid = st.session_state["uid"]
+    ok, doc = _call(lambda conn: storage.load_text_by_id(conn, uid, text_id))
+    return doc if ok else None
+
+
+def _forget_text_state():
+    for k in ("saved_texts_hash", "text_line_ids", "text_limit"):
+        st.session_state.pop(k, None)
+
+
+def start_new_text():
+    """'새 묶음으로 시작': 지금 묶음과의 연결을 끊는다. 다음 입력의 첫 저장이 새 묶음을 만든다."""
+    st.session_state.pop("text_id", None)
+    _forget_text_state()
+
+
+def use_text(text_id):
+    """저장된 묶음을 '지금 묶음'으로 한다(불러오기). 이후 자동 저장은 이 묶음을 갱신한다."""
+    st.session_state["text_id"] = text_id
+    _forget_text_state()
+
+
+def delete_text_set(text_id):
+    """문장 묶음 하나를 지운다(내 노래의 구간과 달리 묶음은 삭제를 허용: 상한 50과 함께 쓸 때 막다른 길을 피함). 지금 묶음이면 연결도 끊는다."""
+    if not auth_gate.is_user():
+        return False
     ss = st.session_state
-    if "saved_texts" not in ss:
-        uid = ss["uid"]
-        ok, doc = _call(lambda conn: storage.load_texts(conn, uid))
-        if not ok:
-            return None
-        ss["saved_texts"] = doc
-    return ss["saved_texts"]
+    uid = ss["uid"]
+    if not _run(lambda conn: storage.delete_text(conn, uid, text_id)):
+        return False
+    if ss.get("text_id") == text_id:
+        start_new_text()
+    ss.pop("text_sets", None)
+    return True
 
 
-def autosave_texts(entries):
-    """내 문장 줄 목록(entries: [{"text", "languages", "lang"}])이 바뀌었으면 저장한다. 줄이 없으면 저장하지 않는다."""
+def autosave_texts(entries, title=None):
+    """내 문장 줄 목록(entries: [{"text", "languages", "lang"}])과 제목이 바뀌었으면 지금 묶음에 저장한다(묶음이 없으면 새로 만든다). 줄이 없으면 저장하지 않는다.
+    묶음이 상한(50개)이면 저장하지 않고 세션에 `text_limit`를 켠다(삭제하거나 다른 묶음을 불러오기 전까지 다시 시도하지 않음). 저장한 묶음의 줄 id는
+    `text_line_ids`에 보관해 연습 기록이 줄과 이어지게 한다."""
     if not auth_gate.save_enabled() or not entries:
         return False
     doc = {"lines": entries}
     ss = st.session_state
-    h = _digest_of(doc)
+    tid = ss.get("text_id")
+    h = _digest_of([doc, title or "", tid])
     if ss.get("saved_texts_hash") == h and "text_line_ids" in ss:
         return True
+    if tid is None and ss.get("text_limit"):
+        return False
     uid = ss["uid"]
     holder = {}
 
     def act(conn):
-        storage.save_texts(conn, uid, doc)
-        holder["ids"] = storage.text_line_ids(conn, uid)
-    if _run(act):
-        ss["saved_texts_hash"] = h
-        ss["saved_texts"] = doc
-        ss["text_line_ids"] = holder["ids"]                 # 연습 기록이 줄(lines.id)과 이어지도록 {줄 번호: id}를 보관
-        return True
-    return False
+        try:
+            holder["id"] = storage.save_texts(conn, uid, doc, tid, title)
+        except storage.TextSetLimit:
+            holder["limit"] = True
+            return
+        except storage.TextSetMissing:                      # 다른 곳(다른 탭 등)에서 지워졌다면 새 묶음으로 저장한다
+            holder["id"] = storage.save_texts(conn, uid, doc, None, title)
+        holder["ids"] = storage.text_line_ids(conn, uid, holder["id"])
+    if not _run(act):
+        return False
+    if holder.get("limit"):
+        ss["text_limit"] = True
+        ss.pop("text_sets", None)                           # 묶음 목록을 새로 읽어 위의 선택 상자(삭제할 묶음 고르기)가 보이게
+        ss["text_rerun"] = True                             # 이 화면은 목록을 이미 그린 뒤라서 한 번 다시 그리게 한다(lyrics.py가 처리)
+        return False
+    ss["text_limit"] = False
+    ss["text_id"] = holder["id"]
+    ss["saved_texts_hash"] = _digest_of([doc, title or "", holder["id"]])
+    ss["text_line_ids"] = holder["ids"]                     # 연습 기록이 줄(lines.id)과 이어지도록 {줄 번호: id}를 보관
+    ss.pop("text_sets", None)                               # 목록(제목·줄 수·시각)이 바뀌었으니 다음에 새로 읽는다
+    ss["text_rerun"] = True                                 # 위의 묶음 선택 상자는 저장 전에 이미 그려졌으니 한 번 다시 그려 최신 제목·줄 수를 보이게 한다
+    return True
