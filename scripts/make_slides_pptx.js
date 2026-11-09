@@ -277,7 +277,29 @@ section("4 시연");
   tag(s, "(임시) 시연 문장 확정 필요", 9.85, 5.32, "temp");
 }
 {
-  const s = content("결과를 읽는 순서", "④ 시연 (실제 서버 화면)", noteOf("4", 1, 3), "4 시연");
+  const s = content("채점 버튼을 누르면 안에서 일어나는 일", "④ 시연 (실제 서버 화면)", noteOf("4", 1, 2), "4 시연");
+  const st = [
+    ["1", "녹음", "브라우저 마이크로 받은 소리가 bytes로 들어온다", "audio.load_raw"],
+    ["2", "상태 점검", "음량 · 무음 · 클리핑. 안내만 하고 경고가 있어도 계속 진행", "quality.analyze"],
+    ["3", "Whisper 인식", "소리를 글로 바꾼다 (문장 연습은 tiny)", "stt.recognize"],
+    ["4", "채점", "정답과 편집 거리로 비교 → WER/CER, 바뀜·빠짐·더해짐", "scoring.evaluate"],
+    ["5", "단어별 시간", "내 녹음과 표준 발음을 각각 다시 인식. 틀린 구간과 F0가 한 번만 구해 함께 씀", "practice.locate_errors"],
+    ["6", "F0 + 그림", "pYIN → 상대 음높이 → 단어 칸에 겹침, 소리 모양 그림도 함께", "pitch · visualisation"],
+  ];
+  st.forEach(([n, t, d, m], i) => {
+    const col = i % 3, row = Math.floor(i / 3);
+    const x = MX + col * 4.1, y = 1.95 + row * 2.05;
+    card(s, x, y, 3.93, 1.85, { fill: i === 4 ? "C6F24E" : "DFF3E4" });   // 5번(공유해서 한 번만 구하는 단계)만 라임으로 강조
+    badge(s, x + 0.25, y + 0.2, n, { d: 0.5, size: 16, fill: i === 4 ? "112D18" : "08833C", color: i === 4 ? "C6F24E" : "FFFFFF" });
+    s.addText(t, { ...T, x: x + 0.95, y: y + 0.2, w: 2.8, h: 0.5, fontSize: 18, bold: true, color: "112D18", valign: "middle" });
+    s.addText(d, { ...T, x: x + 0.3, y: y + 0.8, w: 3.4, h: 0.7, fontSize: 14, color: "0B0B0B", valign: "top" });
+    s.addText(m, { ...T, x: x + 0.3, y: y + 1.5, w: 3.4, h: 0.28, fontSize: 12, color: "52514E", valign: "middle" });
+  });
+  card(s, MX, 6.15, W - 2 * MX, 0.7, { fill: "C6F24E", shadow: false });
+  s.addText("인식을 세 번(채점용 1 + 단어 시간용 2) 돌리고 F0를 계산해서 몇 초 걸린다  ·  로컬 약 8~10초 (서버는 측정 중)", { ...T, x: MX + 0.3, y: 6.15, w: W - 2 * MX - 0.6, h: 0.7, fontSize: 15, bold: true, color: "112D18", valign: "middle" });
+}
+{
+  const s = content("결과를 읽는 순서", "④ 시연 (실제 서버 화면)", noteOf("4", 2, 4), "4 시연");
   const items = [
     ["1", "문장 인식 일치도 · Whisper", "WER/CER, 바뀜·빠짐·더해짐"], ["2", "단어 대조", "보라 물결 밑줄 = 다른 단어"], ["3", "다시 듣기", "표준 발음과 내 녹음"], ["4", "틀린 구간 표시", "같은 번호 [k] = 대응 구간"],
     ["5", "목소리 높낮이 · F0", "참고 TTS와 겹친 상대 음높이"], ["6", "Azure 발음 평가", "선택 · 버튼을 누를 때만"], ["7", "소리 모양 자세히 보기", "파형·FFT·STFT·Log-Mel (접힘)"],
