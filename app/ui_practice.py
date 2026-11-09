@@ -199,8 +199,8 @@ AZURE_GUIDE = """
 
 
 def _show_azure(key, prep, rec, nonce, source="sample", line_no=None):
-    """따라읽기 결과 아래 '표준 평가(Azure)'. 버튼을 눌렀을 때만 녹음이 Microsoft Azure로 전송된다(자동 전송 없음). 결과는 세션에 보관해 화면이 다시 그려져도 다시 보내지 않는다."""
-    st.markdown("**표준 평가 · Azure 발음 평가** · 참고용 · 외부 서비스")
+    """따라읽기 결과 아래 'Azure 발음 평가'. 버튼을 눌렀을 때만 녹음이 Microsoft Azure로 전송된다(자동 전송 없음). 결과는 세션에 보관해 화면이 다시 그려져도 다시 보내지 않는다."""
+    st.markdown("**Azure 발음 평가** · 외부 서비스 · 선택")
     explain.show("azure")
     st.caption("누르면 이 녹음이 Microsoft Azure Speech로 전송돼요. 정확도·유창성·완성도·운율은 Azure가 쓰는 표준 항목이고, 위의 오류율(문장 인식 일치도)과는 다른 방식이에요. "
                "Azure는 내 녹음과 **기준 문장(글)** 만 받아 자체 발음 모델(원어민 발음 기준)과 비교해요. 표준 발음(TTS) 소리는 보내지 않아요. 마이크·방 소리에 따라 점수가 달라질 수 있어요.")
@@ -260,26 +260,28 @@ def _show_error_spans(sp):
 
 
 def _show_sound_shapes(figs, has_tts):
-    """따라읽기 결과 아래 '소리 모양 비교' 칸(2×2). 참고용이며 점수가 아님을 함께 알린다."""
-    st.markdown("**소리 모양 비교** · 참고용 · 평가 아님")
-    if not has_tts:
-        st.caption("표준 발음이 있으면 내 녹음과 모양을 비교할 수 있어요. 가사 입력에서 '표준 발음 만들기'를 먼저 눌러 보세요.")
-        return
-    if not figs or "error" in figs:
-        st.caption((figs or {}).get("error", "그림이 없어요."))
-        return
-    cells = [("wave", "파형", "시간에 따른 소리 크기(진폭)와 타이밍"),
-             ("fft", "FFT", "소리 전체의 주파수별 크기(시간 정보 없음)"),
-             ("stft", "STFT", "시간에 따른 주파수(dB), 밝을수록 센 소리"),
-             ("logmel", "Log-Mel", "사람 귀에 가까운 주파수 눈금(dB)")]
-    for row in (cells[:2], cells[2:]):
-        cols = st.columns(2)
-        for col, (key, title, desc) in zip(cols, row):
-            with col:
-                st.markdown(f"**{title}** <small>{desc}</small>", unsafe_allow_html=True)
-                st.pyplot(figs[key], clear_figure=False)
-    st.caption("목소리와 마이크가 달라서 모양이 다를 수 있어요. 점수는 위의 오류율이에요. 두 소리의 최대 음량은 같게 맞춰 그렸어요.")
-    with st.expander("그림 읽는 법 · 수업에서 배운 것과의 연결"):
+    """따라읽기 결과 맨 아래 '소리 모양 자세히 보기'(2×2, 기본 접힘). 핵심 피드백(오류율·단어 대조·틀린 구간·F0·Azure)을 먼저 보게 하고 심화 관찰로 둔다.
+    참고용이며 점수가 아님을 함께 알린다. [수업에 없음] Streamlit은 expander 안에 expander를 못 넣어서 '그림 읽는 법'은 같은 상자 안에 바로 적는다."""
+    with st.expander("소리 모양 자세히 보기 · 음향 시각화 · 참고용, 평가 아님"):
+        if not has_tts:
+            st.caption("표준 발음이 있으면 내 녹음과 모양을 비교할 수 있어요. 가사 입력에서 '표준 발음 만들기'를 먼저 눌러 보세요.")
+            return
+        if not figs or "error" in figs:
+            st.caption((figs or {}).get("error", "그림이 없어요."))
+            return
+        cells = [("wave", "파형", "시간에 따른 소리 크기(진폭)와 타이밍"),
+                 ("fft", "FFT", "소리 전체의 주파수별 크기(시간 정보 없음, 가장 큰 성분이 F0는 아님)"),
+                 ("stft", "STFT", "시간에 따른 주파수(dB), 밝을수록 센 소리"),
+                 ("logmel", "Log-Mel", "사람 귀에 가까운 주파수 눈금(dB)")]
+        for row in (cells[:2], cells[2:]):
+            cols = st.columns(2)
+            for col, (key, title, desc) in zip(cols, row):
+                with col:
+                    st.markdown(f"**{title}** <small>{desc}</small>", unsafe_allow_html=True)
+                    st.pyplot(figs[key], clear_figure=False)
+        st.caption("목소리와 마이크가 달라서 모양이 다를 수 있어요. 점수는 위의 오류율이에요. 두 소리의 최대 음량은 같게 맞춰 그렸어서 소리 크기를 비교하는 그림은 아니에요. "
+                   "두 소리는 각자의 실제 시간으로 그려서 같은 가로 위치가 같은 단어라는 뜻은 아니에요(단어를 맞춰 보려면 위의 '틀린 구간 표시'와 '목소리 높낮이'를 보세요).")
+        st.markdown("**그림 읽는 법 · 수업에서 배운 것과의 연결**")
         st.markdown(SOUND_SHAPE_GUIDE)
 
 
@@ -290,7 +292,7 @@ SOUND_SHAPE_GUIDE = """
 | 그림 | 보는 것 | 읽는 법 | 수업 |
 |---|---|---|---|
 | **파형** | 시간 → 진폭 | 가로는 시간, 세로는 소리의 세기. 말한 구간과 쉰 구간, 읽는 속도가 보여요 | 01 소리가 숫자가 되는 과정, 02 WAV |
-| **FFT** | 주파수 → 크기 | `rfft`로 소리 전체를 사인파들의 합으로 쪼개요. 낮은 쪽의 큰 봉우리가 목소리의 높이와 배음이에요. **언제**인지는 알 수 없어요 | 03 실습 1~3 |
+| **FFT** | 주파수 → 크기 | `rfft`로 소리 전체를 사인파들의 합으로 쪼개요. 낮은 쪽의 큰 봉우리는 목소리의 높이와 배음이 섞인 거예요(**가장 큰 봉우리가 F0는 아니에요**: F0는 위 '목소리 높낮이' 칸). **언제**인지는 알 수 없어요 | 03 실습 1~3 |
 | **STFT** | 시간 × 주파수 → 파워 | 32 ms 창을 8 ms씩 옮기며 FFT를 반복해요. 가로줄 무늬는 모음, 위쪽의 흐린 부분은 `s`·`sh` 같은 자음이에요 | 03 STFT, lesson04 1교시 |
 | **Log-Mel** | 시간 × Mel 칸 → 로그 파워 | STFT를 사람 귀의 눈금(Mel) 40칸으로 묶고 로그를 취해요. 음성 인식 모델의 입력 모양이에요 | lesson04 2·3교시 |
 
@@ -347,10 +349,10 @@ def notes_box(text, lang, key):
         st.rerun()
 
 
-def _result_html(res, prep):
-    """채점 결과를 화면 HTML로(결과 카드 + 입력 상태 칩 + 단어 대조)."""
+def _result_html(res, prep, mode="read"):
+    """채점 결과를 화면 HTML로(결과 카드 + 입력 상태 칩 + 단어 대조). 따라읽기 카드의 제목은 STT(Whisper)가 만든 점수임을 밝힌다(받아쓰기는 STT를 안 거친다)."""
     score = res["score"]
-    parts = [wp.result_card_html(score)]
+    parts = [wp.result_card_html(score, "문장 인식 일치도 · Whisper" if mode == "read" else "채점 결과")]
     if res.get("quality"):
         parts.append(f'<div style="margin:-4px 0 8px">{wp.chips_html(wp.quality_chips(res["quality"]))}</div>')
     return "".join(parts)
@@ -361,7 +363,9 @@ def _show_result(res, prep, mode):
     if res["error"]:
         st.warning(res["error"])
         return
-    st.markdown(_result_html(res, prep), unsafe_allow_html=True)
+    st.markdown(_result_html(res, prep, mode), unsafe_allow_html=True)
+    if mode == "read":
+        st.caption("녹음을 글로 인식한 뒤 기준 문장과 비교한 **오류율**이에요(낮을수록 좋아요). 발음 정확도 자체를 평가하는 점수는 아니에요. Whisper가 문맥으로 잘못된 발음을 고쳐 인식했을 수도 있어요.")
     if res.get("quality") and res["quality"]["warnings"]:
         for w in res["quality"]["warnings"]:
             st.caption("⚠ " + w)           # 경고는 안내일 뿐, 채점은 그대로 진행했다

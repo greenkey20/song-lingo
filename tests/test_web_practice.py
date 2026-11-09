@@ -76,6 +76,11 @@ class Rendering(unittest.TestCase):
         self.assertIn("8단어 중 2개", card)
         self.assertIn("2 · 0 · 0", card)
 
+    def test_card_head_can_name_the_stt(self):
+        self.assertIn("채점 결과", wp.result_card_html(self.score))
+        self.assertIn("문장 인식 일치도 · Whisper", wp.result_card_html(self.score, "문장 인식 일치도 · Whisper"))
+        self.assertIn("&lt;b&gt;", wp.result_card_html(self.score, "<b>"))        # 제목도 escape
+
     def test_word_cells_kinds(self):
         ops = [("일치", "a", "a"), ("치환", "b", "x"), ("삭제", "c", None), ("삽입", None, "d")]
         self.assertEqual([c["kind"] for c in wp.word_cells(ops)], ["same", "sub", "del", "ins"])

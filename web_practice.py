@@ -255,8 +255,8 @@ def pct(rate):
     return f"{rate * 100:.1f}%"
 
 
-def result_card_html(score):
-    """채점 결과 카드 HTML(짙은 초록 바탕에 라임 숫자). score는 scoring.evaluate의 결과.
+def result_card_html(score, head="채점 결과"):
+    """채점 결과 카드 HTML(짙은 초록 바탕에 라임 숫자). score는 scoring.evaluate의 결과. head: 카드 제목(따라읽기는 "문장 인식 일치도 · Whisper", 받아쓰기는 기본값).
     '일치율'이 아니라 오류율과 바뀜·빠짐·더해짐 개수로 보여 준다(WER은 1을 넘을 수 있어서).
     일본어·중국어처럼 **공백 없이 쓰는 언어**는 글 전체가 단어 하나로 세어져 WER이 0% 또는 100%뿐이라, WER 칸은 "—"와 이유로 바꾸고 글자 오류율(CER)을 본다(이슈 #50)."""
     w, c = score["wer"], score["cer"]
@@ -268,7 +268,7 @@ def result_card_html(score):
         wer_box = f'<div><span>단어 오류율 · WER</span><b>{pct(w["rate"])}</b><small>{w["N"]}단어 중 {w["distance"]}개가 달라요</small></div>'
     return (
         '<div class="sl-result">'
-        '<div class="sl-result-head">채점 결과 <small>발음 점수가 아니라 문장 인식 오류율이에요</small></div>'
+        f'<div class="sl-result-head">{html.escape(head)} <small>발음 점수가 아니라 문장 인식 오류율이에요</small></div>'
         '<div class="sl-result-grid">'
         + wer_box +
         f'<div><span>글자 오류율 · CER</span><b>{pct(c["rate"])}</b><small>{c["N"]}글자 중 {c["distance"]}개 (공백 제외)</small></div>'

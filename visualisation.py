@@ -139,7 +139,7 @@ def plot_sound_panels(sounds, sr=16000):
     칸마다 수업의 어느 부분과 이어지는지 (출처는 017_sound):
     - wave  [수업과 같음, 01·02]: 시간(초)에 따른 진폭. 두 소리의 시간축(긴 쪽 기준)과 세로 범위(-1~1)를 같게 해 소리 크기와 타이밍을 비교한다.
     - fft   [수업과 같음, 03 실습1~3·lesson04 1-B]: **소리 전체**의 주파수별 크기(`fft_spectrum`). 두 소리를 한 그림에 겹쳐(초록·보라, theme.SERIES 규칙) 낮은 주파수
-            (목소리 높이와 배음)가 어디에 몰려 있는지 본다. 시간 정보는 없다. 가장 큰 봉우리(50 Hz 이상, 03 실습3의 argmax)를 이름 옆에 적는다.
+            (목소리 높이와 배음)가 어디에 몰려 있는지 본다. 시간 정보는 없다. 가장 센 성분(50 Hz 이상, 03 실습3의 argmax; 배음이 더 셀 수 있어 F0와는 다르다)을 이름 옆에 적는다.
     - stft  [수업과 같음, 03·lesson04 1교시]: 창 512·이동 128·hann으로 한 프레임씩 FFT한 파워(dB). "어떤 주파수가 **언제** 나타났나". 밝을수록 센 소리.
     - logmel [수업과 같음, lesson04 2·3교시]: STFT 파워를 삼각형 Mel 필터 40개로 묶고 로그(dB). 사람 귀가 낮은 소리 차이에 더 민감한 점을 반영한 눈금이라 음성 인식 모델 입력으로 쓴다.
     [수업에 없음] stft·logmel은 두 소리를 **같은 색 범위**(가장 센 값 기준 80 dB 아래까지)로 그려 밝기를 비교할 수 있게 한다. 짧은 쪽의 뒤는 '데이터 없음' 색.
@@ -166,7 +166,7 @@ def plot_sound_panels(sounds, sr=16000):
         hz, amp = fft_spectrum(x, sr)
         keep = hz >= 50                                          # 50 Hz 미만(직류·진동 잡음)은 봉우리 후보에서 뺀다
         peak = hz[keep][int(np.argmax(amp[keep]))]               # 03 실습3: argmax로 가장 큰 칸 → 그 칸의 Hz
-        ax.plot(hz / 1000, amp, lw=1.0, color=color, label=f"{name} (가장 큰 봉우리 {peak:.0f} Hz)")
+        ax.plot(hz / 1000, amp, lw=1.0, color=color, label=f"{name} (가장 센 성분 {peak:.0f} Hz)")
     ax.set(xlabel="주파수 (kHz)", ylabel="FFT 크기 / 샘플 수", xlim=(0, 4))     # 말소리의 대부분은 4 kHz 아래
     ax.legend(fontsize=8, frameon=False)
     fig.tight_layout()
