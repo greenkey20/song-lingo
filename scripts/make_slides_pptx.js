@@ -17,6 +17,8 @@ const pptxgen = require("pptxgenjs");
 
 const ROOT = path.resolve(__dirname, "..");
 const OUT = path.join(ROOT, "docs", "slides", "발표_20261112_초안.pptx");
+const LOGO = path.join(ROOT, "app", "assets", "logo.png");   // 2400×892, 투명 배경, 검은 글자라 어두운 바탕에는 흰 카드 위에 올린다
+const ICON = path.join(ROOT, "app", "assets", "icon.png");   // 1024×1024 음표(초록·라임)
 // 발표자 노트: 대본 문서에서 장마다 "**대본**" 아래의 `> ` 문단을 뽑는다(문단 순서대로 슬라이드에 나눠 넣음).
 function parseNotes(mdPath) {
   const notes = {};
@@ -67,6 +69,7 @@ pres.defineSlideMaster({
   background: { color: "FCFCFB" },
   objects: [
     { placeholder: { options: { name: "title", type: "title", x: MX, y: 0.88, w: W - 2 * MX, h: 0.9, fontSize: 34, bold: true, color: "112D18", align: "left", valign: "top", margin: 0 }, text: "" } },
+    { image: { x: 12.2, y: 0.36, w: 0.55, h: 0.55, path: ICON, altText: "song-lingo 아이콘" } },
   ],
   slideNumber: { x: 12.3, y: 7.02, w: 0.5, h: 0.3, fontSize: 11, color: "8A8985", align: "right" },
 });
@@ -137,14 +140,16 @@ section("1 한 줄 소개");
   // 파형 모티프: 막대 파형
   const bars = [0.4, 0.7, 1.1, 1.6, 2.0, 1.4, 0.9, 1.8, 2.3, 1.7, 0.9, 0.6, 1.3, 1.9, 1.2, 0.7, 0.4, 0.8];
   bars.forEach((h, i) => {
-    s.addShape(pres.ShapeType.roundRect, { x: 8.6 + i * 0.245, y: 2.9 - h / 2, w: 0.15, h, rectRadius: 0.07, fill: { color: i % 5 === 3 ? "C6F24E" : "1A9F4C", transparency: i % 5 === 3 ? 0 : 35 }, line: { type: "none" } });
+    s.addShape(pres.ShapeType.roundRect, { x: 8.6 + i * 0.245, y: 2.2 - h / 2, w: 0.15, h, rectRadius: 0.07, fill: { color: i % 5 === 3 ? "C6F24E" : "1A9F4C", transparency: i % 5 === 3 ? 0 : 35 }, line: { type: "none" } });
   });
-  s.addText("song-lingo", { ...T, x: MX + 0.2, y: 1.45, w: 7.5, h: 1.2, fontSize: 60, bold: true, color: "FFFFFF", valign: "middle" });
-  s.addText("듣고, 따라 읽고, 확인한다", { ...T, x: MX + 0.2, y: 2.7, w: 8, h: 0.7, fontSize: 32, bold: true, color: "C6F24E", valign: "middle" });
-  s.addText("외국어 노래 속 문장을 듣고 → 따라 읽거나 받아 적고 → 어디가 다른지 확인하는 학습 도우미", { ...T, x: MX + 0.2, y: 3.6, w: 7.6, h: 0.9, fontSize: 18, color: "DFF3E4", valign: "top" });
-  s.addShape(pres.ShapeType.roundRect, { x: MX + 0.2, y: 5.0, w: 8.6, h: 0.75, rectRadius: 0.15, fill: { color: "C6F24E" }, line: { type: "none" } });
-  s.addText("소리가 데이터가 되고, 모델을 지나, 사용자에게 돌아오는 길을 직접 만들고 열어 본 프로젝트", { ...T, x: MX + 0.4, y: 5.0, w: 8.3, h: 0.75, fontSize: 16, bold: true, color: "112D18", valign: "middle" });
-  s.addText("ICT 혁신 스퀘어 Voice-AI 부트캠프 개인 프로젝트  ·  2026-11-12", { ...T, x: MX + 0.2, y: 6.5, w: 9, h: 0.35, fontSize: 12, color: "8A8985" });
+  // 제목 자리: 흰 둥근 카드 위의 로고(로고의 글자가 검은색이라 짙은 초록 바탕에는 카드가 필요하다)
+  s.addShape(pres.ShapeType.roundRect, { x: MX + 0.2, y: 0.9, w: 6.6, h: 2.55, rectRadius: 0.2, fill: { color: "FCFCFB" }, line: { type: "none" }, objectName: "logo-card" });
+  s.addImage({ path: LOGO, x: MX + 0.5, y: 1.1, w: 6.0, h: 6.0 * 892 / 2400 + 0.0, altText: "song lingo 로고" });
+  s.addText("듣고, 따라 읽고, 확인한다", { ...T, x: MX + 0.2, y: 3.7, w: 8, h: 0.7, fontSize: 32, bold: true, color: "C6F24E", valign: "middle" });
+  s.addText("외국어 노래 속 문장을 듣고 → 따라 읽거나 받아 적고 → 어디가 다른지 확인하는 학습 도우미", { ...T, x: MX + 0.2, y: 4.45, w: 7.6, h: 0.9, fontSize: 18, color: "DFF3E4", valign: "top" });
+  s.addShape(pres.ShapeType.roundRect, { x: MX + 0.2, y: 5.45, w: 8.6, h: 0.75, rectRadius: 0.15, fill: { color: "C6F24E" }, line: { type: "none" } });
+  s.addText("소리가 데이터가 되고, 모델을 지나, 사용자에게 돌아오는 길을 직접 만들고 열어 본 프로젝트", { ...T, x: MX + 0.4, y: 5.45, w: 8.3, h: 0.75, fontSize: 16, bold: true, color: "112D18", valign: "middle" });
+  s.addText("ICT 혁신 스퀘어 Voice-AI 부트캠프 개인 프로젝트  ·  2026-11-12", { ...T, x: MX + 0.2, y: 6.7, w: 9, h: 0.35, fontSize: 12, color: "8A8985" });
 }
 
 // ═════════ 2장 ═════════
@@ -465,7 +470,7 @@ section("9 목표에 비춰 본 나의 성장");
 }
 {
   const s = content("AI와 함께 만든 방식", "⑨ 목표에 비춰 본 나의 성장", noteOf("9", 1, 2), "9 목표에 비춰 본 나의 성장");
-  tag(s, "(임시) 표현 확정 필요", 10.4, 0.45, "temp");
+  tag(s, "(임시) 표현 확정 필요", 9.2, 0.45, "temp");
   const st = [["Claude Code와 함께", "코드의 상당 부분은 Claude Code와 함께 작성했다", "DFF3E4", "112D18"], ["내가 한 것", "설계 결정 · 실험 설계 · 검증", "08833C", "FFFFFF"], ["이해하려고 만든 것", "호출 관계 문서 · 구조 탐구 노트북 · '수업과의 관계' 주석 기준", "DFF3E4", "112D18"]];
   st.forEach(([t, d, fill, c], i) => {
     const x = MX + i * 4.1;
@@ -490,6 +495,7 @@ section("10 다음 단계와 마무리");
   s.addShape(pres.ShapeType.roundRect, { x: MX + 0.2, y: 4.3, w: W - 2 * MX - 0.4, h: 1.55, rectRadius: 0.15, fill: { color: "C6F24E" }, line: { type: "none" } });
   s.addText("듣고, 따라 읽고, 확인한다 —\n그리고 소리가 데이터가 되어 모델을 지나 돌아오는 길을 직접 열어 본 프로젝트", { ...T, x: MX + 0.5, y: 4.3, w: W - 2 * MX - 1.0, h: 1.55, fontSize: 24, bold: true, color: "112D18", valign: "middle", align: "center" });
   s.addText("감사합니다", { ...T, x: MX + 0.2, y: 6.2, w: 6, h: 0.7, fontSize: 32, bold: true, color: "FFFFFF" });
+  s.addImage({ path: ICON, x: 11.4, y: 5.95, w: 1.0, h: 1.0, altText: "song-lingo 아이콘" });
 }
 
 (async () => {
