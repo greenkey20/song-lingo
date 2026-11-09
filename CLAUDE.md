@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 먼저 지킬 것 (어기면 되돌릴 수 없는 것들)
 
 - **git**: 사용자가 요청하기 전에는 commit·push·PR·브랜치 이동을 하지 않는다(문서만 바뀌어도 마찬가지, 11-07 지시). `git add -A`·`git add .` 금지: 파일을 하나씩 추가하고 `git status`로 확인한다. 커밋은 주제별로, 사용자가 확인한 뒤에만.
-- **커밋·공개 금지**: `.env`, API key, 사용자 본인 목소리(녹음), 강사님 목소리, 강사 제공 WAV, 모델 파일, 화면 캡처, **상업 노래의 가사·음원**. 사용자 실명은 어떤 파일명·내용에도 쓰지 않는다. 가사는 로그·오류 메시지·이슈·PR·문서·채팅 답변에도 옮겨 적지 않는다(자세한 규칙은 아래 Privacy).
+- **커밋·공개 금지**: `.env`, API key, 사용자 본인 목소리(녹음), 강사님 목소리, 강사 제공 WAV, 모델 파일, 화면 캡처, **상업 노래의 가사·음원**. 사용자 실명은 어떤 파일명·내용에도 쓰지 않는다(알려진 예외: Demucs 합본 노트북 `experiments/model anatomy/demucs/demucs_structure_analysis_*.ipynb`의 파일명에 실명이 들어 있다. 이름 변경은 미정이며, 바꾸면 노트북 안과 `docs/`·README의 참조도 함께 고친다. 문서에서 이 파일을 가리킬 때는 `*`로 줄여 쓴다). 가사는 로그·오류 메시지·이슈·PR·문서·채팅 답변에도 옮겨 적지 않는다(자세한 규칙은 아래 Privacy).
 - **`.env`는 읽지 않는다**: `scripts/check_api_key.py`처럼 `.env`를 읽는 실행과 마이크가 필요한 실행은 사용자가 직접 한다(`! ...`).
 - **환경 두 개를 섞지 않는다**: 노트북·스크립트·테스트는 conda `voice-ai`, Streamlit 앱은 별도 venv(`~/venvs/song-lingo-app`). `streamlit`을 `voice-ai`에 설치하지 않는다.
 - **노트북 셀 실행은 실제 API 과금**이다. 커밋 전에는 노트북 출력을 지운 정리본만 올린다(Privacy 참고).
@@ -57,6 +57,8 @@ $PY scripts/check_api_key.py                  # 적용되는 OPENAI_API_KEY 확�
 $PY scripts/record_takes.py [--status|--order sentence|--redo ID TAKE]   # 마이크 녹음 → data/recordings/sNN_takeK.wav. 사용자가 직접(검토 문서 13.3, 사용법은 experiments/WER, CER/연습_문장_데이터_설명.md 5.1)
 $PY scripts/separate_clip.py [--list|--song N --start S --duration D --id cNN [--cut-only]|--id cNN --separate-only]   # 내 곡 한 구간 자르기(--cut-only)·Demucs 보컬 분리(--separate-only, 20초에 CPU 1~2분), data/song_work/에 저장
 $PY scripts/compare_clips.py [--ids c01 …] [--sizes tiny base small] [--vad off|on|both] [--temperature 0.0|default …] [--repeats N]   # 구간별 정답(data/song_work/truth/<id>.txt)과 원곡/보컬 × 크기 × VAD 비교(#18). 노래는 같은 입력도 결과가 흔들려 주 결과는 --temperature 0.0, 확인용은 default --repeats 3. 인식 문장은 results/song_compare/texts.csv에만 저장
+$PY scripts/make_slide_figures.py   # 발표 장표 그림 3장(docs/slides/*.png, 1920×1080): Whisper·HTDemucs·두 모델 비교. 숫자는 구조 탐구 노트북에서 확인한 값
+NODE_PATH=<pptxgenjs가 있는 node_modules> [PPTX_SKILL_DIR=<pptx 스킬 폴더>] node scripts/make_slides_pptx.js   # docs/slides/발표_20261112_초안.pptx. 발표자 노트는 대본 문서에서 자동으로 가져옴(pptxgenjs는 저장소에 설치하지 않음, 방법은 스크립트 맨 위)
 $PY -m uvicorn spike.server:app --host 127.0.0.1 --port 8000   # 브라우저 녹음 점검용 임시 서버(내 Mac 안에서만)
 
 # 웹 앱(앱 전용 환경). 서버는 끝나지 않으므로 Claude는 백그라운드로 띄우고 http://localhost:8501을 연다(`!`로는 출력이 안 보임, 이슈노트 #23).
@@ -92,7 +94,9 @@ practice.py(위 순서를 이어 부르고 dict 반환) ─▶ report.py(글) / 
 - `recorder.py`는 마이크 녹음과 `sNN_takeK.wav` 저장만 하고 화면을 모른다(터미널은 `scripts/record_takes.py`, 웹은 `st.audio_input`). 녹음 파일의 STT 입력용 리샘플링은 faster-whisper가 안에서 한다(`audio.py`는 상태 점검·그림용, 검토 문서 14.6).
 - `separate.py`: 내 곡의 구간 디코딩(`audio.load_raw` 재사용), 자르기(`cut_clip`)와 Demucs 보컬 분리(`separate_clip`)를 따로 부를 수 있고(`process_clip`은 둘을 잇는 편의 함수), 저장만 한다(이슈 #18). 곡·결과는 `data/songs`, `data/song_work`(git 제외)에만 둔다.
 - **노래 구간 → 연습 줄 흐름(이슈 #31)**: `stt.recognize_segments`(구간 시각·신뢰 지표, 노래용 기본은 VAD 끔·경로 그대로) → `song_lines.split_into_lines`(구간을 한 줄로, 길면 단어 사이 쉼에서 분할·짧으면 병합, 기본 6초·14단어) → `song_practice`(`prepare_lines`가 `data/song_practice/<id>/lines.json` 저장, `apply_edits`로 사람이 고친 가사 반영(`stt_text`는 원문 보존, **이미 있으면 덮어쓰지 않음**), `make_tts`는 기본이 호출 없는 계획 모드이고 `generate=True`일 때만 OpenAI TTS 호출·과금). faster-whisper의 `avg_logprob` 등 신뢰 지표는 30초 창 하나의 값이라 한 클립의 모든 구간이 같으므로 줄별이 아닌 **클립 단위 힌트**(`low_confidence`)로만 쓴다. 줄 단위 보컬 조각(#32)은 아직 없다. 확인·수정 노트북은 `experiments/song practice/song_practice.ipynb`(출력에 곡 소리·가사가 들어가므로 정리본만 커밋).
-- **F0 분석(이슈 #82, 검토 문서 16.18)**: `pitch.py`가 `audio.load_audio`(16 kHz 모노) → `librosa.pyin`으로 20 ms마다 F0를 구한다(`analyze_f0`·`analyze_waveform`, 무성음은 **NaN**이고 0 Hz로 바꾸지 않음, 실패는 예외가 아니라 `status`). `relative_semitones`(중앙값 기준 상대 음높이)·`edge_change`·`jump_ratio`·`warm_up`(numba 첫 호출 12~19초를 앱이 백그라운드로 미리 해소)도 여기 있다. 그림은 `visualisation.plot_f0_contour`(내 윤곽)·`plot_f0_compare`(참고 TTS와 내 녹음의 상대 음높이를 **단어축**에 겹침), 화면 글은 `web_practice.f0_summary`·`f0_compare_summary`, 칸은 `app/ui_practice._show_f0`(따라읽기 결과의 틀린 구간 다음). 단어축은 `align.word_spans`(기준 단어별 TTS·내 구간, `practice.locate_errors` 결과를 **재사용**: `ui_practice._locate_words`가 채점 직후 한 번만 구해 틀린 구간 그림과 공유)와 `pitch.to_word_axis`(`x = i + (t−s)/(e−s)`)로 만든다. 공백 없는 언어(일본어·중국어)·TTS 없음·단어 시간 실패는 내 윤곽만 보여 준다. **점수·등급을 만들지 않는 참고용 관찰**이고 DB에 저장하지 않는다. 의존성 `librosa==0.11.0`(1.0.0은 Python 3.12+)·`numba==0.62.1`·`llvmlite==0.45.1`(Intel Mac 휠 때문에 고정, `--only-binary`).
+- **F0 분석(이슈 #82, 검토 문서 16.18)**: `pitch.py`(`audio.load_audio` 16 kHz 모노 → `librosa.pyin`, 20 ms 간격)가 `analyze_f0`·`analyze_waveform`·`relative_semitones`(중앙값 기준 semitone)·`to_word_axis`(`x = i + (t−s)/(e−s)`)·`warm_up`을 둔다. **무성음은 NaN(0 Hz 아님)**, 실패는 예외가 아니라 `status`. 그림은 `visualisation.plot_f0_contour`·`plot_f0_compare`(참고 TTS와 내 녹음을 **단어축**에 겹침), 화면은 `app/ui_practice._show_f0`.
+  단어축은 `align.word_spans`가 기준 단어마다 TTS·내 구간을 구해 만든다. **`practice.locate_errors` 결과를 재사용**하고(`ui_practice._locate_words`가 채점 직후 한 번만 구해 틀린 구간 그림과 공유), 한 Whisper 단어가 두 토큰이 되는 `we'll → we·will`은 **구간을 토큰 수로 균등 분할**한다(같은 곡선이 두 칸에 중복되지 않게). 공백 없는 언어·TTS 없음·단어 시간 실패는 내 윤곽만 보여 준다.
+  **점수·등급 없는 참고용 관찰**이며 DB에 저장하지 않는다. 의존성 `librosa==0.11.0`(1.0.0은 Python 3.12+)·`numba==0.62.1`·`llvmlite==0.45.1`(Intel Mac 휠 때문에 고정, `--only-binary`), 새 프로세스의 첫 호출은 numba 컴파일로 12~20초라 앱이 시작 때 `warm_up`을 백그라운드로 돌린다.
 - `clip_compare.py`·`model_compare.py`는 실험 도구(구간별 정답 비교, 모델 크기 비교)로 `practice.py`와 분리돼 있다.
 
 ### 웹 앱 (Streamlit; 검토 문서 16.10·16.11, 이후 변경은 16.14~16.17)
@@ -117,6 +121,12 @@ practice.py(위 순서를 이어 부르고 dict 반환) ─▶ report.py(글) / 
 - 다른 파일: `theme.py`(그래프 공통 색·스타일), `sentences.csv`(id, lang, sentence, meaning_ko, source, license, probe; 10문장), `spike/`(임시 웹 점검), `scripts/`, `tests/`(모듈마다 `test_*.py`, 합성 신호만 사용), `experiments/`(**작업 과정·실험은 모두 여기**, 주제별 하위 폴더; `docs/`에는 프로젝트 전체 문서만. 노트북은 위로 올라가며 루트를 찾아 `chdir`·`sys.path`를 맞추는 셀로 시작한다). 계획만 있고 **파일이 없는** 모듈: `player.py`(L2; 재생 속도), `pronunciation.py`(소리 대 소리 평가, 설계만 14.7; **구현 전에 설계 승인 필요**).
 - `data/`(녹음·TTS 캐시·업로드·내 곡)와 `results/`(기록 CSV·그래프·노트북 점검 그림)는 **git에서 제외**된다.
 
+## 발표 자료 (11-12 발표, 온라인이 될 가능성이 큼)
+
+- **대본의 원본은 `docs/발표_대본_20261112.md`**: 장마다 **화면**(슬라이드 내용)과 **대본**(발표자 노트가 됨), 부록에 시연 체크리스트·백업 계획·**온라인 발표 점검표**·예상 질문·숫자 근거표·장표 그림 검토·**[결정 필요] 목록**. 말하는 모든 숫자·주장은 **[확인]/[추정]/[미확인]** 중 하나로 표시하고, 확인한 것과 해석을 구분해서 쓴다(발표 원칙: 시행착오를 있는 그대로, 이해한 것과 못 한 것을 나눔). 슬라이드나 숫자를 고칠 때는 **대본 문서를 먼저** 고친다.
+- `docs/slides/`: 직접 그린 구조 그림 PNG 3장과 PPTX 초안(24장, 웹 앱 팔레트: 짙은 초록·버튼 초록·민트·**라임 강조**, 보라는 틀린 것·해석·한계에만; 로고·아이콘은 `app/assets/`). 외부(ChatGPT가 보여 준) 그림은 출처·정확성 문제로 쓰지 않았다(대본 부록의 검토 표). 생성은 위 Commands의 두 스크립트이고, PPTX 렌더 확인에는 LibreOffice가 필요하다. 시연 문장·6번 목표 표현·AI 협업 문구는 **(임시)** 표시가 붙은 미확정 항목이다.
+- **용어 사전의 원본은 `docs/작업_일지.md` 5장**이다(한글은 가나다순, 영문은 알파벳순). 대본의 "용어 정리" 같은 다른 문서의 용어표는 **요약**이므로 새 용어는 일지 5장에 먼저 추가한다.
+
 ## Key decisions (자세한 근거는 docs 두 파일)
 
 - **STT**: 기본 로컬 `faster-whisper tiny`(`device="cpu"`, `compute_type="int8"`, `beam_size=1` — 7강 설정, 결과 보고 때 `stt.settings()`로 설정을 함께 기록), 연습 문장의 인식 언어는 `en` 고정. **모델 크기는 `stt.recognize(model_size=)`, VAD는 `vad_filter=`로 바꿔 비교한다**(기본은 `recognize` 끔·`recognize_words` 켬이라 두 경로 설정이 다르다. `tiny`에서는 결과가 같지만 `small`에서는 달라진 사례가 있어 기본 모델을 바꿀 때 통일한다). 기본 `tiny`(기준선)를 유지하고 `model_compare.compare_models`로 같은 녹음을 여러 크기에 돌려 본 뒤 정한다(`stt.available_models()`가 `models/`의 모델을 찾음; 15.2). 큰 모델은 틀린 발음을 문맥으로 더 고쳐 적을 수 있어 "발음 점수가 아님"에 유의. **노래 구간(내 곡 로컬 처리)의 STT는 `medium` + 원곡 + VAD 끔 + 기본 설정(폴백 켬)** (11-03 비교: `medium`은 원곡이 보컬보다 낫고 빠름, micro WER 0.177 대 0.257; `base`는 분리한 보컬이 나음; 원곡에 VAD를 켜면 가사가 통째로 지워지고 `temperature=0.0`은 반복 루프를 낳음; 노래에서는 `recognize_words(vad_filter=False)`를 명시; 13.5·15.2). 보컬 분리는 선택 기능이고 용도는 학습자용 기준 음성(#32)과 UI의 **"보컬만 듣기"**(반주를 뺀 원어민 발음을 듣는 보조, 따라 부르기가 아님; 16.10). OpenAI STT는 대체·비교용. **TTS는 OpenAI(`gpt-4o-mini-tts`, voice `alloy`)로 고정.** 6강의 Keras 모델은 제품 STT로 쓰지 않는다. 추가 STT 실험은 하지 않기로 했고(원곡 대 보컬은 확정 못 함) 발표는 시행착오를 있는 그대로 공유한다.
@@ -137,7 +147,7 @@ practice.py(위 순서를 이어 부르고 dict 반환) ─▶ report.py(글) / 
 - **내 노래 모드는 배포 버전에도 있다**: 사용자가 실행 중 업로드한 곡은 ① 저장소 어디에도 두지 않고 ② 배포 앱은 접근 제한(초대 코드·로그인)을 걸며 ③ 로그·`print`·오류 메시지에 가사를 남기지 않는다. 서버에서 `medium` STT와 Demucs가 돌 수 있는지는 호스트를 정하기 전에 측정한다(16.15).
 - **사용자별 서버 저장(구현됨, 서버 적용 전)**: 로그인하고 저장을 켠 사용자(기본 켬, 끌 수 있고 화면에 "서버에 저장된다"고 알림)의 **가사(STT)·고친 가사·구간 정보(시작·길이)·한글 뜻·표현 설명·내 문장·채점 결과(인식문·내 답 포함)** 를 서버 DB에 계속 보관하고 사용자가 원하면 직접 삭제한다. 그대로 지키는 것: ① 가사·곡 이름·결과를 저장소·문서·이슈·PR·커밋·**로그·오류 메시지**에 올리거나 남기지 않는다 ② **업로드한 음원, 잘라 낸 구간 wav, 보컬 분리 결과, 내 녹음은 저장하지 않는다**(세션 임시 폴더뿐, 세션이 끝나면 지움) ③ 접근은 로그인 뒤에서만, 사용자끼리 분리(모든 쿼리에 `user_id` 조건) ④ 경로 조작·사용자 간 누출은 단위 테스트로 확인. 공유 테이블 `meanings`는 문장 글 없이 글+언어의 해시 키와 설명만 저장하고 내부 로직에서만 쓴다.
 - **사용자 녹음의 외부 전송**: 따라읽기 녹음을 **Azure Speech(발음 평가)로 보내는 것은 시연·발표용 옵션으로 허용**한다. ① **사용자가 "Azure로 평가하기" 버튼을 누를 때만** 전송(자동 전송 금지) ② 화면에 전송 안내 ③ 녹음을 서버 디스크에 저장하지 않음(푸시 스트림) ④ 키·지역(`AZURE_SPEECH_KEY`·`AZURE_SPEECH_REGION`)은 `.env`에만. 다른 외부 서비스로 녹음을 보내려면 사용자 승인을 따로 받는다.
-- **노트북 출력**에는 `<audio>` 플레이어(base64 음원), `/Users/…` 경로, key가 박힐 수 있다. 로컬 원본(출력 있음)은 그대로 두고 **출력을 지운 정리본을 커밋**한다: 정리본을 임시 파일에 만들어 `scripts/scan_outputs.py`로 스캔한 뒤 `git hash-object -w` → `git update-index --cacheinfo 100644,<hash>,<노트북 경로>`로 인덱스에 넣는다(그래서 `git status`에 `M …ipynb`가 계속 남는 것은 정상).
+- **노트북 출력**에는 `<audio>` 플레이어(base64 음원), `/Users/…` 경로, key가 박힐 수 있다. 로컬 원본(출력 있음)은 그대로 두고 **출력을 지운 정리본을 커밋**한다: 정리본을 임시 파일에 만들어 `scripts/scan_outputs.py`로 스캔한 뒤 `git hash-object -w` → `git update-index --cacheinfo 100644,<hash>,<노트북 경로>`로 인덱스에 넣는다(그래서 `git status`에 `M …ipynb`가 계속 남는 것은 정상). **커밋 전에 소스 diff를 확인한다**: 출력을 지운 정리본이 HEAD와 셀 소스가 같으면 올릴 것이 없고, 소스가 다르면 그 차이가 **의도한 변경인지** 본다(로컬 실행 설정 `GENERATE=True`·`APPLY=True`·`CLIP_ID`, 엉뚱한 자리에 붙은 셀은 올리지 않는다).
 - `spike/` 서버는 `127.0.0.1`에서만 열고, 업로드 녹음은 git 제외 폴더 `data/uploads/`에 두며, `.env`·TTS·LLM을 쓰지 않는다. 인터넷에 배포하면 공개 주소에서 누구나 TTS를 불러 과금되므로 접근 제한이 필요하다(Streamlit 앱도 같다).
 
 ## Working agreements (사용자와의 합의)

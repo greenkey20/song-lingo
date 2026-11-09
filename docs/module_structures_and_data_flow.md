@@ -4,7 +4,7 @@
 >
 > **기준 소스**: `greenkey20/song-lingo` 저장소 `main` 브랜치. 2026-11-05 판을 **2026-11-09에 갱신**했다(서버 로그인·저장, 내 문장 묶음, 저장된 곡, 줄 합치기, 언어 확인, 한글 뜻·표현 설명, 일본어 읽기, Azure 발음 평가 반영). 실행 흐름은 현재 코드 기준이며, 계획서에만 있는 기능은 별도로 표시한다.
 >
-> **갱신 이력**: 11-05 최초(ChatGPT 검토본) → 11-09 서버 저장·화면 연결·새 모듈 반영(Claude Code). 새 절은 **4-2(로그인·저장)** 와 **4-3(한글 뜻·표현 설명)**.
+> **갱신 이력**: 11-05 최초(ChatGPT 검토본) → 11-09 서버 저장·화면 연결·새 모듈 반영(Claude Code) → **11-10 F0(목소리 높낮이) 분석과 따라 읽기 결과 화면 개편 반영**(이슈 #82). 새 절은 **4-2(로그인·저장)**, **4-3(한글 뜻·표현 설명)**, **4-4(F0 억양 비교)**.
 >
 > **갱신 방법**: Mermaid 코드 블록의 노드·화살표를 수정하면 된다. GitHub Markdown에서는 Mermaid 다이어그램이 렌더링된다. VS Code에서는 Mermaid 미리보기를 지원하는 Markdown 확장으로 확인할 수 있다.
 
@@ -106,6 +106,7 @@ flowchart TB
         JP[japanese.py]
         ME[meaning.py]
         AZ[azure_pronunciation.py]
+        PT[pitch.py<br/>F0 pYIN]
     end
 
     subgraph STORE[서버 저장 계층]
@@ -142,6 +143,9 @@ flowchart TB
     P --> AZ
     P --> ME
     P --> V
+    P --> PT
+    P -. 단어축 정렬 .-> AL
+    PT --> AU
     L --> PS
     S --> PS
     PS --> LOG
@@ -230,6 +234,9 @@ sequenceDiagram
     participant C as scoring.py
     participant L as practice_log.py
     participant PS as app/persist.py
+    participant AL as align.py
+    participant PT as pitch.py
+    participant V as visualisation.py
 
     UI->>P: practice.read(prep, recording_bytes)
     P->>A: as_source(recording_bytes)
@@ -246,7 +253,18 @@ sequenceDiagram
     P-->>UI: result dict
     UI->>L: make_record(...)
     UI->>PS: persist.save_practice(..., line_no)<br/>로그인+저장 켬이면 DB에 기록(clip_id·line_id 연결)
-    UI->>UI: render result, quality warnings, error spans
+    UI->>UI: 결과 카드, 단어 대조, 녹음 상태 경고, 다시 듣기
+    UI->>V: plot_sound_panels (소리 모양 그림 4장, 채점 직후 한 번)
+    UI->>P: locate_errors(prep, res) (표준 발음이 있을 때 한 번만)
+    P->>S: recognize_words (내 녹음, 표준 발음)
+    P->>AL: locate_errors(기준 문장, 두 단어 목록)
+    P-->>UI: loc (hyp_tokens, tts_tokens, blocks)
+    UI->>V: plot_error_spans (틀린 곳이 있을 때만)
+    UI->>PT: analyze_f0 (내 녹음 bytes, 표준 발음은 캐시)
+    UI->>AL: word_spans(기준 문장, hyp_tokens, tts_tokens)
+    UI->>PT: relative_semitones, to_word_axis
+    UI->>V: plot_f0_compare (조건이 안 되면 plot_f0_contour)
+    UI->>UI: 틀린 구간, F0, Azure(버튼), 소리 모양(접힘) 순서로 표시
 ```
 
 **중요한 세부사항**
@@ -255,7 +273,7 @@ sequenceDiagram
 3. STT에는 품질 점검을 위해 만든 16 kHz 배열이 아니라 원본 `src`(bytes/파일 객체)를 넘긴다. 저장소 주석에 따르면 노래 입력에서 직접 변환한 배열과 faster-whisper가 파일에서 디코딩한 결과가 달라질 수 있기 때문이야.
 4. 품질 경고가 있어도 현재 코드는 STT와 채점을 계속한다.
 5. 채점 이후 `app/ui_practice.py`가 결과를 표시하고, 성공한 결과는 `practice_log.make_record`로 기록 한 줄을 만든 뒤 **`persist.save_practice`가 서버 DB에 저장**한다(문장 글·인식문·점수 포함). 게스트는 이번 세션의 목록에만, DB 설정이 없는 개발 환경은 CSV에 남긴다.
-6. 따라 읽기 결과 아래에는 틀린 구간 표시(`web_practice.error_spans` → `practice.locate_errors` → `visualisation.plot_error_spans`)와 소리 모양 비교(`visualisation.plot_sound_panels`)가 붙는다. **Azure 발음 평가**는 사용자가 버튼을 눌렀을 때만 `azure_pronunciation.assess`로 녹음을 보내고(자동 전송 없음), 결과는 `persist.save_azure`가 저장한다.
+6. 채점 직후 `app/ui_practice.py`는 **단어별 시간을 `practice.locate_errors`로 한 번만** 구해(표준 발음이 있을 때, 틀린 곳이 없어도) 틀린 구간 그림과 **F0 비교가 함께 쓴다**(인식 2회를 두 번 돌리지 않으려고). 결과는 위에서 아래로 **문장 인식 일치도 → 단어 대조 → 다시 듣기 → 틀린 구간 표시 → 목소리 높낮이 F0 → Azure 발음 평가 → 소리 모양 자세히 보기(접힘)** 순서다. F0 분석은 채점과 별개의 참고 분석이라 실패해도 나머지 결과는 그대로 보인다. **Azure 발음 평가**는 사용자가 버튼을 눌렀을 때만 `azure_pronunciation.assess`로 녹음을 보내고(자동 전송 없음), 결과는 `persist.save_azure`가 저장한다. 결과 아래 "인식에 N초 걸림"은 `stt.recognize`가 잰 인식 계산 시간(녹음 길이가 아님)이다.
 
 ### 받아쓰기 모드의 차이
 
@@ -374,7 +392,7 @@ flowchart TD
     TOKENS --> PLOT
 ```
 
-**현재 연결 상태(11-09)**: 11-05 판에서는 UI에 연결되지 않았지만 **지금은 연결됐다.** 따라 읽기 결과 아래에 `web_practice.error_spans`(= `practice.locate_errors` 재사용)가 틀린 구간을 소리 그림 위에 표시하고(`visualisation.plot_error_spans`), 표준 발음과 내 녹음의 소리 모양 비교(`visualisation.plot_sound_panels`: 파형·FFT·STFT·Log-Mel 2×2)도 붙는다. 틀린 구간이 없으면 "틀린 구간 없음"으로 안내한다.
+**현재 연결 상태(11-10)**: 따라 읽기 결과 아래에 `web_practice.error_spans`가 틀린 구간을 소리 그림 위에 표시하고(`visualisation.plot_error_spans`), 표준 발음과 내 녹음의 소리 모양 비교(`visualisation.plot_sound_panels`: 파형·FFT·STFT·Log-Mel 2×2)는 맨 아래 접힌 상자에 있다. **`practice.locate_errors`의 결과(`loc`)는 `ui_practice._locate_words`가 채점 직후 한 번만 구해 틀린 구간 그림과 F0 비교가 공유한다**(11-09까지는 틀렸을 때만 계산). 틀린 구간이 없으면 "틀린 구간 없음"으로 안내한다. `align.word_spans`는 같은 `loc`의 `hyp_tokens`·`tts_tokens`로 기준 단어마다 TTS·내 녹음의 시간 구간을 돌려준다(4-4절).
 
 ### `visualisation.py`의 현재 사용처 요약
 
@@ -383,8 +401,45 @@ flowchart TD
 | `stft_power()` / `to_db()` | `quality.py`                                         | 무음 프레임 에너지 산출                                              |
 | `plot_song_selection()`    | `app/views/song.py`                                  | 업로드한 곡에서 구간 선택을 위한 파형 개요                           |
 | `plot_sound_pair()`        | 실험·노트북 경로                                     | TTS와 사용자 음성의 파형·STFT·Log-Mel 비교                           |
-| `plot_sound_panels()`      | `app/ui_practice.py` (따라 읽기 결과 아래)           | TTS와 내 녹음의 파형·FFT·STFT·Log-Mel 2×2 비교(발음 평가가 아닌 참고) |
+| `plot_sound_panels()`      | `app/ui_practice.py` (따라 읽기 결과, 접힌 상자)     | TTS와 내 녹음의 파형·FFT·STFT·Log-Mel 2×2 비교(발음 평가가 아닌 참고) |
+| `plot_f0_contour()`        | `app/ui_practice.py` (`_f0_view`)                    | 내 F0 윤곽(실제 시간축, 무성음은 끊김, 중앙 점선·P10~P90 띠)         |
+| `plot_f0_compare()`        | `app/ui_practice.py` (`_compare_view`)               | 참고 TTS와 내 녹음의 상대 음높이를 기준 단어 칸에 겹친 그래프        |
 | `plot_error_spans()`       | `app/ui_practice.py` ← `web_practice.error_spans`    | 틀린 구간을 표시한 음성 비교 그림(따라 읽기 결과 아래)               |
+
+---
+
+## 4-4. F0(목소리 높낮이) 억양 비교 (이슈 #82, 검토 문서 16.18)
+
+따라 읽기 결과의 "목소리 높낮이 · F0" 칸이다. **점수·등급이 없는 참고용 관찰**이고 DB에 저장하지 않는다(WER/CER은 인식 일치도, Azure는 외부 발음 평가, F0는 음높이 변화로 서로 다른 질문에 답한다).
+
+```mermaid
+flowchart TD
+    REC["내 녹음 bytes"] --> L1["audio.load_audio: 16 kHz 모노"]
+    L1 --> PY1["pitch.analyze_waveform: librosa.pyin, f0 · voiced_flag · 요약"]
+    TTSW["표준 발음 wav"] --> PY2["pitch.analyze_f0 → ui_practice._tts_f0 캐시"]
+    LOC["practice.locate_errors 결과 loc: 채점 직후 한 번"] --> WS["align.word_spans: 기준 단어별 TTS·내 구간"]
+    PY1 --> R1["pitch.relative_semitones: 중앙값 기준 반음"]
+    PY2 --> R2["pitch.relative_semitones"]
+    R1 --> X1["pitch.to_word_axis"]
+    R2 --> X2["pitch.to_word_axis"]
+    WS --> X1
+    WS --> X2
+    X1 --> PLOT["visualisation.plot_f0_compare"]
+    X2 --> PLOT
+    PY1 --> SUM["web_practice.f0_summary · f0_compare_summary"]
+    PLOT --> UI["app/ui_practice._show_f0"]
+    SUM --> UI
+```
+
+| 모듈·함수 | 책임 | 입력 → 출력 |
+|---|---|---|
+| `pitch.analyze_f0` / `analyze_waveform` | pYIN으로 20 ms 간격 F0 추정, 중앙값·P10·P90·폭·앞뒤 변화 요약 | 경로·bytes·파형 → dict(`status`, `times`, `f0`(무성음 **NaN**), `valid`, 요약). 실패는 예외가 아니라 `status` |
+| `pitch.relative_semitones` | 각 목소리의 중앙값을 0으로 한 `12·log2(F0/중앙값)` | f0, valid → 같은 길이 배열 |
+| `pitch.to_word_axis` | 단어 구간 안의 진행률로 x를 바꿈 `x = i + (t−s)/(e−s)`, 단어 사이에 NaN | times, 값, 단어 구간 → x, y |
+| `pitch.warm_up` | numba 첫 호출(12~20초)을 앱이 시작 때 백그라운드로 미리 해소 | — |
+| `align.word_spans` | 기준 단어마다 TTS·내 구간(대응 없으면 `None`)과 같은 글자인지. `we'll → we·will`은 구간을 균등 분할 | 기준 문장, `hyp_tokens`, `tts_tokens` → 목록 |
+
+**내 윤곽만 보여 주는 경우**: 표준 발음이 없을 때, 공백 없는 언어(일본어·중국어), 단어 시간을 구하지 못했을 때, 표준 발음의 F0 분석이 실패했을 때, 단어에 맞춰 비교할 구간이 부족할 때. **상태**: 구현됨(UI 연결됨). **테스트**: `tests/test_pitch.py`, `test_align.py`(`word_spans`), `test_visualisation.py`, `test_web_practice.py`. 한계는 검토 문서 16.18의 9~11절과 README에 있다.
 
 ---
 
@@ -521,7 +576,7 @@ flowchart TD
 | `practice.read()`                   | `quality.analyze` 또는 `quality.check_file`                | 원본 파형/파일 → 상태 지표             | 따라 읽기             |
 | `practice.read()`                   | `stt.recognize`                                            | 원본 음성 → 인식 텍스트                | 따라 읽기             |
 | `practice.read()` / `dictation()`   | `scoring.evaluate`                                         | 정답·인식/입력 문장 → WER/CER·edit ops | 두 연습 방식          |
-| `practice.locate_errors()`          | `stt.recognize_words`, `align.locate_errors`               | 단어별 시간·채점 결과 → 오류 시간 블록 | 선택적 분석 기능      |
+| `practice.locate_errors()`          | `stt.recognize_words`, `align.locate_errors`               | 단어별 시간·채점 결과 → 오류 시간 블록 | 채점 직후 한 번(틀린 구간·F0가 공유) |
 | `app/views/song.py` → `web_song.py` | `audio.load_raw`, `waveform_peaks`                         | 업로드 음성 → 파형 개요                | 내 노래               |
 | `web_song.cut()`                    | `separate.cut_clip`, `audio.load_raw`, `recorder.save_wav` | 원곡·시작·길이 → mix WAV               | 내 노래               |
 | `song_practice.prepare_lines()`     | `stt.recognize_segments`, `song_lines.split_into_lines`    | mix WAV → segment → 가사 줄 후보       | 내 노래               |
@@ -530,6 +585,7 @@ flowchart TD
 | `app/ui_practice.py`                | `practice_log.make_record`, `persist.save_practice`        | 채점 결과 → 기록 dict → DB 한 행       | 연습 기록(서버 DB)    |
 | `app/ui_practice.py`                | `azure_pronunciation.assess` (버튼), `persist.save_azure`  | 녹음 bytes·기준 글·로캘 → 발음 평가 결과 | Azure 발음 평가(선택) |
 | `app/ui_practice.py`                | `web_practice.error_spans`, `visualisation.plot_error_spans`, `plot_sound_panels` | 결과·녹음 → 틀린 구간·소리 모양 그림 | 따라 읽기 결과        |
+| `app/ui_practice.py`                | `pitch.analyze_f0`, `align.word_spans`, `pitch.relative_semitones`, `pitch.to_word_axis`, `visualisation.plot_f0_compare`·`plot_f0_contour`, `web_practice.f0_summary`·`f0_compare_summary` | 녹음 bytes·표준 발음·`loc` → F0 그래프·요약 표 | F0 억양 비교(4-4절)  |
 | `app/views/history.py`              | `storage.list_practices`, `practice_log.row_from_practice`, Pandas | DB 행 → 기록 표·WER 추이        | 기록(게스트는 세션 목록, DB 없으면 CSV) |
 | `app/streamlit_app.py`              | `auth_gate.run`, `meaning.enable_db`                       | 접속 → 로그인·게스트 통과              | 모든 페이지 앞        |
 | `auth_gate.py`                      | `account.login/signup/resume`, `access.check`              | 폼 입력 → 세션(uid·save_on)            | 로그인·로그인 유지    |
@@ -561,13 +617,14 @@ flowchart TD
 | python-dotenv     | 환경 설정        | `app/streamlit_app.py`, `storage.py`                        | `.env`에서 환경변수 로드                                              |
 | PostgreSQL · psycopg 3 | 서버 저장    | `storage.py`, `migrations/`                                 | 사용자별 데이터 저장(JSONB, 외래키·연쇄 삭제, 마이그레이션)           |
 | `hashlib.scrypt` · `hmac` · `secrets` | 계정 보안 | `auth.py`                                           | 비밀번호 해시, 시간 일정 비교, 로그인 유지 토큰(표준 라이브러리)      |
+| librosa · numba   | F0 추정          | `pitch.py`                                                  | `librosa.pyin`(pYIN)으로 F0·유성음 판정. numba는 librosa 의존(첫 호출 컴파일 지연), `librosa==0.11.0`·`numba==0.62.1`·`llvmlite==0.45.1` 고정 |
 | pykakasi          | 일본어 읽기      | `japanese.py`                                               | 한자·가타카나 → 히라가나 읽기·로마자                                  |
 | Azure Speech SDK  | 발음 평가        | `azure_pronunciation.py`                                    | 정확도·유창성·완성도·운율(버튼을 눌렀을 때만, 앱 환경에만 설치)       |
 | `unittest` · Streamlit `AppTest` | 시험  | `tests/`                                                    | 단위 테스트, 로그인·저장 화면 흐름 시험(가짜 저장소 `tests/fake_store.py`) |
 
 ---
 
-## 7. 구현 상태와 아직 없는 것 (2026-11-09 현행화)
+## 7. 구현 상태와 아직 없는 것 (2026-11-10 현행화)
 
 상태는 현재 저장소 코드와 개발 계획서 기준이다. 11-05 판에서 "미구현·UI 미연결"이던 항목 중 **구현·연결된 것**을 먼저 적는다.
 
@@ -575,6 +632,9 @@ flowchart TD
 
 | 기능 | 현재 상태 | 위치 |
 |---|---|---|
+| **F0(목소리 높낮이) 분석·억양 비교** | **구현됨**(11-10, #82): 내 윤곽, 참고 TTS와 상대 음높이를 단어축에 겹침, 요약 표. 점수 없음·저장 안 함 | `pitch.py`, `align.word_spans`, `visualisation.plot_f0_*`, 4-4절 |
+| 따라 읽기 결과 화면 순서 정리 | **구현됨**: 카드 → 단어 대조 → 다시 듣기 → 틀린 구간 → F0 → Azure → 소리 모양(접힘). 인식 시간 문구는 "인식에 N초 걸림" | `app/ui_practice.py` |
+| "어떻게 동작하나요?" 설명 상자 현행화 | **구현됨**: 한글 뜻·표현 설명(`meaning`), 기록(`history`), 저장 스위치(`save`) 상자 추가 | `app/explain.py` |
 | 문장 뜻·연관 단어·표현 설명 | **구현됨**(버튼, AI 참고용 표시, DB 공유 캐시). 계획의 `explain.py`는 만들지 않고 `meaning.py`에 구현(화면 설명 글은 `app/explain.py`). 직접 검수표는 남음(이슈 #15) | `meaning.py`, `app/ui_practice.py` |
 | 일본어 등 다국어 | **구현됨**: 줄마다 언어 제안·확인, 일본어 히라가나 읽기·로마자, 일본어·중국어 CER 중심, Azure 로캘 | `languages.py`, `japanese.py`, `web_practice.py` |
 | 오류 위치 그림의 Streamlit 통합 | **구현됨**(따라 읽기 결과 아래) | `web_practice.error_spans`, `visualisation.plot_error_spans` |
@@ -600,7 +660,8 @@ flowchart TD
 | Whisper confidence와 실제 오류율의 관계 분석 | 미구현 | 기존 `low_confidence`는 휴리스틱 표시이지 통계 검증이 아님 |
 | Log-Mel 기반 녹음 품질 분류기 | 미구현·선택 과제 | 현재 `quality.py`의 규칙 기반 점검과 별개 |
 | SNR별 잡음 견고성 실험 | 미구현·선택 과제 | 합성 잡음 조건에서의 실험 |
-| Demucs 원리 탐구(이슈 #35) | 일부(합성 입력 노트북) | `experiments/model anatomy/` |
+| Demucs·Whisper 원리 탐구(이슈 #35·#79) | **노트북 작성됨**(합성 입력·모양·설정까지, 가중치·어텐션은 못 봄) | `experiments/model anatomy/` |
+| F0의 언어별 평가(중국어 성조·일본어 악센트), 단어·음절 정렬 | 미착수(범위 밖) | 일본어·중국어는 내 윤곽만 표시 |
 
 > **사용자의 노래를 채점하는 기능은 없다**(이 앱은 노래방이 아니다). 노래는 가사를 얻고 듣기 위한 입력이다.
 
@@ -660,6 +721,7 @@ flowchart TD
 11. `languages.py`, `japanese.py`, `meaning.py` — 언어 제안, 일본어 읽기, 한글 뜻·표현 설명(캐시 순서)
 12. `migrations/001~005`, `storage.py`(`connect`·`migrate`·`save_clip`·`_sync_lines`) — 저장 구조와 줄 단위 upsert
 13. `auth.py` → `account.py` → `app/auth_gate.py` → `app/persist.py` — 로그인 규칙, 화면, 화면↔저장 연결
+14. `pitch.py` → `align.word_spans` → `visualisation.plot_f0_compare` → `app/ui_practice._show_f0` — F0 억양 비교(4-4절)
 
 상세한 읽는 포인트와 어려운 곳은 `docs/작업_일지.md` 2-3절에 있다.
 
@@ -676,7 +738,7 @@ flowchart TD
 - [quality.py](https://github.com/greenkey20/song-lingo/blob/main/quality.py)
 - [stt.py](https://github.com/greenkey20/song-lingo/blob/main/stt.py)
 - [scoring.py](https://github.com/greenkey20/song-lingo/blob/main/scoring.py)
-- [align.py](https://github.com/greenkey20/song-lingo/blob/main/align.py)
+- [align.py](https://github.com/greenkey20/song-lingo/blob/main/align.py), [pitch.py](https://github.com/greenkey20/song-lingo/blob/main/pitch.py)
 - [practice.py](https://github.com/greenkey20/song-lingo/blob/main/practice.py)
 - [song_lines.py](https://github.com/greenkey20/song-lingo/blob/main/song_lines.py)
 - [song_practice.py](https://github.com/greenkey20/song-lingo/blob/main/song_practice.py)
