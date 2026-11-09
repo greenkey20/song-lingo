@@ -54,5 +54,52 @@ class Locate(unittest.TestCase):
         self.assertEqual([t["token"] for t in align.word_tokens(words([("Hi", 0, 1), ("...", 1, 2)]))], ["hi"])
 
 
+class WordSpans(unittest.TestCase):
+    def spans(self, ref, mine, tts):
+        loc = align.locate_errors(ref, mine, tts)
+        return align.word_spans(ref, loc["hyp_tokens"], loc["tts_tokens"])
+
+    def test_one_item_per_reference_token_in_order(self):
+        sp = self.spans(REF, MINE, TTS)
+        self.assertEqual([x["token"] for x in sp], ["we", "will", "sing", "together", "until", "the", "morning", "comes"])
+
+    def test_matching_words_get_both_spans_and_are_same(self):
+        sp = self.spans(REF, MINE, TTS)
+        together = sp[3]
+        self.assertEqual(together["tts_span"], (0.84, 1.3))
+        self.assertEqual(together["hyp_span"], (1.97, 2.63))
+        self.assertTrue(together["tts_same"] and together["hyp_same"])
+
+    def test_substitution_has_a_span_but_is_not_same(self):
+        sp = self.spans(REF, MINE, TTS)
+        sing = sp[2]                                           # sing ↔ seeing
+        self.assertEqual(sing["hyp_span"], (1.75, 1.97))
+        self.assertFalse(sing["hyp_same"])
+        self.assertTrue(sing["tts_same"])
+
+    def test_contraction_tokens_split_the_word_time_evenly(self):
+        sp = self.spans(REF, MINE, TTS)
+        # TTS의 "We'll"은 0.0~0.66 한 단어 → we(0.0~0.33)·will(0.33~0.66)로 나뉘어 같은 곡선이 두 칸에 중복되지 않는다.
+        self.assertEqual(sp[0]["tts_span"], (0.0, 0.33))
+        self.assertAlmostEqual(sp[1]["tts_span"][0], 0.33)
+        self.assertAlmostEqual(sp[1]["tts_span"][1], 0.66)
+
+    def test_split_only_runs_with_identical_spans(self):
+        toks = [{"token": "a", "start": 0.0, "end": 0.4, "prob": 1}, {"token": "b", "start": 0.4, "end": 0.8, "prob": 1}]
+        self.assertEqual([(t["start"], t["end"]) for t in align._split_shared_spans(toks)], [(0.0, 0.4), (0.4, 0.8)])
+
+    def test_deletion_has_no_span_on_my_side(self):
+        mine = words([("we", 0.1, 0.3), ("sing", 0.3, 0.6)])
+        tts = words([("we", 0.0, 0.2), ("will", 0.2, 0.4), ("sing", 0.4, 0.8)])
+        loc = align.locate_errors("we will sing", mine, tts)
+        sp = align.word_spans("we will sing", loc["hyp_tokens"], loc["tts_tokens"])
+        self.assertIsNone(sp[1]["hyp_span"])
+        self.assertIsNone(sp[1]["hyp_same"])
+        self.assertEqual(sp[1]["tts_span"], (0.2, 0.4))
+
+    def test_empty_reference_gives_empty_list(self):
+        self.assertEqual(align.word_spans("", [], []), [])
+
+
 if __name__ == "__main__":
     unittest.main()

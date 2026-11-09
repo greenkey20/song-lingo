@@ -139,7 +139,7 @@ def plot_sound_panels(sounds, sr=16000):
     칸마다 수업의 어느 부분과 이어지는지 (출처는 017_sound):
     - wave  [수업과 같음, 01·02]: 시간(초)에 따른 진폭. 두 소리의 시간축(긴 쪽 기준)과 세로 범위(-1~1)를 같게 해 소리 크기와 타이밍을 비교한다.
     - fft   [수업과 같음, 03 실습1~3·lesson04 1-B]: **소리 전체**의 주파수별 크기(`fft_spectrum`). 두 소리를 한 그림에 겹쳐(초록·보라, theme.SERIES 규칙) 낮은 주파수
-            (목소리 높이와 배음)가 어디에 몰려 있는지 본다. 시간 정보는 없다. 가장 큰 봉우리(50 Hz 이상, 03 실습3의 argmax)를 이름 옆에 적는다.
+            (목소리 높이와 배음)가 어디에 몰려 있는지 본다. 시간 정보는 없다. 가장 센 성분(50 Hz 이상, 03 실습3의 argmax; 배음이 더 셀 수 있어 F0와는 다르다)을 이름 옆에 적는다.
     - stft  [수업과 같음, 03·lesson04 1교시]: 창 512·이동 128·hann으로 한 프레임씩 FFT한 파워(dB). "어떤 주파수가 **언제** 나타났나". 밝을수록 센 소리.
     - logmel [수업과 같음, lesson04 2·3교시]: STFT 파워를 삼각형 Mel 필터 40개로 묶고 로그(dB). 사람 귀가 낮은 소리 차이에 더 민감한 점을 반영한 눈금이라 음성 인식 모델 입력으로 쓴다.
     [수업에 없음] stft·logmel은 두 소리를 **같은 색 범위**(가장 센 값 기준 80 dB 아래까지)로 그려 밝기를 비교할 수 있게 한다. 짧은 쪽의 뒤는 '데이터 없음' 색.
@@ -166,7 +166,7 @@ def plot_sound_panels(sounds, sr=16000):
         hz, amp = fft_spectrum(x, sr)
         keep = hz >= 50                                          # 50 Hz 미만(직류·진동 잡음)은 봉우리 후보에서 뺀다
         peak = hz[keep][int(np.argmax(amp[keep]))]               # 03 실습3: argmax로 가장 큰 칸 → 그 칸의 Hz
-        ax.plot(hz / 1000, amp, lw=1.0, color=color, label=f"{name} (가장 큰 봉우리 {peak:.0f} Hz)")
+        ax.plot(hz / 1000, amp, lw=1.0, color=color, label=f"{name} (가장 센 성분 {peak:.0f} Hz)")
     ax.set(xlabel="주파수 (kHz)", ylabel="FFT 크기 / 샘플 수", xlim=(0, 4))     # 말소리의 대부분은 4 kHz 아래
     ax.legend(fontsize=8, frameon=False)
     fig.tight_layout()
@@ -236,6 +236,66 @@ def plot_error_spans(sounds, blocks, title, sr=16000):
     fig.colorbar(im1, cax=axes[1, 2], label="STFT 파워 (dB)")
     fig.colorbar(im2, cax=axes[2, 2], label="Log-Mel (dB)")
     fig.suptitle(title)
+    return fig
+
+
+def plot_f0_contour(analysis, title="목소리 높낮이 변화 (F0)"):
+    """pitch.analyze_f0의 결과(status "ok")로 **시간에 따른 F0 윤곽** Figure를 만든다(실제 시간축, 단위 Hz).
+
+    무성음·무음 프레임은 NaN이라 선이 끊긴다(0 Hz로 이어 그리지 않는다). 유성음 프레임이 하나만 홀로 있으면 선이 안 보이므로 작은 점도 찍는다.
+    가운데 점선은 중앙 F0, 연한 띠는 P10~P90(주로 나타난 범위). 이 그림은 음높이 변화를 **관찰**하는 참고용이고 점수가 아니다.
+    [수업과 같음] 시간에 따른 값을 선으로 그리는 matplotlib 사용(02 파형). [수업에 없음] NaN에서 선이 끊기는 성질을 이용한 표시, axhspan으로 범위 띠."""
+    if analysis.get("status") != "ok":
+        raise ValueError("F0 분석 결과가 없어 그림을 그릴 수 없습니다.")
+    theme.apply_style()
+    t, f0 = np.asarray(analysis["times"]), np.asarray(analysis["f0"], dtype=float)
+    y = np.where(np.asarray(analysis["valid"], dtype=bool), f0, np.nan)
+    fig, ax = plt.subplots(figsize=(9, 3.4), layout="constrained")     # constrained: 가로축 이름이 잘리지 않게 여백을 자동으로 잡는다
+    ax.axhspan(analysis["p10_hz"], analysis["p90_hz"], color=theme.GREEN, alpha=0.12, lw=0,
+               label=f"주로 나타난 범위 {analysis['p10_hz']:.0f}–{analysis['p90_hz']:.0f} Hz")
+    ax.axhline(analysis["median_hz"], color=theme.INK_SECONDARY, lw=1, ls="--", label=f"중앙 {analysis['median_hz']:.0f} Hz")
+    ax.plot(t, y, color=theme.GREEN, lw=1.8, marker="o", ms=2.5)
+    lo, hi = np.nanmin(y), np.nanmax(y)
+    pad = max((hi - lo) * 0.15, 10.0)
+    ax.set(title=title, xlabel="시간 (초)", ylabel="F0 (Hz)", xlim=(0, max(float(t[-1]), analysis.get("duration") or 0)),
+           ylim=(max(lo - pad, 0), hi + pad))
+    ax.legend(loc="upper right", fontsize=8, frameon=False)
+    return fig
+
+
+def plot_f0_compare(curves, words, title="억양 흐름 비교 (상대 음높이)"):
+    """참고 TTS와 내 녹음의 **상대 음높이**(각자의 중앙 F0를 0으로 한 semitone)를 **단어축** 위에 한 그래프로 겹쳐 그린다(검토 문서 16.18).
+
+    curves: [{"name", "x", "y", "color"}] (보통 [참고 TTS, 내 녹음]). x·y는 pitch.to_word_axis의 결과(NaN에서 선이 끊김).
+    words: 기준 문장의 단어 칸 목록 [{"token", "mismatch"}]. 칸 i는 x축의 i~i+1이고, mismatch가 참이면(내 녹음에서 다르게 인식되거나 빠진 단어) 연한 보라 띠로 칠한다
+    (보라는 이 앱에서 '틀린 단어' 표시색이다, theme.PURPLE). 단어 이름표는 정규화한 토큰(we're → we are, twenty → 20)이다.
+    y축은 Hz가 아니라 semitone이라 목소리 높이가 달라도 **올라가고 내려가는 모양**만 비교한다. TTS의 억양은 비교 기준이지 정답이 아니다.
+    [수업에 없음] axvspan으로 단어 칸 띠, set_xticks로 단어 이름표(수업 02 실습7의 axvspan을 구간 표시에 응용)."""
+    if not words:
+        raise ValueError("비교할 단어가 없습니다.")
+    theme.apply_style()
+    fig, ax = plt.subplots(figsize=(9, 3.8), layout="constrained")
+    for i, w in enumerate(words):
+        if w.get("mismatch"):
+            ax.axvspan(i, i + 1, color=theme.PURPLE, alpha=0.13, lw=0)
+        elif i % 2 == 0:
+            ax.axvspan(i, i + 1, color=theme.NO_DATA, alpha=0.5, lw=0)
+        if i:
+            ax.axvline(i, color=theme.GRID, lw=0.8)
+    ax.axhline(0, color=theme.INK_SECONDARY, lw=1, ls="--", label="각자의 중앙 음높이 (0)")
+    ys = []
+    for c in curves:
+        if len(c["x"]):
+            ax.plot(c["x"], c["y"], color=c["color"], lw=2.2, marker="o", ms=2.5, label=c["name"])
+            ys.append(np.asarray(c["y"], dtype=float))
+    finite = np.concatenate(ys) if ys else np.array([])
+    finite = finite[np.isfinite(finite)]
+    span = max(float(np.abs(finite).max()) if len(finite) else 0.0, 3.0) * 1.15
+    ax.set(title=title, ylabel="상대 음높이 (semitone)", xlim=(0, len(words)), ylim=(-span, span),
+           xlabel="기준 문장의 단어 (단어마다 같은 폭으로 맞춤)")
+    ax.set_xticks([i + 0.5 for i in range(len(words))], [w["token"] for w in words])
+    ax.tick_params(axis="x", length=0)
+    ax.legend(loc="upper right", fontsize=8, frameon=False, ncols=3)
     return fig
 
 

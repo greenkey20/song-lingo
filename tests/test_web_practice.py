@@ -76,6 +76,11 @@ class Rendering(unittest.TestCase):
         self.assertIn("8단어 중 2개", card)
         self.assertIn("2 · 0 · 0", card)
 
+    def test_card_head_can_name_the_stt(self):
+        self.assertIn("채점 결과", wp.result_card_html(self.score))
+        self.assertIn("문장 인식 일치도 · Whisper", wp.result_card_html(self.score, "문장 인식 일치도 · Whisper"))
+        self.assertIn("&lt;b&gt;", wp.result_card_html(self.score, "<b>"))        # 제목도 escape
+
     def test_word_cells_kinds(self):
         ops = [("일치", "a", "a"), ("치환", "b", "x"), ("삭제", "c", None), ("삽입", None, "d")]
         self.assertEqual([c["kind"] for c in wp.word_cells(ops)], ["same", "sub", "del", "ins"])
@@ -265,6 +270,49 @@ class JapaneseReadingScore(unittest.TestCase):
         import japanese
         if japanese.available():
             self.assertIn("로마자:", wp.reading_caption("朝"))
+
+
+class F0Summary(unittest.TestCase):
+    base = {"median_hz": 200.4, "p10_hz": 170.2, "p90_hz": 225.0, "range_semitones": 4.9, "jump_ratio": 0.0,
+            "edge": {"start_hz": 175.0, "end_hz": 223.0, "change_semitones": 4.2}}
+
+    def test_rows_show_real_numbers_without_scores(self):
+        out = wp.f0_summary(self.base)
+        labels = [r[0] for r in out["rows"]]
+        self.assertEqual(labels, ["중앙 F0", "주로 나타난 범위", "앞부분 → 뒷부분"])
+        self.assertEqual(out["rows"][0][1], "200 Hz")
+        self.assertIn("170–225 Hz", out["rows"][1][1])
+        self.assertIn("+4.2 semitone", out["rows"][2][1])
+        self.assertEqual(out["notes"], [])
+        text = " ".join(" ".join(r) for r in out["rows"])
+        for word in ("점", "등급", "합격"):
+            self.assertNotIn(word + " ", text + " ")                       # 점수·등급 표현을 만들지 않는다
+
+    def test_missing_edge_shows_dash(self):
+        out = wp.f0_summary({**self.base, "edge": None})
+        self.assertEqual(out["rows"][2][1], "—")
+
+    def test_unstable_estimate_note(self):
+        self.assertEqual(len(wp.f0_summary({**self.base, "jump_ratio": 0.25})["notes"]), 1)
+        self.assertEqual(wp.f0_summary({**self.base, "jump_ratio": None})["notes"], [])
+
+
+class F0CompareSummary(unittest.TestCase):
+    A = {"median_hz": 190.0, "range_semitones": 6.0, "jump_ratio": 0.0, "edge": {"change_semitones": 4.2}}
+    B = {"median_hz": 135.0, "range_semitones": 2.1, "jump_ratio": 0.3, "edge": None}
+
+    def test_columns_and_dash_for_missing_edge(self):
+        out = wp.f0_compare_summary(self.B, self.A)                        # (내 녹음, TTS)
+        self.assertEqual([r[0] for r in out["rows"]][0], "중앙 F0")
+        row = {r[0]: r for r in out["rows"]}
+        self.assertEqual(row["앞부분 → 뒷부분"][1:3], ("+4.2 semitone", "—"))       # (TTS, 내 녹음)
+        self.assertEqual(row["중앙 F0"][1:3], ("190 Hz", "135 Hz"))
+        self.assertIn("비교하지 않아요", row["중앙 F0"][3])               # 절대 Hz는 비교 대상이 아니라고 적는다
+
+    def test_unstable_note_names_who(self):
+        notes = wp.f0_compare_summary(self.B, self.A)["notes"]
+        self.assertEqual(len(notes), 1)
+        self.assertIn("내 녹음", notes[0])
 
 
 if __name__ == "__main__":

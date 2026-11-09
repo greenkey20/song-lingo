@@ -126,5 +126,56 @@ class SoundPanels(unittest.TestCase):
                 plt.close(f)
 
 
+class F0Contour(unittest.TestCase):
+    def analysis(self):
+        t = np.arange(50) * 0.02
+        f0 = np.full(50, 200.0)
+        f0[20:30] = np.nan                                           # 무성음 구간
+        valid = np.isfinite(f0)
+        return {"status": "ok", "times": t, "f0": f0, "valid": valid, "median_hz": 200.0, "p10_hz": 190.0, "p90_hz": 215.0, "duration": 1.0}
+
+    def test_breaks_line_at_unvoiced_frames(self):
+        fig = vis.plot_f0_contour(self.analysis())
+        y = [l for l in fig.axes[0].get_lines() if len(l.get_ydata()) == 50][0].get_ydata()
+        self.assertTrue(np.all(np.isnan(y[20:30])))                  # 0으로 채우지 않고 NaN 그대로
+        self.assertTrue(np.all(np.isfinite(y[:20])))
+        plt.close(fig)
+
+    def test_rejects_failed_analysis(self):
+        with self.assertRaises(ValueError):
+            vis.plot_f0_contour({"status": "too_short"})
+
+
+class F0Compare(unittest.TestCase):
+    WORDS = [{"token": "are", "mismatch": False}, {"token": "you", "mismatch": True}, {"token": "ready", "mismatch": False}]
+
+    def curves(self):
+        x = np.array([0, 0.5, 1.0, np.nan, 1.2, 1.8, np.nan, 2.1, 2.9, np.nan])
+        y = np.array([0, 1, 2, np.nan, 0, np.nan, np.nan, 3, 4, np.nan])
+        return [{"name": "참고 TTS", "x": x, "y": y, "color": "#8a8985"}, {"name": "내 녹음", "x": x, "y": y * 0.5, "color": "#1a9f4c"}]
+
+    def test_makes_one_axes_with_word_ticks_and_nan_breaks(self):
+        fig = vis.plot_f0_compare(self.curves(), self.WORDS)
+        ax = fig.axes[0]
+        self.assertEqual([t.get_text() for t in ax.get_xticklabels()], ["are", "you", "ready"])
+        self.assertEqual(ax.get_xlim(), (0, 3))
+        lines = [l for l in ax.get_lines() if len(l.get_xdata()) == 10]
+        self.assertEqual(len(lines), 2)
+        self.assertTrue(np.isnan(lines[0].get_ydata()[3]))             # 단어 사이·무성음 구간은 NaN 그대로(선이 끊김)
+        plt.close(fig)
+
+    def test_marks_mismatched_word_band(self):
+        fig = vis.plot_f0_compare(self.curves(), self.WORDS)
+        bands = [p for p in fig.axes[0].patches if p.get_alpha() == 0.13]       # 보라 띠(틀린 단어)
+        self.assertEqual(len(bands), 1)
+        plt.close(fig)
+
+    def test_empty_words_rejected_and_empty_curve_ok(self):
+        with self.assertRaises(ValueError):
+            vis.plot_f0_compare([], [])
+        fig = vis.plot_f0_compare([{"name": "x", "x": np.array([]), "y": np.array([]), "color": "#000"}], self.WORDS)
+        plt.close(fig)
+
+
 if __name__ == "__main__":
     unittest.main()
