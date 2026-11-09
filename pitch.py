@@ -39,7 +39,7 @@ def _result(status, **extra):
     """analyze_f0가 돌려주는 dict의 틀. 값이 없는 칸은 None."""
     out = {"status": status, "times": None, "f0": None, "voiced_flag": None, "voiced_probs": None, "valid": None,
            "median_hz": None, "p10_hz": None, "p90_hz": None, "range_semitones": None,
-           "n_voiced": 0, "jump_ratio": None, "duration": None, "seconds": None}
+           "n_voiced": 0, "jump_ratio": None, "edge": None, "duration": None, "seconds": None}
     out.update(extra)
     return out
 
@@ -85,26 +85,39 @@ def jump_ratio(rel, valid):
     return float((diff > JUMP_SEMITONES).mean())
 
 
-def analyze_f0(source, fmin=FMIN, fmax=FMAX, frame_length=FRAME_LENGTH, hop_length=HOP_LENGTH):
-    """녹음 하나(경로·bytes·파일 객체)의 F0 윤곽과 요약을 구한다. 돌려주는 dict:
+def edge_change(f0, valid, fraction=1 / 3, min_frames=5):
+    """발화의 **앞부분과 뒷부분**의 음높이 차이: 유성음 프레임을 시간 순서로 놓고 앞 1/3과 뒤 1/3의 중앙 F0를 비교한다.
+
+    돌려주는 값: {"start_hz", "end_hz", "change_semitones"}(= 12·log2(뒤/앞), 양수면 뒤가 높음) 또는, 한쪽에 min_frames개(기본 5, 0.1초) 미만이면 None.
+    문장 끝 억양(올라가는지 내려가는지)을 **관찰**하려는 값이다. 좋고 나쁨의 기준이 아니며(의문문이 항상 올라가는 것도 아니다),
+    단어 정렬이 없는 단독 분석용 근사다(3단계에서 단어 구간으로 바꿀 수 있다)."""
+    f0 = np.asarray(f0, dtype=float)
+    idx = np.flatnonzero(np.asarray(valid, dtype=bool) & valid_mask(f0))
+    k = int(len(idx) * fraction)
+    if k < min_frames:
+        return None
+    start, end = float(np.median(f0[idx[:k]])), float(np.median(f0[idx[-k:]]))
+    return {"start_hz": start, "end_hz": end, "change_semitones": float(12.0 * np.log2(end / start))}
+
+
+def analyze_waveform(y, fmin=FMIN, fmax=FMAX, frame_length=FRAME_LENGTH, hop_length=HOP_LENGTH):
+    """16 kHz 모노 파형 y(float32 배열)의 F0 윤곽과 요약을 구한다. 돌려주는 dict:
 
     status: "ok" / "too_short"(분석 창보다 짧음) / "insufficient_voicing"(유성음 프레임이 MIN_VOICED_FRAMES 미만) / "unavailable"(librosa 없음)
     times(초)·f0(Hz, 무성음은 NaN)·voiced_flag·voiced_probs·valid: 프레임마다 하나(길이가 같다). 시간은 원본 녹음의 시간축과 같다(Whisper 단어 시간과 겹칠 수 있다).
     median_hz·p10_hz·p90_hz·range_semitones: valid 프레임의 중앙값·10%·90% 지점·P10~P90의 폭(semitone). 최소·최대 대신 백분위를 쓰는 이유는
     옥타브 오류 같은 이상치에 덜 흔들리기 때문이다. status가 "ok"가 아니면 None.
-    n_voiced: valid 프레임 수. jump_ratio: jump_ratio() 참고. duration: 소리 길이(초). seconds: 분석에 걸린 시간.
-    audio.load_audio가 읽지 못하는 입력이면 그 예외를 그대로 올린다."""
+    n_voiced: valid 프레임 수. jump_ratio: jump_ratio() 참고. edge: edge_change() 참고. duration: 소리 길이(초). seconds: 분석에 걸린 시간."""
     t0 = time.time()
     try:
         import librosa           # 지연 import: 앱 시작과 F0를 안 쓰는 화면에는 비용을 안 준다(numba 불러오기가 느리다)
     except ImportError:
         return _result("unavailable")
-    y, _sr, _ch = audio.load_audio(source, SR)
     duration = len(y) / SR
     if len(y) < frame_length:
         return _result("too_short", duration=duration, seconds=time.time() - t0)
     f0, voiced_flag, voiced_probs = librosa.pyin(y, sr=SR, fmin=fmin, fmax=fmax, frame_length=frame_length, hop_length=hop_length,
-                                         resolution=RESOLUTION)
+                                                 resolution=RESOLUTION)
     times = librosa.times_like(f0, sr=SR, hop_length=hop_length)
     valid = valid_mask(f0, voiced_flag)
     n_voiced = int(valid.sum())
@@ -114,6 +127,23 @@ def analyze_f0(source, fmin=FMIN, fmax=FMAX, frame_length=FRAME_LENGTH, hop_leng
         p10, median, p90 = np.percentile(f0[valid], [10, 50, 90])
         out.update(median_hz=float(median), p10_hz=float(p10), p90_hz=float(p90),
                    range_semitones=float(12.0 * np.log2(p90 / p10)),
-                   jump_ratio=jump_ratio(relative_semitones(f0, valid, median), valid))
+                   jump_ratio=jump_ratio(relative_semitones(f0, valid, median), valid), edge=edge_change(f0, valid))
     out["seconds"] = time.time() - t0
     return out
+
+
+def analyze_f0(source, **kwargs):
+    """녹음 하나(경로·bytes·파일 객체)의 F0 윤곽과 요약. audio.load_audio로 16 kHz 모노로 바꾼 뒤 analyze_waveform을 부른다(돌려주는 값은 그쪽 참고).
+    audio.load_audio가 읽지 못하는 입력이면 그 예외를 그대로 올린다(부르는 화면이 안내 문구로 바꾼다)."""
+    y, _sr, _ch = audio.load_audio(source, SR)
+    return analyze_waveform(y, **kwargs)
+
+
+def warm_up():
+    """짧은 합성음으로 pYIN을 한 번 돌려 numba 컴파일을 미리 끝낸다(새 프로세스의 첫 호출이 12~19초 걸려서, 화면이 멈춘 것처럼 보이는 것을 막는다).
+    앱이 백그라운드 스레드에서 부른다. 성공하면 True, 실패(librosa 없음 등)는 조용히 False(워밍업이 안 돼도 분석은 그대로 동작한다)."""
+    try:
+        t = np.arange(int(SR * 0.5)) / SR
+        return analyze_waveform((0.3 * np.sin(2 * np.pi * 150 * t)).astype(np.float32))["status"] == "ok"
+    except Exception:
+        return False

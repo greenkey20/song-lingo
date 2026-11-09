@@ -5,6 +5,8 @@
 [수업에 없음] `st.audio_input`: 브라우저 마이크로 녹음해 wav 파일 객체를 돌려주는 Streamlit 위젯. `unsafe_allow_html`: HTML 조각을 그대로 그리는 옵션
 (사용자 글은 web_practice에서 escape해서 넣는다).
 """
+import threading
+
 import matplotlib.pyplot as plt
 import streamlit as st
 
@@ -16,6 +18,7 @@ import practice
 import practice_log
 import visualisation
 import persist
+import pitch
 import storage
 import web_practice as wp
 
@@ -65,6 +68,52 @@ def _span_figure(prep, res):
         return {"blocks": sp["blocks"], "text": sp["text"], "fig": fig}
     except Exception as e:
         return {"error": f"틀린 구간을 표시하지 못했어요 ({type(e).__name__})"}
+
+
+@st.cache_resource
+def _warm_up_f0():
+    """pYIN의 첫 호출은 numba 컴파일로 12~19초 걸린다. 서버 프로세스마다 한 번, 백그라운드 스레드로 미리 돌려 두어 첫 채점이 멈춘 것처럼 보이지 않게 한다
+    (st.cache_resource라 화면이 다시 그려져도 스레드를 또 만들지 않는다). 실패해도 분석은 그대로 동작한다."""
+    threading.Thread(target=pitch.warm_up, daemon=True).start()
+    return True
+
+
+F0_MESSAGES = {"too_short": "녹음이 너무 짧아서 높낮이를 분석하지 못했어요(0.13초 이상 필요해요).",
+               "insufficient_voicing": "목소리로 판단된 구간이 너무 적어서 그리지 못했어요. 조금 더 크고 또렷하게 읽어 보세요.",
+               "unavailable": "F0 분석 도구(librosa)를 쓸 수 없어요."}
+
+
+def _f0_view(recording):
+    """내 녹음(bytes)의 F0 분석을 해서 화면에 보여 줄 것을 만든다: {"fig", "summary"} 또는 {"message": 안내} 또는 {"error": 안내}.
+    F0는 채점과 별개의 참고 분석이라 어떤 예외도 안내 문구로 바꿔 돌려준다(WER/CER·Azure·소리 모양 결과에 영향을 주지 않는다). 채점 직후 한 번만 만든다."""
+    try:
+        analysis = pitch.analyze_f0(recording)
+        if analysis["status"] != "ok":
+            return {"message": F0_MESSAGES.get(analysis["status"], "높낮이를 분석하지 못했어요.")}
+        fig = visualisation.plot_f0_contour(analysis)
+        plt.close(fig)
+        return {"fig": fig, "summary": wp.f0_summary(analysis), "seconds": analysis["seconds"]}
+    except Exception as e:
+        return {"error": f"높낮이를 분석하지 못했어요 ({type(e).__name__})"}
+
+
+def _show_f0(view):
+    """따라읽기 결과 아래 '목소리 높낮이(F0)'. 내 녹음의 음높이가 시간에 따라 어떻게 변했는지 보여 주는 참고용 칸이다(점수·등급 없음)."""
+    st.markdown("**목소리 높낮이 · F0** · 참고용 · 평가 아님")
+    explain.show("f0")
+    if not view:
+        return
+    if "error" in view or "message" in view:
+        st.caption(view.get("error") or view["message"])
+        return
+    st.pyplot(view["fig"], clear_figure=False)
+    summary = view["summary"]
+    st.markdown("| 항목 | 내 녹음 | 뜻 |\n|---|---|---|\n" + "\n".join(f"| {a} | **{b}** | {c} |" for a, b, c in summary["rows"]))
+    for note in summary["notes"]:
+        st.caption("⚠ " + note)
+    st.caption("F0는 목소리의 기본적인 높낮이가 시간에 따라 어떻게 변하는지 보여 줘요. 무성음이나 무음 구간에는 기본주파수가 없어서 선이 끊겨요. "
+               "사람마다 목소리 높이와 말하는 습관이 다르므로 이 결과는 발음 점수가 아니라 음향 특성을 관찰하기 위한 참고 정보예요. "
+               "내 녹음을 다시 들으며 그래프를 보고, 같은 문장을 다시 녹음해 모양이 어떻게 달라지는지 비교해 보세요.")
 
 
 # Azure 발음 평가 점수의 의미와 계산. 출처: Microsoft Learn 「발음 평가 사용」(ko-kr)을 2026-11-05에 읽고 정리(검토 문서 14.7의 10절).
@@ -277,6 +326,7 @@ def practice_panel(text, key, tts_path=None, meaning_ko="", source="lyrics", lan
     if prep["error"]:
         st.info("연습할 문장을 먼저 정하세요.")
         return
+    _warm_up_f0()                                            # F0 분석의 첫 호출 지연을 미리 없앤다(서버 프로세스당 한 번)
     nonce = st.session_state.get(f"{key}_nonce", 0)          # 건너뛰기로 입력·결과를 비울 때 올린다
     st.markdown(wp.css(), unsafe_allow_html=True)
     tab_read, tab_dict = st.tabs(["🎤 따라읽기", "⌨ 받아쓰기"])
@@ -295,6 +345,7 @@ def practice_panel(text, key, tts_path=None, meaning_ko="", source="lyrics", lan
                     _log(source, prep["text"], "read", st.session_state[f"{key}_read"], prep["lang"], line_no)
                     ok = tts_path and not st.session_state[f"{key}_read"]["error"]
                     st.session_state[f"{key}_figs"] = _sound_figs(tts_path, rec.getvalue()) if ok else None
+                    st.session_state[f"{key}_f0"] = None if st.session_state[f"{key}_read"]["error"] else _f0_view(rec.getvalue())
                     wrong = ok and st.session_state[f"{key}_read"]["score"]["main"]["distance"] > 0
                     st.session_state[f"{key}_spans"] = _span_figure(prep, st.session_state[f"{key}_read"]) if wrong else (
                         {"blocks": 0} if ok else None)
@@ -305,6 +356,7 @@ def practice_panel(text, key, tts_path=None, meaning_ko="", source="lyrics", lan
             st.session_state.pop(f"{key}_read", None)
             st.session_state.pop(f"{key}_figs", None)
             st.session_state.pop(f"{key}_spans", None)
+            st.session_state.pop(f"{key}_f0", None)
             st.session_state.pop(f"{key}_azure", None)
             st.rerun()
         res = st.session_state.get(f"{key}_read")
@@ -320,6 +372,7 @@ def practice_panel(text, key, tts_path=None, meaning_ko="", source="lyrics", lan
                     st.audio(rec)
             if not res["error"]:
                 _show_error_spans(st.session_state.get(f"{key}_spans"))
+                _show_f0(st.session_state.get(f"{key}_f0"))
                 _show_azure(key, prep, rec, nonce, source, line_no)
                 _show_sound_shapes(st.session_state.get(f"{key}_figs"), bool(tts_path))
         st.caption("점수는 발음 점수가 아니라 문장 인식 일치도예요. 주변 소리가 크면 오류율이 올라갈 수 있어요.")

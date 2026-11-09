@@ -239,6 +239,30 @@ def plot_error_spans(sounds, blocks, title, sr=16000):
     return fig
 
 
+def plot_f0_contour(analysis, title="목소리 높낮이 변화 (F0)"):
+    """pitch.analyze_f0의 결과(status "ok")로 **시간에 따른 F0 윤곽** Figure를 만든다(실제 시간축, 단위 Hz).
+
+    무성음·무음 프레임은 NaN이라 선이 끊긴다(0 Hz로 이어 그리지 않는다). 유성음 프레임이 하나만 홀로 있으면 선이 안 보이므로 작은 점도 찍는다.
+    가운데 점선은 중앙 F0, 연한 띠는 P10~P90(주로 나타난 범위). 이 그림은 음높이 변화를 **관찰**하는 참고용이고 점수가 아니다.
+    [수업과 같음] 시간에 따른 값을 선으로 그리는 matplotlib 사용(02 파형). [수업에 없음] NaN에서 선이 끊기는 성질을 이용한 표시, axhspan으로 범위 띠."""
+    if analysis.get("status") != "ok":
+        raise ValueError("F0 분석 결과가 없어 그림을 그릴 수 없습니다.")
+    theme.apply_style()
+    t, f0 = np.asarray(analysis["times"]), np.asarray(analysis["f0"], dtype=float)
+    y = np.where(np.asarray(analysis["valid"], dtype=bool), f0, np.nan)
+    fig, ax = plt.subplots(figsize=(9, 3.4), layout="constrained")     # constrained: 가로축 이름이 잘리지 않게 여백을 자동으로 잡는다
+    ax.axhspan(analysis["p10_hz"], analysis["p90_hz"], color=theme.GREEN, alpha=0.12, lw=0,
+               label=f"주로 나타난 범위 {analysis['p10_hz']:.0f}–{analysis['p90_hz']:.0f} Hz")
+    ax.axhline(analysis["median_hz"], color=theme.INK_SECONDARY, lw=1, ls="--", label=f"중앙 {analysis['median_hz']:.0f} Hz")
+    ax.plot(t, y, color=theme.GREEN, lw=1.8, marker="o", ms=2.5)
+    lo, hi = np.nanmin(y), np.nanmax(y)
+    pad = max((hi - lo) * 0.15, 10.0)
+    ax.set(title=title, xlabel="시간 (초)", ylabel="F0 (Hz)", xlim=(0, max(float(t[-1]), analysis.get("duration") or 0)),
+           ylim=(max(lo - pad, 0), hi + pad))
+    ax.legend(loc="upper right", fontsize=8, frameon=False)
+    return fig
+
+
 def plot_song_selection(mins, maxs, seconds, start, duration):
     """곡 전체 파형 윤곽(web_song.waveform_peaks의 mins·maxs) 위에 고른 구간 [start, start+duration]을 띠로 표시한 Figure를 돌려준다.
 

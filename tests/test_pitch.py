@@ -124,5 +124,46 @@ class JumpRatio(unittest.TestCase):
         self.assertIsNone(pitch.jump_ratio(np.array([0.0, np.nan, 1.0]), np.array([True, False, True])))
 
 
+class EdgeChange(unittest.TestCase):
+    def test_rising_end_is_positive(self):
+        f0 = np.concatenate([np.full(30, 150.0), np.full(30, 300.0)])
+        e = pitch.edge_change(f0, np.ones(60, bool))
+        self.assertAlmostEqual(e["start_hz"], 150.0)
+        self.assertAlmostEqual(e["end_hz"], 300.0)
+        self.assertAlmostEqual(e["change_semitones"], 12.0, places=6)
+
+    def test_flat_is_zero_and_falling_is_negative(self):
+        self.assertAlmostEqual(pitch.edge_change(np.full(60, 200.0), np.ones(60, bool))["change_semitones"], 0.0)
+        self.assertLess(pitch.edge_change(np.linspace(300, 150, 60), np.ones(60, bool))["change_semitones"], 0)
+
+    def test_none_when_too_few_voiced_frames(self):
+        self.assertIsNone(pitch.edge_change(np.full(12, 200.0), np.ones(12, bool)))       # 12개의 1/3 = 4개 < 5
+
+    def test_unvoiced_frames_are_ignored(self):
+        f0 = np.full(90, np.nan)
+        f0[10:40], f0[60:90] = 150.0, 300.0
+        e = pitch.edge_change(f0, pitch.valid_mask(f0))
+        self.assertAlmostEqual(e["change_semitones"], 12.0, places=6)
+
+    def test_pyin_rising_tone_end_to_end(self):
+        x = np.concatenate([tone(150, 1.5), tone(300, 1.5)])
+        out = pitch.analyze_f0(wav_bytes(x))
+        self.assertEqual(out["status"], "ok")
+        self.assertAlmostEqual(out["edge"]["change_semitones"], 12.0, delta=1.0)
+
+
+class WarmUp(unittest.TestCase):
+    def test_returns_true_and_never_raises(self):
+        self.assertTrue(pitch.warm_up())
+        with mock.patch.dict(sys.modules, {"librosa": None}):
+            self.assertFalse(pitch.warm_up())                          # librosa가 없어도 예외 없이 False
+
+    def test_analyze_waveform_matches_analyze_f0(self):
+        x = tone(200, 1.0)
+        a = pitch.analyze_waveform(x)["median_hz"]
+        b = pitch.analyze_f0(wav_bytes(x))["median_hz"]
+        self.assertAlmostEqual(a, b, delta=2.0)                         # PCM16 양자화 차이만큼만 다르다
+
+
 if __name__ == "__main__":
     unittest.main()

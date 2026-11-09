@@ -162,6 +162,26 @@ def error_spans(prep, res, locate=None):
     return {"blocks": len(blocks), "text": report.error_blocks(prep, out["loc"]), "sounds": out["sounds"], "loc": out["loc"]}
 
 
+def f0_summary(analysis):
+    """pitch.analyze_f0 결과(status "ok")를 화면용 글로 바꾼다: {"rows": [(항목, 값, 뜻)], "notes": [안내 글]}. 점수·등급·판정은 만들지 않는다.
+
+    행: ① 중앙 F0 ② 주로 나타난 범위(P10~P90, semitone 폭) ③ 앞부분→뒷부분(앞 1/3과 뒤 1/3의 중앙 F0, 변화는 semitone; 구간이 짧으면 "—").
+    notes: 이웃 프레임 사이에 6 semitone 넘게 튄 비율(jump_ratio)이 10%를 넘으면 추정이 흔들렸을 수 있다는 안내(옥타브 오류 의심, 10%는 시작값)."""
+    rows = [("중앙 F0", f"{analysis['median_hz']:.0f} Hz", "목소리가 나는 구간의 가운데 높이예요. 목소리 높이는 사람마다 달라서 높고 낮음이 좋고 나쁨은 아니에요"),
+            ("주로 나타난 범위", f"{analysis['p10_hz']:.0f}–{analysis['p90_hz']:.0f} Hz · {analysis['range_semitones']:.1f} semitone",
+             "하위 10%~상위 90% 지점이에요. 1 semitone은 피아노 건반 한 칸이에요")]
+    edge = analysis.get("edge")
+    if edge:
+        rows.append(("앞부분 → 뒷부분", f"{edge['start_hz']:.0f} → {edge['end_hz']:.0f} Hz · {edge['change_semitones']:+.1f} semitone",
+                     "발화의 앞 1/3과 뒤 1/3의 중앙 높이예요. 문장 끝이 올라가는지 내려가는지 관찰하는 값이에요"))
+    else:
+        rows.append(("앞부분 → 뒷부분", "—", "목소리가 나는 구간이 짧아서 비교하지 않았어요"))
+    notes = []
+    if (analysis.get("jump_ratio") or 0) > 0.1:
+        notes.append("높이가 갑자기 두 배·절반처럼 튀는 구간이 많아서 추정이 흔들렸을 수 있어요(주변 소리·작은 목소리·속삭임에서 생겨요).")
+    return {"rows": rows, "notes": notes}
+
+
 def apply_japanese_reading(prep, res):
     """일본어(ja) 채점 결과를 **히라가나 읽기 기준**으로 다시 계산한다(이슈 #50): 기준 문장과 인식·입력 글을 둘 다 읽기로 바꿔 비교하므로
     한자·가타카나·히라가나 표기 차이가 오류로 세어지지 않는다. res를 제자리에서 고쳐 돌려준다.

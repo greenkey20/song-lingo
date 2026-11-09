@@ -20,7 +20,7 @@ def used_keys():
     keys = set()
     for p in list(APP.glob("*.py")) + list((APP / "views").glob("*.py")):
         if p.name != "explain.py":
-            keys |= set(re.findall(r'explain\.show\("([a-z_]+)"', p.read_text(encoding="utf-8")))
+            keys |= set(re.findall(r'explain\.show\("([a-z0-9_]+)"', p.read_text(encoding="utf-8")))
     return keys
 
 

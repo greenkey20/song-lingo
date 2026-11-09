@@ -126,5 +126,25 @@ class SoundPanels(unittest.TestCase):
                 plt.close(f)
 
 
+class F0Contour(unittest.TestCase):
+    def analysis(self):
+        t = np.arange(50) * 0.02
+        f0 = np.full(50, 200.0)
+        f0[20:30] = np.nan                                           # 무성음 구간
+        valid = np.isfinite(f0)
+        return {"status": "ok", "times": t, "f0": f0, "valid": valid, "median_hz": 200.0, "p10_hz": 190.0, "p90_hz": 215.0, "duration": 1.0}
+
+    def test_breaks_line_at_unvoiced_frames(self):
+        fig = vis.plot_f0_contour(self.analysis())
+        y = [l for l in fig.axes[0].get_lines() if len(l.get_ydata()) == 50][0].get_ydata()
+        self.assertTrue(np.all(np.isnan(y[20:30])))                  # 0으로 채우지 않고 NaN 그대로
+        self.assertTrue(np.all(np.isfinite(y[:20])))
+        plt.close(fig)
+
+    def test_rejects_failed_analysis(self):
+        with self.assertRaises(ValueError):
+            vis.plot_f0_contour({"status": "too_short"})
+
+
 if __name__ == "__main__":
     unittest.main()
