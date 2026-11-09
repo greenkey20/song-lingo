@@ -10,3 +10,6 @@ openai==3.35.1
 python-dotenv==1.2.4
 ipykernel==7.3.0
 sounddevice==0.5.6   # 마이크 녹음(recorder.py). pip 휠에 PortAudio 포함
+librosa==0.11.0     # F0(기본주파수) 분석 pitch.py의 pyin(이슈 #82, 검토 문서 16.18). 1.0.0은 Python 3.12 이상이라 3.11용 0.11.0 고정. numpy 불변(--dry-run 확인)
+numba==0.62.1        # librosa 의존. 새 버전은 macOS Intel(10.15)용 휠이 없어 소스 빌드에 실패해서 휠이 있는 버전으로 고정(aarch64 서버용 휠도 확인)
+llvmlite==0.45.1     # numba 0.62.1과 짝

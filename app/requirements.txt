@@ -13,3 +13,6 @@ python-dotenv==1.2.4
 azure-cognitiveservices-speech==1.53.0   # Azure 발음 평가(azure_pronunciation.py, 이슈 #48). numpy는 안 바뀜(pip install --dry-run으로 확인)
 pykakasi==2.3.0       # 일본어 한자·가타카나 → 히라가나 읽기·로마자(japanese.py, 이슈 #50). numpy 불변(--dry-run 확인)
 psycopg[binary]==3.3.8   # PostgreSQL 드라이버(사용자별 저장, 이슈 #52, 검토 문서 16.16). 서버(aarch64)용 휠 있음, numpy 불변(--dry-run 확인)
+librosa==0.11.0     # F0(기본주파수) 분석 pitch.py의 pyin(이슈 #82, 검토 문서 16.18). 1.0.0은 Python 3.12 이상이라 3.11용 0.11.0 고정. numpy 불변(--dry-run 확인)
+numba==0.62.1        # librosa 의존. 새 버전은 macOS Intel(10.15)용 휠이 없어 소스 빌드에 실패해서 휠이 있는 버전으로 고정(aarch64 서버용 휠도 확인)
+llvmlite==0.45.1     # numba 0.62.1과 짝
