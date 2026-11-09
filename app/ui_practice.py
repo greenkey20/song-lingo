@@ -365,7 +365,7 @@ def _show_result(res, prep, mode):
         return
     st.markdown(_result_html(res, prep, mode), unsafe_allow_html=True)
     if mode == "read":
-        st.caption("녹음을 글로 인식한 뒤 기준 문장과 비교한 **오류율**이에요(낮을수록 좋아요). 발음 정확도 자체를 평가하는 점수는 아니에요. Whisper가 문맥으로 잘못된 발음을 고쳐 인식했을 수도 있어요.")
+        st.caption("녹음을 글로 인식한 뒤 기준 문장과 비교한 **오류율**이에요(낮을수록 좋아요). 발음 정확도 자체를 평가하는 점수는 아니에요. Whisper가 문맥으로 잘못된 발음을 고쳐 인식했을 수도 있고, 주변 소리가 크면 오류율이 올라갈 수 있어요.")
     if res.get("quality") and res["quality"]["warnings"]:
         for w in res["quality"]["warnings"]:
             st.caption("⚠ " + w)           # 경고는 안내일 뿐, 채점은 그대로 진행했다
@@ -448,7 +448,6 @@ def practice_panel(text, key, tts_path=None, meaning_ko="", source="lyrics", lan
                 _show_f0(st.session_state.get(f"{key}_f0"))
                 _show_azure(key, prep, rec, nonce, source, line_no)
                 _show_sound_shapes(st.session_state.get(f"{key}_figs"), bool(tts_path))
-        st.caption("점수는 발음 점수가 아니라 문장 인식 일치도예요. 주변 소리가 크면 오류율이 올라갈 수 있어요.")
 
     with tab_dict:
         st.caption("소리를 들으면서 들은 문장을 적어 보세요. 재생은 몇 번이든 괜찮고, 대소문자와 문장부호는 채점할 때 정리돼요.")
