@@ -16,12 +16,14 @@ import pandas as pd
 import streamlit as st
 
 import auth_gate
+import explain
 import practice_log as pl
 import storage
 import tts
 import web_practice as wp
 
 st.title("기록")
+explain.show("history")
 db_text = {}
 if auth_gate.is_user():                                           # 로그인한 사용자: 내 시도(서버 DB)
     try:

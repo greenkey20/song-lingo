@@ -223,6 +223,7 @@ meaning_group(line, lang, f"lyr_{a['key']}")                  # 한글 뜻(예�
 if not languages.uses_spaces(lang):
     st.caption("공백 없이 쓰는 언어라서 점수는 단어가 아니라 **글자 오류율(CER)** 이 중심이에요. 한자·가타카나는 히라가나 읽기로 바꿔 비교해요.")
 notes_box(line, lang, f"lyr_{a['key']}")                      # 표현 설명(버튼, 단어·발음 기호·표현·문법·예문): '듣기' 바로 위
+explain.show("meaning")                                        # 한글 뜻·표현 설명 버튼이 무엇을 보내고 어디에 저장하는지
 
 # ---------- 4. 듣기 ----------
 st.subheader("듣기")
