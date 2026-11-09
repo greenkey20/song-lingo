@@ -21,6 +21,7 @@ import streamlit as st
 import access
 import account
 import auth
+import explain
 import storage
 
 
@@ -267,6 +268,7 @@ def sidebar():
                       help="끄면 새로 하는 연습은 저장되지 않아요. 이미 저장된 것은 그대로예요.")
             if ss.pop("save_error", False):
                 st.caption("설정을 저장하지 못했어요. 잠시 뒤에 다시 해 보세요.")
+            explain.show("save")                                              # 무엇이 저장되고 무엇이 저장되지 않는지
             if st.button("로그아웃", key="logout_btn"):
                 _logout()
                 st.rerun()

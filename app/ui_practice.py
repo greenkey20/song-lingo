@@ -382,7 +382,7 @@ def _show_result(res, prep, mode):
         st.markdown(f"기준 · 읽기 **{rd['ref']}** · 로마자 {rd['ref_romaji']}  \n"
                     f"{'인식' if mode == 'read' else '내가 적은 글'} · 읽기 **{rd['hyp']}** · 로마자 {rd['hyp_romaji']}")
     if mode == "read":
-        st.caption(f"인식한 문장: {res['hyp']}  ·  인식 {res['seconds']:.1f}초")
+        st.caption(f"인식한 문장: {res['hyp']}  ·  인식에 {res['seconds']:.1f}초 걸림")
 
 
 def practice_panel(text, key, tts_path=None, meaning_ko="", source="lyrics", lang="en", line_no=None):

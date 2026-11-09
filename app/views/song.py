@@ -114,6 +114,7 @@ def lines_section(ws, doc, clip_seconds, mix_path, voc_path, has_audio):
     explain.show("song_listen")
     meaning_group(ln["text"], line_lang, f"song_{gen}_{ln['no']}")           # 들을 문장의 한글 뜻 + 일본어면 읽기·로마자
     notes_box(ln["text"], line_lang, f"song_{gen}_{ln['no']}")               # 표현 설명(버튼): 한글 뜻 바로 아래
+    explain.show("meaning")                                                  # 한글 뜻·표현 설명 버튼이 무엇을 보내고 어디에 저장하는지
     if has_audio:
         sources = ["원본 음악", "보컬만", "표준 발음"]
         src = st.segmented_control("들을 소리", sources, default="원본 음악", key="listen_src")
