@@ -182,6 +182,26 @@ def f0_summary(analysis):
     return {"rows": rows, "notes": notes}
 
 
+def f0_compare_summary(user, tts):
+    """참고 TTS와 내 녹음의 F0 요약을 한 표로: {"rows": [(항목, TTS 값, 내 값, 뜻)], "notes": [안내]}. user·tts는 pitch.analyze_f0 결과(status "ok").
+    중앙 F0(Hz)는 **목소리 높이가 달라서 비교하지 않는다**고 적고, 비교는 상대 음높이(semitone)인 '주로 나타난 범위'와 '앞부분 → 뒷부분'으로 한다. 점수·판정은 없다."""
+    def rng(a):
+        return f"{a['range_semitones']:.1f} semitone"
+
+    def edge(a):
+        e = a.get("edge")
+        return f"{e['change_semitones']:+.1f} semitone" if e else "—"
+
+    rows = [("중앙 F0", f"{tts['median_hz']:.0f} Hz", f"{user['median_hz']:.0f} Hz", "목소리 높이는 사람·목소리마다 달라서 비교하지 않아요"),
+            ("음높이 폭 (하위 10%~상위 90%)", rng(tts), rng(user), "억양이 얼마나 넓게 움직였는지예요. 1 semitone은 피아노 건반 한 칸"),
+            ("앞부분 → 뒷부분", edge(tts), edge(user), "앞 1/3 대비 뒤 1/3의 중앙 높이 변화예요. 올라가는지 내려가는지 보는 값")]
+    notes = []
+    for who, a in (("내 녹음", user), ("참고 TTS", tts)):
+        if (a.get("jump_ratio") or 0) > 0.1:
+            notes.append(f"{who}에서 높이가 갑자기 두 배·절반처럼 튀는 구간이 많아 추정이 흔들렸을 수 있어요.")
+    return {"rows": rows, "notes": notes}
+
+
 def apply_japanese_reading(prep, res):
     """일본어(ja) 채점 결과를 **히라가나 읽기 기준**으로 다시 계산한다(이슈 #50): 기준 문장과 인식·입력 글을 둘 다 읽기로 바꿔 비교하므로
     한자·가타카나·히라가나 표기 차이가 오류로 세어지지 않는다. res를 제자리에서 고쳐 돌려준다.

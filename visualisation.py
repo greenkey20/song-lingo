@@ -263,6 +263,42 @@ def plot_f0_contour(analysis, title="목소리 높낮이 변화 (F0)"):
     return fig
 
 
+def plot_f0_compare(curves, words, title="억양 흐름 비교 (상대 음높이)"):
+    """참고 TTS와 내 녹음의 **상대 음높이**(각자의 중앙 F0를 0으로 한 semitone)를 **단어축** 위에 한 그래프로 겹쳐 그린다(검토 문서 16.18).
+
+    curves: [{"name", "x", "y", "color"}] (보통 [참고 TTS, 내 녹음]). x·y는 pitch.to_word_axis의 결과(NaN에서 선이 끊김).
+    words: 기준 문장의 단어 칸 목록 [{"token", "mismatch"}]. 칸 i는 x축의 i~i+1이고, mismatch가 참이면(내 녹음에서 다르게 인식되거나 빠진 단어) 연한 보라 띠로 칠한다
+    (보라는 이 앱에서 '틀린 단어' 표시색이다, theme.PURPLE). 단어 이름표는 정규화한 토큰(we're → we are, twenty → 20)이다.
+    y축은 Hz가 아니라 semitone이라 목소리 높이가 달라도 **올라가고 내려가는 모양**만 비교한다. TTS의 억양은 비교 기준이지 정답이 아니다.
+    [수업에 없음] axvspan으로 단어 칸 띠, set_xticks로 단어 이름표(수업 02 실습7의 axvspan을 구간 표시에 응용)."""
+    if not words:
+        raise ValueError("비교할 단어가 없습니다.")
+    theme.apply_style()
+    fig, ax = plt.subplots(figsize=(9, 3.8), layout="constrained")
+    for i, w in enumerate(words):
+        if w.get("mismatch"):
+            ax.axvspan(i, i + 1, color=theme.PURPLE, alpha=0.13, lw=0)
+        elif i % 2 == 0:
+            ax.axvspan(i, i + 1, color=theme.NO_DATA, alpha=0.5, lw=0)
+        if i:
+            ax.axvline(i, color=theme.GRID, lw=0.8)
+    ax.axhline(0, color=theme.INK_SECONDARY, lw=1, ls="--", label="각자의 중앙 음높이 (0)")
+    ys = []
+    for c in curves:
+        if len(c["x"]):
+            ax.plot(c["x"], c["y"], color=c["color"], lw=2.2, marker="o", ms=2.5, label=c["name"])
+            ys.append(np.asarray(c["y"], dtype=float))
+    finite = np.concatenate(ys) if ys else np.array([])
+    finite = finite[np.isfinite(finite)]
+    span = max(float(np.abs(finite).max()) if len(finite) else 0.0, 3.0) * 1.15
+    ax.set(title=title, ylabel="상대 음높이 (semitone)", xlim=(0, len(words)), ylim=(-span, span),
+           xlabel="기준 문장의 단어 (단어마다 같은 폭으로 맞춤)")
+    ax.set_xticks([i + 0.5 for i in range(len(words))], [w["token"] for w in words])
+    ax.tick_params(axis="x", length=0)
+    ax.legend(loc="upper right", fontsize=8, frameon=False, ncols=3)
+    return fig
+
+
 def plot_song_selection(mins, maxs, seconds, start, duration):
     """곡 전체 파형 윤곽(web_song.waveform_peaks의 mins·maxs) 위에 고른 구간 [start, start+duration]을 띠로 표시한 Figure를 돌려준다.
 

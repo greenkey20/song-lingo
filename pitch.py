@@ -100,6 +100,43 @@ def edge_change(f0, valid, fraction=1 / 3, min_frames=5):
     return {"start_hz": start, "end_hz": end, "change_semitones": float(12.0 * np.log2(end / start))}
 
 
+MIN_WORD_SECONDS = 0.03          # 이보다 짧은 단어 구간은 진행률(t−s)/(e−s)가 불안정해서 그리지 않는다
+
+
+def to_word_axis(times, values, spans, min_seconds=MIN_WORD_SECONDS):
+    """시간(초) 위의 값(상대 음높이 등)을 **단어축**으로 옮긴다: 기준 단어 i의 구간 [s, e] 안의 프레임 t를 x = i + (t − s)/(e − s)로 바꾼다.
+
+    왜: TTS와 사람은 말 속도·단어마다 걸린 시간이 달라서, 초 단위 시간을 그대로 겹치면 같은 단어가 다른 위치에 놓인다. 단어마다 구간을 0~1로
+    늘이거나 줄여 **같은 단어가 같은 칸(i ~ i+1)** 에 오게 한다. 단어 사이의 쉼은 축에서 빠지고, 단어 안의 속도 차이만 지워진다(음소 타이밍은 비교하지 않는다).
+
+    times: 프레임 시각(초) 배열, values: 같은 길이의 값 배열(무성음은 NaN), spans: 기준 단어마다 (시작, 끝) 초 또는 None(그 소리에 대응하는 단어가 없음).
+    돌려주는 값: (x, y) 배열. 단어마다 프레임을 이어 붙이고 **단어와 단어 사이에 NaN을 한 칸 끼워** 선이 단어 경계를 넘어 이어지지 않게 한다.
+    구간 안의 NaN(무성음) 프레임은 NaN으로 남겨 선이 끊긴다. spans가 None이거나 e − s < min_seconds인 단어는 비워 둔다(그래프에서 빈 칸).
+
+    손으로 따라가 보기: times = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5], values = [1, 2, nan, 4, 5, 6], spans = [(0.0, 0.2), None, (0.3, 0.5)]
+      단어 0 (s=0.0, e=0.2): t = 0.0, 0.1, 0.2 → x = 0 + (t−0.0)/0.2 = 0.0, 0.5, 1.0     y = 1, 2, nan  → 뒤에 구분 NaN
+      단어 1: None → 비움
+      단어 2 (s=0.3, e=0.5): t = 0.3, 0.4, 0.5 → x = 2 + (t−0.3)/0.2 = 2.0, 2.5, 3.0     y = 4, 5, 6
+      결과 x = [0, .5, 1, nan, 2, 2.5, 3, nan], y = [1, 2, nan, nan, 4, 5, 6, nan]
+
+    [수업에 없음] 구간별 선형 변환(piecewise linear time warping). 단어 경계를 맞추는 가장 단순한 방법이고 DTW 같은 복잡한 정렬은 쓰지 않는다."""
+    times = np.asarray(times, dtype=float)
+    values = np.asarray(values, dtype=float)
+    xs, ys = [], []
+    for i, span in enumerate(spans):
+        if span is None:
+            continue
+        start, end = span
+        if end - start < min_seconds:
+            continue
+        inside = (times >= start) & (times <= end)               # 이 단어 구간에 들어오는 프레임
+        xs += [i + (times[inside] - start) / (end - start), [np.nan]]
+        ys += [values[inside], [np.nan]]
+    if not xs:
+        return np.array([]), np.array([])
+    return np.concatenate(xs), np.concatenate(ys)
+
+
 def analyze_waveform(y, fmin=FMIN, fmax=FMAX, frame_length=FRAME_LENGTH, hop_length=HOP_LENGTH):
     """16 kHz 모노 파형 y(float32 배열)의 F0 윤곽과 요약을 구한다. 돌려주는 dict:
 

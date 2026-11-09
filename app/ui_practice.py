@@ -5,11 +5,13 @@
 [수업에 없음] `st.audio_input`: 브라우저 마이크로 녹음해 wav 파일 객체를 돌려주는 Streamlit 위젯. `unsafe_allow_html`: HTML 조각을 그대로 그리는 옵션
 (사용자 글은 web_practice에서 escape해서 넣는다).
 """
+import os
 import threading
 
 import matplotlib.pyplot as plt
 import streamlit as st
 
+import align
 import azure_pronunciation
 import explain
 import languages
@@ -20,6 +22,7 @@ import visualisation
 import persist
 import pitch
 import storage
+import theme
 import web_practice as wp
 
 
@@ -54,11 +57,22 @@ def _sound_figs(tts_path, recording):
     return figs
 
 
-def _span_figure(prep, res):
-    """틀린 구간 표시 한 장을 만든다: {"blocks","text","fig"} 또는 {"blocks": 0} 또는 {"error": 안내}. 채점 직후 한 번만 만든다(인식이 두 번 더 돌아 몇 초 걸림).
-    노트북 practice.ipynb의 '틀린 구간을 소리 그림 위에 표시하기'(show_error_spans)와 같은 경로다."""
+def _locate_words(prep, res):
+    """채점 직후 **한 번만** 단어별 시간을 구한다(`practice.locate_errors`: 내 녹음과 TTS를 각각 단어별 시간 모드로 다시 인식, 몇 초 걸림).
+    '틀린 구간 표시'와 'F0 억양 비교'가 이 결과를 함께 쓴다(같은 인식을 두 번 돌리지 않으려고). {"out": 결과} 또는 {"error": 안내}."""
     try:
-        sp = wp.error_spans(prep, res)
+        return {"out": practice.locate_errors(prep, res)}
+    except Exception as e:
+        return {"error": f"단어 시간을 구하지 못했어요 ({type(e).__name__})"}
+
+
+def _span_figure(prep, res, located):
+    """틀린 구간 표시 한 장을 만든다: {"blocks","text","fig"} 또는 {"blocks": 0} 또는 {"error": 안내}. located는 _locate_words의 결과(다시 인식하지 않는다).
+    노트북 practice.ipynb의 '틀린 구간을 소리 그림 위에 표시하기'(show_error_spans)와 같은 경로다."""
+    if "error" in located:
+        return {"error": f"틀린 구간을 표시하지 못했어요 ({located['error']})"}
+    try:
+        sp = wp.error_spans(prep, res, locate=lambda *_: located["out"])
         if not sp["blocks"]:
             return {"blocks": 0}
         fig = visualisation.plot_error_spans(
@@ -83,22 +97,63 @@ F0_MESSAGES = {"too_short": "녹음이 너무 짧아서 높낮이를 분석하�
                "unavailable": "F0 분석 도구(librosa)를 쓸 수 없어요."}
 
 
-def _f0_view(recording):
-    """내 녹음(bytes)의 F0 분석을 해서 화면에 보여 줄 것을 만든다: {"fig", "summary"} 또는 {"message": 안내} 또는 {"error": 안내}.
+@st.cache_data(show_spinner=False, max_entries=64)
+def _tts_f0(path, mtime):
+    """표준 발음(TTS) 파일의 F0 분석. 같은 문장을 다시 채점할 때 TTS를 또 분석하지 않도록 (경로, 수정 시각)을 키로 캐시한다. mtime은 키로만 쓴다."""
+    return pitch.analyze_f0(path)
+
+
+def _compare_view(prep, loc, user, tts):
+    """참고 TTS와 내 녹음의 **상대 음높이**를 기준 단어축 위에 겹친 그림과 요약 표. 양쪽에 그릴 단어가 없으면 None.
+    순서: ① 기준 단어마다 두 소리의 구간(align.word_spans: 이미 구한 인식 결과를 재사용) ② 각자의 중앙 F0를 0으로 한 semitone(pitch.relative_semitones)
+    ③ 단어 구간 안의 프레임을 단어축 x로(pitch.to_word_axis) ④ 한 그래프에 겹침(visualisation.plot_f0_compare)."""
+    spans = align.word_spans(prep["text"], loc["hyp_tokens"], loc["tts_tokens"], prep["lang"])
+    curves = []
+    for name, a, key, color in (("참고 TTS", tts, "tts_span", theme.MUTED), ("내 녹음", user, "hyp_span", theme.GREEN)):
+        rel = pitch.relative_semitones(a["f0"], a["valid"], a["median_hz"])
+        x, y = pitch.to_word_axis(a["times"], rel, [s[key] for s in spans])
+        curves.append({"name": name, "x": x, "y": y, "color": color})
+    if not all(len(c["x"]) for c in curves):
+        return None
+    words = [{"token": s["token"], "mismatch": s["hyp_same"] is not True} for s in spans]     # 내 쪽이 다른 단어로 인식됐거나 빠진 단어
+    fig = visualisation.plot_f0_compare(curves, words)
+    plt.close(fig)
+    return {"mode": "compare", "fig": fig, "summary": wp.f0_compare_summary(user, tts)}
+
+
+def _f0_view(recording, prep=None, located=None, tts_path=None):
+    """내 녹음(bytes)의 F0 분석을 해서 화면에 보여 줄 것을 만든다: {"mode": "compare"|"single", "fig", "summary", "note"} 또는 {"message"} 또는 {"error"}.
+    표준 발음(tts_path)과 단어별 시간(located)이 있고 공백으로 단어를 나누는 언어면 TTS와 **겹쳐 비교**하고, 아니면 내 윤곽만(실제 시간축) 보여 준다.
     F0는 채점과 별개의 참고 분석이라 어떤 예외도 안내 문구로 바꿔 돌려준다(WER/CER·Azure·소리 모양 결과에 영향을 주지 않는다). 채점 직후 한 번만 만든다."""
     try:
-        analysis = pitch.analyze_f0(recording)
-        if analysis["status"] != "ok":
-            return {"message": F0_MESSAGES.get(analysis["status"], "높낮이를 분석하지 못했어요.")}
-        fig = visualisation.plot_f0_contour(analysis)
+        user = pitch.analyze_f0(recording)
+        if user["status"] != "ok":
+            return {"message": F0_MESSAGES.get(user["status"], "높낮이를 분석하지 못했어요.")}
+        note = None
+        if not tts_path:
+            note = "표준 발음이 있으면 내 높낮이를 표준 발음과 겹쳐 비교할 수 있어요."
+        elif prep is None or not languages.uses_spaces(prep["lang"]):
+            note = "일본어·중국어는 단어별 비교를 아직 지원하지 않아서 내 높낮이만 보여 줘요."
+        elif not located or "out" not in located:
+            note = "단어 시간을 구하지 못해 내 높낮이만 보여 줘요."
+        else:
+            tts = _tts_f0(tts_path, os.path.getmtime(tts_path))
+            if tts["status"] != "ok":
+                note = "표준 발음의 높낮이를 분석하지 못해 내 높낮이만 보여 줘요."
+            else:
+                view = _compare_view(prep, located["out"]["loc"], user, tts)
+                if view:
+                    return view
+                note = "단어에 맞춰 비교할 수 있는 구간이 부족해서 내 높낮이만 보여 줘요(작게 말했거나 인식된 단어가 적을 때 생겨요)."
+        fig = visualisation.plot_f0_contour(user)
         plt.close(fig)
-        return {"fig": fig, "summary": wp.f0_summary(analysis), "seconds": analysis["seconds"]}
+        return {"mode": "single", "fig": fig, "summary": wp.f0_summary(user), "note": note}
     except Exception as e:
         return {"error": f"높낮이를 분석하지 못했어요 ({type(e).__name__})"}
 
 
 def _show_f0(view):
-    """따라읽기 결과 아래 '목소리 높낮이(F0)'. 내 녹음의 음높이가 시간에 따라 어떻게 변했는지 보여 주는 참고용 칸이다(점수·등급 없음)."""
+    """따라읽기 결과 아래 '목소리 높낮이(F0)'. 참고 TTS와 겹친 상대 음높이(또는 내 윤곽만)를 보여 주는 참고용 칸이다(점수·등급 없음)."""
     st.markdown("**목소리 높낮이 · F0** · 참고용 · 평가 아님")
     explain.show("f0")
     if not view:
@@ -106,14 +161,26 @@ def _show_f0(view):
     if "error" in view or "message" in view:
         st.caption(view.get("error") or view["message"])
         return
+    if view.get("note"):
+        st.caption(view["note"])
     st.pyplot(view["fig"], clear_figure=False)
     summary = view["summary"]
-    st.markdown("| 항목 | 내 녹음 | 뜻 |\n|---|---|---|\n" + "\n".join(f"| {a} | **{b}** | {c} |" for a, b, c in summary["rows"]))
+    if view["mode"] == "compare":
+        st.markdown("| 항목 | 참고 TTS | 내 녹음 | 뜻 |\n|---|---|---|---|\n" + "\n".join(f"| {a} | {b} | **{c}** | {d} |" for a, b, c, d in summary["rows"]))
+    else:
+        st.markdown("| 항목 | 내 녹음 | 뜻 |\n|---|---|---|\n" + "\n".join(f"| {a} | **{b}** | {c} |" for a, b, c in summary["rows"]))
     for note in summary["notes"]:
         st.caption("⚠ " + note)
-    st.caption("F0는 목소리의 기본적인 높낮이가 시간에 따라 어떻게 변하는지 보여 줘요. 무성음이나 무음 구간에는 기본주파수가 없어서 선이 끊겨요. "
-               "사람마다 목소리 높이와 말하는 습관이 다르므로 이 결과는 발음 점수가 아니라 음향 특성을 관찰하기 위한 참고 정보예요. "
-               "내 녹음을 다시 들으며 그래프를 보고, 같은 문장을 다시 녹음해 모양이 어떻게 달라지는지 비교해 보세요.")
+    if view["mode"] == "compare":
+        st.caption("두 목소리의 기본 높이 차이를 줄이려고 각자의 중앙 음높이를 0으로 하고 얼마나 올라가고 내려갔는지(semitone)를 겹쳐 그렸어요. 같은 단어 칸에서 두 선이 어떻게 오르내리는지 "
+                   "보세요. 보라 띠는 내 녹음에서 다르게 인식되거나 빠진 단어예요. 단어 안에서 선이 끊긴 곳은 `s`·`t` 같은 소리가 안 울리는 자음이거나 아주 짧은 쉼이에요(오류가 아니에요). "
+                   "단어 칸은 Whisper가 추정한 시간이라 몇십 ms 어긋날 수 있고, 단어 사이의 쉼은 빠져 있어요.")
+        st.caption("표준 발음(TTS)의 억양이 유일한 정답은 아니에요. 문장 끝을 항상 올려야 하는 것도 아니고, 이 그래프는 발음 점수가 아니라 억양의 모양을 관찰하기 위한 참고 정보예요. "
+                   "선의 흐름이 다르면 그 단어를 다시 들어 보고, 높낮이를 의식하면서 한 번 더 녹음해 모양이 어떻게 달라지는지 비교해 보세요.")
+    else:
+        st.caption("F0는 목소리의 기본적인 높낮이가 시간에 따라 어떻게 변하는지 보여 줘요. 무성음이나 무음 구간에는 기본주파수가 없어서 선이 끊겨요. "
+                   "사람마다 목소리 높이와 말하는 습관이 다르므로 이 결과는 발음 점수가 아니라 음향 특성을 관찰하기 위한 참고 정보예요. "
+                   "내 녹음을 다시 들으며 그래프를 보고, 같은 문장을 다시 녹음해 모양이 어떻게 달라지는지 비교해 보세요.")
 
 
 # Azure 발음 평가 점수의 의미와 계산. 출처: Microsoft Learn 「발음 평가 사용」(ko-kr)을 2026-11-05에 읽고 정리(검토 문서 14.7의 10절).
@@ -345,9 +412,11 @@ def practice_panel(text, key, tts_path=None, meaning_ko="", source="lyrics", lan
                     _log(source, prep["text"], "read", st.session_state[f"{key}_read"], prep["lang"], line_no)
                     ok = tts_path and not st.session_state[f"{key}_read"]["error"]
                     st.session_state[f"{key}_figs"] = _sound_figs(tts_path, rec.getvalue()) if ok else None
-                    st.session_state[f"{key}_f0"] = None if st.session_state[f"{key}_read"]["error"] else _f0_view(rec.getvalue())
+                    located = _locate_words(prep, st.session_state[f"{key}_read"]) if ok else None      # 단어별 시간: 틀린 구간과 F0 비교가 함께 씀
+                    st.session_state[f"{key}_f0"] = None if st.session_state[f"{key}_read"]["error"] else _f0_view(
+                        rec.getvalue(), prep, located, tts_path)
                     wrong = ok and st.session_state[f"{key}_read"]["score"]["main"]["distance"] > 0
-                    st.session_state[f"{key}_spans"] = _span_figure(prep, st.session_state[f"{key}_read"]) if wrong else (
+                    st.session_state[f"{key}_spans"] = _span_figure(prep, st.session_state[f"{key}_read"], located) if wrong else (
                         {"blocks": 0} if ok else None)
                 except Exception as e:
                     st.session_state[f"{key}_read"] = {"error": f"채점하지 못했어요 ({type(e).__name__}: {e})"}

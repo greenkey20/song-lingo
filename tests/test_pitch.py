@@ -165,5 +165,41 @@ class WarmUp(unittest.TestCase):
         self.assertAlmostEqual(a, b, delta=2.0)                         # PCM16 양자화 차이만큼만 다르다
 
 
+class ToWordAxis(unittest.TestCase):
+    TIMES = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5]
+    VALUES = [1, 2, np.nan, 4, 5, 6]
+
+    def test_worked_example_from_the_docstring(self):
+        x, y = pitch.to_word_axis(self.TIMES, self.VALUES, [(0.0, 0.2), None, (0.3, 0.5)])
+        np.testing.assert_allclose(x, [0, 0.5, 1, np.nan, 2, 2.5, 3, np.nan], equal_nan=True)
+        np.testing.assert_allclose(y, [1, 2, np.nan, np.nan, 4, 5, 6, np.nan], equal_nan=True)
+
+    def test_same_word_lands_in_same_cell_even_if_speeds_differ(self):
+        """같은 단어(i=1)를 빠르게(0.1초)·느리게(0.4초) 말해도 x는 모두 1~2 사이에서 같은 비율에 놓인다."""
+        fast_t, slow_t = np.linspace(1.0, 1.1, 5), np.linspace(2.0, 2.4, 5)
+        xf, _ = pitch.to_word_axis(fast_t, np.zeros(5), [None, (1.0, 1.1)])
+        xs, _ = pitch.to_word_axis(slow_t, np.zeros(5), [None, (2.0, 2.4)])
+        np.testing.assert_allclose(xf[:5], xs[:5])
+        self.assertTrue(np.all((xf[:5] >= 1) & (xf[:5] <= 2)))
+
+    def test_unvoiced_frames_stay_nan_inside_a_word(self):
+        x, y = pitch.to_word_axis([0.0, 0.1, 0.2], [1.0, np.nan, 3.0], [(0.0, 0.2)])
+        self.assertTrue(np.isnan(y[1]))                          # 단어 안의 무성음은 0으로 채우지 않고 선이 끊긴다
+
+    def test_words_are_separated_by_nan(self):
+        x, y = pitch.to_word_axis([0.0, 0.1, 0.2, 0.3], [1, 2, 3, 4], [(0.0, 0.1), (0.2, 0.3)])
+        self.assertEqual(int(np.isnan(x).sum()), 2)               # 단어마다 끝에 구분 NaN 하나
+
+    def test_too_short_or_missing_spans_are_skipped(self):
+        x, y = pitch.to_word_axis([0.0, 0.01, 0.02], [1, 2, 3], [(0.0, 0.02), None])
+        self.assertEqual((len(x), len(y)), (0, 0))               # 0.02초 < 0.03초 → 그리지 않음
+
+    def test_integrates_with_relative_semitones(self):
+        f0 = np.array([100.0, 100.0, 200.0, 200.0])
+        rel = pitch.relative_semitones(f0, np.ones(4, bool), median_hz=100.0)
+        _, y = pitch.to_word_axis([0.0, 0.1, 0.2, 0.3], rel, [(0.0, 0.1), (0.2, 0.3)])
+        np.testing.assert_allclose(y, [0, 0, np.nan, 12, 12, np.nan], atol=1e-9, equal_nan=True)
+
+
 if __name__ == "__main__":
     unittest.main()

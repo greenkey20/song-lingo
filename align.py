@@ -101,3 +101,44 @@ def locate_errors(ref, hyp_words, tts_words, lang="en"):
         blocks.append({"ref_words": ref_tokens[r0:r1], "hyp_words": [t["token"] for t in hyp_tok[h0:h1]],
                        "tts_span": tts_span, "hyp_span": _span(hyp_tok, h0, h1)})
     return {"result": result, "hyp_tokens": hyp_tok, "tts_tokens": tts_tok, "blocks": blocks}
+
+
+def _split_shared_spans(tokens):
+    """한 Whisper 단어가 두 토큰 이상이 된 경우(we'll → we·will) 그 토큰들이 같은 시간 구간을 나눠 쓰므로, 구간을 **토큰 수만큼 똑같이 나눠** 하나씩 준다.
+    그렇지 않으면 억양 그래프에서 같은 곡선이 두 칸에 중복으로 그려진다. 글자 수나 실제 음소 길이를 보지 않는 단순한 가정이라 칸 경계는 대략이다.
+    구간이 서로 같은 **연속된** 토큰만 한 단어로 본다. 원본을 고치지 않고 새 목록을 돌려준다."""
+    out, i = [], 0
+    while i < len(tokens):
+        j = i
+        while j + 1 < len(tokens) and (tokens[j + 1]["start"], tokens[j + 1]["end"]) == (tokens[i]["start"], tokens[i]["end"]):
+            j += 1
+        n = j - i + 1
+        step = (tokens[i]["end"] - tokens[i]["start"]) / n
+        for k in range(n):
+            out.append({**tokens[i + k], "start": tokens[i]["start"] + step * k, "end": tokens[i]["start"] + step * (k + 1)})
+        i = j + 1
+    return out
+
+
+def word_spans(ref, hyp_tokens, tts_tokens, lang="en"):
+    """기준 문장의 단어(정규화한 토큰) **하나하나**에 대해 TTS와 내 녹음의 시간 구간을 돌려준다(F0 억양 비교의 단어축, 이슈 #82·검토 문서 16.18).
+
+    ref: 기준 문장. hyp_tokens·tts_tokens: locate_errors 결과의 "hyp_tokens"·"tts_tokens"(word_tokens의 출력; 이미 인식을 한 번 돌렸으므로 다시 인식하지 않는다).
+    돌려주는 값: 기준 토큰 순서대로 [{"token", "tts_span", "hyp_span", "tts_same", "hyp_same"}].
+    - *_span: (시작, 끝) 초. 그 소리에서 대응하는 인식 단어가 없으면(삭제) None.
+    - *_same: 대응한 인식 단어가 기준 단어와 **같은 글자**인가. False면 치환(다른 단어로 인식됨: 시간은 있지만 같은 단어라고 말할 수 없다), 대응이 없으면 None.
+    대응은 locate_errors와 같은 방법(기준 vs 인식을 scoring.score로 맞추고 `_ref_to_tts`로 번호를 옮김)이라 새 정렬 알고리즘은 없다.
+    한 Whisper 단어가 두 토큰이 되면(we'll → we will) 그 단어의 구간을 토큰 수로 **똑같이 나눠** 준다(_split_shared_spans; 같은 곡선이 두 칸에 중복으로 그려지지 않게).
+    단어 시간은 Whisper의 추정이라 강제 정렬이 아니다."""
+    ref_tokens = scoring.normalize(ref, lang).split()
+    out = [{"token": t, "tts_span": None, "hyp_span": None, "tts_same": None, "hyp_same": None} for t in ref_tokens]
+    if not ref_tokens:
+        return out
+    for tokens, span_key, same_key in ((tts_tokens, "tts_span", "tts_same"), (hyp_tokens, "hyp_span", "hyp_same")):
+        tokens = _split_shared_spans(tokens)
+        mapping = _ref_to_tts(scoring.score(ref_tokens, [t["token"] for t in tokens])["ops"])
+        for item, j in zip(out, mapping):
+            if j is not None:
+                item[span_key] = (tokens[j]["start"], tokens[j]["end"])
+                item[same_key] = tokens[j]["token"] == item["token"]
+    return out

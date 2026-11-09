@@ -292,5 +292,23 @@ class F0Summary(unittest.TestCase):
         self.assertEqual(wp.f0_summary({**self.base, "jump_ratio": None})["notes"], [])
 
 
+class F0CompareSummary(unittest.TestCase):
+    A = {"median_hz": 190.0, "range_semitones": 6.0, "jump_ratio": 0.0, "edge": {"change_semitones": 4.2}}
+    B = {"median_hz": 135.0, "range_semitones": 2.1, "jump_ratio": 0.3, "edge": None}
+
+    def test_columns_and_dash_for_missing_edge(self):
+        out = wp.f0_compare_summary(self.B, self.A)                        # (내 녹음, TTS)
+        self.assertEqual([r[0] for r in out["rows"]][0], "중앙 F0")
+        row = {r[0]: r for r in out["rows"]}
+        self.assertEqual(row["앞부분 → 뒷부분"][1:3], ("+4.2 semitone", "—"))       # (TTS, 내 녹음)
+        self.assertEqual(row["중앙 F0"][1:3], ("190 Hz", "135 Hz"))
+        self.assertIn("비교하지 않아요", row["중앙 F0"][3])               # 절대 Hz는 비교 대상이 아니라고 적는다
+
+    def test_unstable_note_names_who(self):
+        notes = wp.f0_compare_summary(self.B, self.A)["notes"]
+        self.assertEqual(len(notes), 1)
+        self.assertIn("내 녹음", notes[0])
+
+
 if __name__ == "__main__":
     unittest.main()
