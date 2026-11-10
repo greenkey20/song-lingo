@@ -159,13 +159,13 @@ def fig_demucs():
 # ───────────────────────── 그림 3: 두 모델 나란히 ─────────────────────────
 def fig_compare():
     fig, ax = canvas()
-    title(ax, "두 모델, 다른 문제", "같은 Transformer 계열 부품이라도 입력 표현과 출력(학습 목표)이 다르면 전혀 다른 일을 한다")
+    title(ax, "두 모델, 다른 문제", "둘 다 CNN과 Transformer를 쓰지만, 출력이 다르면 놓는 자리가 달라진다")
     cols = [(6, "Whisper", "소리 → 글 (음성 인식)", theme.BUTTON_GREEN, "#e8f6ec"), (86, "HTDemucs", "섞인 소리 → 소리 4개 (음원 분리)", theme.PURPLE, "#efe9ff")]
     rows = {
-        "Whisper": ["오디오 (30초 창)", "Log-Mel  80 × 3000", "합성곱 2개 + Transformer 인코더", "Transformer 디코더 (토큰 하나씩)", "텍스트 토큰 (글)"],
-        "HTDemucs": ["섞인 오디오 (7.8초 조각)", "파형  +  STFT 스펙트로그램", "CNN 인코더 ×2경로 + Transformer 5층", "CNN 디코더 (인코더 출력 더하기)", "오디오 소리 4개 (파형)"],
+        "Whisper": ["오디오 (30초 창)", "Log-Mel  80 × 3000", "입력 앞 합성곱 2개 → Transformer 인코더", "Transformer 디코더 (토큰 하나씩)", "텍스트 토큰 (글)"],
+        "HTDemucs": ["섞인 오디오 (7.8초 조각)", "파형  +  STFT 스펙트로그램", "CNN 인코더 2경로 → 가운데 Transformer 5층", "CNN 디코더 2경로 (인코더 출력을 더함)", "오디오 소리 4개 (파형)"],
     }
-    labels = ["입력", "표현", "구조", "복원·생성", "출력"]
+    labels = ["입력", "표현", "인코딩", "복원·생성", "출력"]
     for x, name, sub, ec, fc in cols:
         ax.text(x + 34, 70, name, fontsize=26, fontweight="bold", color=ec, ha="center")
         ax.text(x + 34, 65, sub, fontsize=14, color=theme.INK_SECONDARY, ha="center")
@@ -177,8 +177,8 @@ def fig_compare():
     for k, lab in enumerate(labels):
         ax.text(80, 58.4 - k * 9.6, lab, fontsize=12, color=theme.INK_SECONDARY, ha="center", va="center", fontweight="bold")
     ax.add_patch(FancyBboxPatch((6, 3.5), 148, 8.5, boxstyle="round,pad=0.3,rounding_size=1.2", fc="#ffffff", ec=theme.GRID, lw=1.5))
-    ax.text(80, 9.3, "공통점: CNN과 Transformer를 쓴다 · 둘 다 nn.LSTM 0개 (LSTM·Attention은 '순서 있는 벡터의 열'을 다루는 범용 부품)", fontsize=13, ha="center", color=theme.FOREST, fontweight="bold")
-    ax.text(80, 5.6, "차이점: 디코더가 글을 한 토큰씩 생성 ↔ 오디오를 복원 · 개념 비교용 그림, 실제 내부 층은 더 복잡", fontsize=12, ha="center", color=theme.INK_SECONDARY)
+    ax.text(80, 9.3, "공통점: 둘 다 CNN과 어텐션을 쓴다 — 다만 쓰는 자리가 다르다 (Whisper: Transformer 인코더·디코더, HTDemucs: CNN 인코더·디코더 + 가운데 Transformer)", fontsize=13, ha="center", color=theme.FOREST, fontweight="bold")
+    ax.text(80, 5.6, "차이점: Transformer 디코더가 글을 한 토큰씩 생성 ↔ CNN 디코더가 소리를 복원 (HTDemucs에는 Transformer 디코더가 없음) · 개념 비교용 그림", fontsize=12, ha="center", color=theme.INK_SECONDARY)
     return fig
 
 
