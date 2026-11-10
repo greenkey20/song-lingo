@@ -375,12 +375,28 @@ section("6 모델 속 1 — Whisper");
 // ═════════ 7장 ═════════
 section("7 모델 속 2 — Demucs");
 {
-  const s = pres.addSlide({ masterName: "IMAGE", sectionTitle: "7 모델 속 2 — Demucs" });
-  s.addImage({ path: path.join(ROOT, "docs/slides/slide_7_demucs.png"), x: 0, y: 0, w: W, h: H, altText: "HTDemucs 구조: 파형·스펙트로그램 두 경로의 CNN 4층 → Transformer 5층 → 디코더 4층 → 소리 4개" });
-  s.addNotes(noteOf("7", 0, 2));
+  const s = content("Demucs는 무엇인가", "⑦ 모델 속 2 — Demucs", noteOf("7", 0, 1), "7 모델 속 2 — Demucs");
+  bullets(s, ["Meta AI가 공개한 오픈소스 음원 분리 모델", "곡 하나를 넣으면 소리 4개로 나눠 준다", "한 번에 7.8초 조각씩 처리한다", "우리 앱에서는 선택 기능: 보컬만 듣기 · 분리한 보컬이 가사 인식에 도움이 되는지 비교"], { x: MX, y: 1.95, w: 7.3, h: 2.6, size: 18, gap: 10 });
+  [["drums", "드럼·타악기", "DFF3E4"], ["bass", "베이스", "DFF3E4"], ["other", "나머지 반주 전체 (기타가 아님)", "DFF3E4"], ["vocals", "목소리 — 우리 앱이 쓰는 것", "C6F24E"]].forEach(([n, d, f], i) => {
+    const y = 1.95 + i * 0.68;
+    card(s, MX + 7.9, y, 4.23, 0.56, { fill: f, shadow: false });
+    s.addText([{ text: n + "  ", options: { bold: true, color: "112D18" } }, { text: d, options: { color: "0B0B0B" } }], { ...T, x: MX + 8.1, y, w: 3.9, h: 0.56, fontSize: 14, valign: "middle" });
+  });
+  const lin = [["v1 · v2", "파형을 직접 다루는 U-Net + BiLSTM", "DFF3E4", "112D18"], ["Hybrid", "파형 + 스펙트로그램 두 갈래", "DFF3E4", "112D18"], ["HT Demucs", "가운데에 Transformer — 우리 모델", "C6F24E", "112D18"]];
+  lin.forEach(([t, d, f, c], i) => {
+    const w = (W - 2 * MX - 0.6) / 3, x = MX + i * (w + 0.3);
+    card(s, x, 4.85, w, 1.6, { fill: f, shadow: false });
+    s.addText(t, { ...T, x: x + 0.25, y: 4.95, w: w - 0.5, h: 0.5, fontSize: 18, bold: true, color: c, valign: "middle" });
+    s.addText(d, { ...T, x: x + 0.25, y: 5.5, w: w - 0.5, h: 0.85, fontSize: 15, color: "0B0B0B", valign: "top" });
+  });
 }
 {
-  const s = content("이 모델에서 말할 네 가지", "⑦ 모델 속 2 — Demucs", noteOf("7", 2, 3), "7 모델 속 2 — Demucs");
+  const s = pres.addSlide({ masterName: "IMAGE", sectionTitle: "7 모델 속 2 — Demucs" });
+  s.addImage({ path: path.join(ROOT, "docs/slides/slide_7_demucs.png"), x: 0, y: 0, w: W, h: H, altText: "HTDemucs 구조: 파형·스펙트로그램 두 경로의 CNN 4층 → Transformer 5층 → 디코더 4층 → 소리 4개" });
+  s.addNotes(noteOf("7", 1, 3));
+}
+{
+  const s = content("이 모델에서 말할 네 가지", "⑦ 모델 속 2 — Demucs", noteOf("7", 3, 4), "7 모델 속 2 — Demucs");
   const st = [["1", "두 표현", "같은 소리를 파형과 스펙트로그램, 두 가지 모양으로 본다"], ["2", "CNN 압축", "각 경로의 CNN이 시간·주파수를 줄이고 채널을 늘려 특징 벡터를 만든다"], ["3", "Transformer 결합", "경로 안(self)과 경로 사이(cross)의 정보를 결합한다"], ["4", "디코더 복원", "인코더 출력을 더해 가며 원래 크기의 소리 4개로 복원한다"]];
   st.forEach(([n, t, d], i) => {
     const x = MX + i * 3.05;
@@ -394,7 +410,7 @@ section("7 모델 속 2 — Demucs");
     { ...T, x: MX + 0.3, y: 5.4, w: W - 2 * MX - 0.6, h: 1.0, fontSize: 19, align: "center", valign: "middle" });
 }
 {
-  const s = content("숫자와 한계", "⑦ 모델 속 2 — Demucs", noteOf("7", 4, 5), "7 모델 속 2 — Demucs");
+  const s = content("숫자와 한계", "⑦ 모델 속 2 — Demucs", noteOf("7", 5, 6), "7 모델 속 2 — Demucs");
   const st = [
     ["4,198만 개", "파라미터 중 75%가 Transformer", "학습되는 숫자의 '개수 비중'이며 연산량·성능 기여도가 아님", "DFF3E4", "08833C"],
     ["21.6 dB", "Demucs SDR  (고정 필터는 3~4 dB)", "정답을 아는 쉬운 합성 입력 한정, 실제 노래 성능이 아님", "EFE9FF", "6250D6"],
@@ -413,7 +429,7 @@ section("7 모델 속 2 — Demucs");
   s.addText("우리 앱에서는 분리가 항상 STT를 좋게 하지 않았다 (8구간 tiny: 보컬 0.606 대 원곡 0.506)  →  선택 기능", { ...T, x: MX + 0.3, y: 6.25, w: W - 2 * MX - 0.6, h: 0.62, fontSize: 15, bold: true, color: "112D18", valign: "middle" });
 }
 {
-  const s = content("LSTM·Attention은 자연어 전용이 아니다", "⑦ 모델 속 2 — Demucs", noteOf("7", 3, 4), "7 모델 속 2 — Demucs");
+  const s = content("LSTM·Attention은 자연어 전용이 아니다", "⑦ 모델 속 2 — Demucs", noteOf("7", 4, 5), "7 모델 속 2 — Demucs");
   const bx = (x, y, w, h, t, o = {}) => {
     s.addShape(pres.ShapeType.roundRect, { x, y, w, h, rectRadius: 0.12, fill: { color: o.fill || "DFF3E4" }, line: o.line ? { color: o.line, width: 1.5 } : { type: "none" } });
     s.addText(t, { ...T, x, y, w, h, fontSize: o.size || 15, bold: true, color: o.color || "112D18", align: "center", valign: "middle" });
