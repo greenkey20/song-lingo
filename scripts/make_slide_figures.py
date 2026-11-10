@@ -80,24 +80,29 @@ def fig_whisper():
     title(ax, "Whisper: 소리 → 글", "합성곱 2개 + Transformer 인코더–디코더 · 입력은 항상 30초 창(80 × 3000) · LSTM 0개")
     wav, logmel, n = whisper_logmel(ROOT / "data/tts_cache/s03.wav")
     # ① 실제 입력 예시(직접 쓴 문장의 TTS 소리)
+    # ①·② 는 같은 가로축(0~30초)을 쓴다: Whisper는 소리를 30초 창에 앞쪽부터 넣고 나머지를 0으로 채우므로, 파형도 같은 30초 축에 그려 두 그림이 맞게 한다
+    sec = n / 100                                                                         # 소리가 차지한 길이(초). Log-Mel 한 칸 = 10 ms
     a1 = fig.add_axes([0.06, 0.60, 0.38, 0.12])
     t = np.arange(len(wav)) / 16000
-    a1.plot(t, wav, color=theme.WAVEFORM, lw=0.6); a1.set_xlim(0, t[-1]); a1.set_yticks([]); a1.set_xticks([])
-    a1.set_title("① 입력 소리 (직접 쓴 문장의 TTS 예시)", fontsize=13, color=theme.INK_SECONDARY, loc="left")
+    a1.plot(t, wav, color=theme.WAVEFORM, lw=0.6)
+    a1.axvspan(sec, 30, color=theme.NO_DATA, alpha=0.9, lw=0)                             # 소리가 없는 구간(회색). 파형 자체를 채우는 것이 아니라 ②의 Log-Mel에서 0으로 채운다
+    a1.text((sec + 30) / 2, 0, "소리 없음 → ②에서 0으로 채움", ha="center", va="center", fontsize=13, color=theme.INK_SECONDARY)
+    a1.set_xlim(0, 30); a1.set_yticks([]); a1.set_xticks([])
+    a1.set_title(f"① 입력 소리 (직접 쓴 문장의 TTS, {sec:.1f}초) — 30초 창의 앞쪽에 놓음", fontsize=13, color=theme.INK_SECONDARY, loc="left")
     a2 = fig.add_axes([0.06, 0.40, 0.38, 0.17])
     shown = np.ma.masked_where(np.tile(np.arange(3000) >= n, (80, 1)), logmel)          # 0으로 채운 부분은 회색(데이터 없음)으로 구분해서 보여 준다
     cm = theme.CMAP_SPEC.copy(); cm.set_bad(theme.NO_DATA)
-    a2.imshow(shown, origin="lower", aspect="auto", cmap=cm, vmin=0, vmax=max(1.0, float(logmel.max())))
-    a2.text((n + 3000) / 2, 40, "0으로 채움", ha="center", va="center", fontsize=14, color=theme.INK_SECONDARY)
-    a2.set_xticks([0, 1500, 3000]); a2.set_xticklabels(["0", "15초", "30초"], fontsize=11); a2.set_yticks([0, 79]); a2.set_yticklabels(["Mel 1", "Mel 80"], fontsize=10)
-    a2.set_title("② Log-Mel (80 × 3000)  — 소리는 앞쪽, 나머지는 0으로 채움", fontsize=13, color=theme.INK_SECONDARY, loc="left")
+    a2.imshow(shown, origin="lower", aspect="auto", cmap=cm, vmin=0, vmax=max(1.0, float(logmel.max())), extent=[0, 30, 0, 80])
+    a2.text((sec + 30) / 2, 40, "0으로 채움", ha="center", va="center", fontsize=14, color=theme.INK_SECONDARY)
+    a2.set_xlim(0, 30); a2.set_xticks([0, 15, 30]); a2.set_xticklabels(["0", "15초", "30초"], fontsize=11); a2.set_yticks([0, 80]); a2.set_yticklabels(["Mel 1", "Mel 80"], fontsize=10)
+    a2.set_title("② Log-Mel (80 × 3000) — ①과 같은 가로축(시간)", fontsize=13, color=theme.INK_SECONDARY, loc="left")
     # 흐름
     y = 10
     ax.text(5, 28.5, "③ 계산 흐름", fontsize=16, fontweight="bold", color=theme.FOREST)
     box(ax, 4, y, 19, 14, "Log-Mel\n80 × 3000", fc="#ffffff", ec=theme.INK_SECONDARY, size=14)
     box(ax, 28, y, 21, 14, "합성곱 2개\n시간 3000 → 1500", fc="#ffffff", ec=theme.INK_SECONDARY, size=14)
     box(ax, 54, y, 30, 14, "Transformer 인코더\n(셀프 어텐션) 위치 1500개\ntiny 4층 … medium 24층", size=14)
-    box(ax, 99, y, 31, 14, "Transformer 디코더\n이전 토큰 + 소리 요약을 보고\n다음 토큰을 하나 고름", size=14, fc="#efe9ff", ec=theme.PURPLE, color=theme.PURPLE)
+    box(ax, 99, y, 31, 14, "Transformer 디코더\n이전 토큰 + 인코더 출력\n1500개를 보고 다음 토큰 선택", size=14, fc="#efe9ff", ec=theme.PURPLE, color=theme.PURPLE)
     box(ax, 140, y, 17, 14, "글\n(토큰)", fc="#ffffff", ec=theme.INK_SECONDARY, size=15)
     for x1, x2 in ((23, 28), (49, 54), (130, 140)):
         arrow(ax, x1 + 0.3, y + 7, x2 - 0.3, y + 7)
@@ -144,7 +149,7 @@ def fig_demucs():
     box(ax, 114, 47, 26, 14, "디코더 4층 (파형)\n인코더 출력을 더하기(＋)로 합침", size=11.5)
     box(ax, 114, 33, 26, 12, "디코더 4층 (스펙트로그램)\n역 STFT로 파형 복원", size=11.5)
     arrow(ax, 108.3, 52, 114, 54); arrow(ax, 108.3, 42, 114, 39)
-    box(ax, 144, 36, 14, 22, "소리 4개\n(4, 2, 343,980)\n\n드럼\n베이스\n기타\n보컬", fc="#ffffff", ec=theme.INK_SECONDARY, size=11.5)
+    box(ax, 144, 36, 14, 22, "소리 4개\n(4, 2, 343,980)\n\n드럼\n베이스\n그 밖의 반주\n보컬", fc="#ffffff", ec=theme.INK_SECONDARY, size=11.5)
     arrow(ax, 140.3, 54, 144, 50); arrow(ax, 140.3, 39, 144, 43)
     # 하단 메모
     ax.add_patch(FancyBboxPatch((3, 6), 154, 11.5, boxstyle="round,pad=0.3,rounding_size=1.2", fc="#ffffff", ec=theme.GRID, lw=1.5))
