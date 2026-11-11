@@ -16,11 +16,11 @@ from pathlib import Path
 import quality
 import scoring
 
-MODE_NAME = {"read": "따라 읽기", "dictation": "받아쓰기"}    # 화면에 보일 모드 이름
+MODE_NAME = {"read": "따라읽기", "dictation": "받아쓰기"}    # 화면에 보일 모드 이름
 
 
 def header(prep, mode):
-    """연습을 시작할 때 보여 줄 안내. 따라 읽기는 문장과 뜻을 먼저, 받아쓰기는 문장을 숨긴다(들은 뒤에 공개)."""
+    """연습을 시작할 때 보여 줄 안내. 따라읽기는 문장과 뜻을 먼저, 받아쓰기는 문장을 숨긴다(들은 뒤에 공개)."""
     lines = [f"=== 문장 {prep['id']} · {MODE_NAME[mode]} ==="]
     if prep["id"] == "직접 입력":
         lines.append("※ 입력한 문장은 TTS API로 전송되고 과금됩니다(만든 음성은 data/tts_cache/에 저장해 다시 씁니다).")
@@ -39,7 +39,7 @@ def tts_status(prep):
 
 
 def result(prep, res):
-    """채점 결과 글. 따라 읽기는 녹음 점검 → 정답·인식·오류율·틀린 부분, 받아쓰기는 정답·내 글·오류율·틀린 부분·뜻."""
+    """채점 결과 글. 따라읽기는 녹음 점검 → 정답·인식·오류율·틀린 부분, 받아쓰기는 정답·내 글·오류율·틀린 부분·뜻."""
     if res["error"]:
         return res["error"]      # 오류(녹음 없음, 빈 입력 등)면 그 안내 문구만 보여 준다
     lines = []

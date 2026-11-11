@@ -146,8 +146,8 @@ section("1 한 줄 소개");
   // 제목 자리: 흰 둥근 카드 위의 로고(로고의 글자가 검은색이라 짙은 초록 바탕에는 카드가 필요하다)
   s.addShape(pres.ShapeType.roundRect, { x: MX + 0.2, y: 0.9, w: 6.6, h: 2.55, rectRadius: 0.2, fill: { color: "FCFCFB" }, line: { type: "none" }, objectName: "logo-card" });
   s.addImage({ path: LOGO, x: MX + 0.5, y: 1.1, w: 6.0, h: 6.0 * 892 / 2400 + 0.0, altText: "song lingo 로고" });
-  s.addText("듣고, 따라 읽고, 확인한다", { ...T, x: MX + 0.2, y: 3.7, w: 8, h: 0.7, fontSize: 32, bold: true, color: "C6F24E", valign: "middle" });
-  s.addText("외국어 노래 속 문장을 듣고 → 따라 읽거나 받아 적고 → 어디가 다른지 확인하는 학습 도우미", { ...T, x: MX + 0.2, y: 4.45, w: 7.6, h: 0.9, fontSize: 18, color: "DFF3E4", valign: "top" });
+  s.addText("듣고, 따라읽고, 확인한다", { ...T, x: MX + 0.2, y: 3.7, w: 8, h: 0.7, fontSize: 32, bold: true, color: "C6F24E", valign: "middle" });
+  s.addText("외국어 노래 속 문장을 듣고 → 따라읽거나 받아 적고 → 어디가 다른지 확인하는 학습 도우미", { ...T, x: MX + 0.2, y: 4.45, w: 7.6, h: 0.9, fontSize: 18, color: "DFF3E4", valign: "top" });
   s.addShape(pres.ShapeType.roundRect, { x: MX + 0.2, y: 5.45, w: 8.6, h: 0.75, rectRadius: 0.15, fill: { color: "C6F24E" }, line: { type: "none" } });
   s.addText("소리가 데이터가 되고, 모델을 지나, 사용자에게 돌아오는 길을 직접 만들고 열어 본 프로젝트", { ...T, x: MX + 0.4, y: 5.45, w: 8.3, h: 0.75, fontSize: 16, bold: true, color: "112D18", valign: "middle" });
   s.addText("ICT 혁신 스퀘어 Voice-AI 부트캠프 개인 프로젝트  ·  2026-11-12", { ...T, x: MX + 0.2, y: 6.7, w: 9, h: 0.35, fontSize: 12, color: "8A8985" });
@@ -166,7 +166,7 @@ section("2 왜 만들었나 — 나의 목표");
   });
   card(s, 7.6, 2.1, 5.13, 4.25, { fill: "112D18" });
   s.addText("이 앱은 노래방이 아니다", { ...T, x: 7.95, y: 2.4, w: 4.5, h: 0.6, fontSize: 24, bold: true, color: "C6F24E", valign: "middle" });
-  bullets(s, ["내가 부른 노래를 채점하지 않는다", "노래는 가사를 얻고 듣기 위한 입력", "평가 대상은 내 따라 읽기와 받아쓰기"], { x: 7.95, y: 3.3, w: 4.5, h: 2.8, size: 20, color: "FFFFFF", gap: 18 });
+  bullets(s, ["내가 부른 노래를 채점하지 않는다", "노래는 가사를 얻고 듣기 위한 입력", "평가 대상은 내 따라읽기와 받아쓰기"], { x: 7.95, y: 3.3, w: 4.5, h: 2.8, size: 20, color: "FFFFFF", gap: 18 });
 }
 {
   const s = content("내가 이 프로젝트로 얻고 싶은 것", "② 나의 목표", noteOf("2", 2, 3), "2 왜 만들었나 — 나의 목표");
@@ -256,7 +256,7 @@ section("3 전체 그림");
 section("4 시연");
 {
   const s = content("시연 순서", "④ 시연 (실제 서버 화면)", noteOf("4", 0, 1), "4 시연");
-  const steps = [["1", "로그인", "내 문장"], ["2", "문장 입력", "언어 알아보기"], ["3", "표준 발음", "만들기 · 듣기"], ["4", "따라 읽기", "채점하기"], ["5", "결과 읽기", "위에서 아래로"]];
+  const steps = [["1", "로그인", "내 문장"], ["2", "문장 입력", "언어 알아보기"], ["3", "표준 발음", "만들기 · 듣기"], ["4", "따라읽기", "채점하기"], ["5", "결과 읽기", "위에서 아래로"]];
   steps.forEach(([n, t, d], i) => {
     const x = MX + i * 2.45;
     card(s, x, 2.15, 2.25, 2.5, { fill: i === 4 ? "08833C" : "DFF3E4" });
@@ -661,7 +661,7 @@ section("13 다음 단계와 마무리");
   s.addShape(pres.ShapeType.roundRect, { x: 7.2, y: 1.55, w: 5.53, h: 1.6, rectRadius: 0.15, fill: { color: "1A9F4C", transparency: 30 }, line: { type: "none" } });
   s.addText("어텐션은 실제로 무엇을 보는가?\n두 경로는 각각 무엇을 배웠는가?", { ...T, x: 7.45, y: 1.55, w: 5.1, h: 1.6, fontSize: 18, color: "FFFFFF", valign: "middle" });
   s.addShape(pres.ShapeType.roundRect, { x: MX + 0.2, y: 4.3, w: W - 2 * MX - 0.4, h: 1.55, rectRadius: 0.15, fill: { color: "C6F24E" }, line: { type: "none" } });
-  s.addText("듣고, 따라 읽고, 확인한다 —\n그리고 소리가 데이터가 되어 모델을 지나 돌아오는 길을 직접 열어 본 프로젝트", { ...T, x: MX + 0.5, y: 4.3, w: W - 2 * MX - 1.0, h: 1.55, fontSize: 24, bold: true, color: "112D18", valign: "middle", align: "center" });
+  s.addText("듣고, 따라읽고, 확인한다 —\n그리고 소리가 데이터가 되어 모델을 지나 돌아오는 길을 직접 열어 본 프로젝트", { ...T, x: MX + 0.5, y: 4.3, w: W - 2 * MX - 1.0, h: 1.55, fontSize: 24, bold: true, color: "112D18", valign: "middle", align: "center" });
   s.addText("감사합니다", { ...T, x: MX + 0.2, y: 6.2, w: 6, h: 0.7, fontSize: 32, bold: true, color: "FFFFFF" });
   s.addImage({ path: ICON, x: 11.4, y: 5.95, w: 1.0, h: 1.0, altText: "song-lingo 아이콘" });
 }
