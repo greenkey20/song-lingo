@@ -1,4 +1,4 @@
-"""발표 장표용 그림 3장을 만든다: Whisper(6장), HTDemucs(7장), 두 모델 나란히(7-2장). 이슈 #21, `docs/발표_대본_20261112.md`.
+"""발표 장표용 그림 3장을 만든다: Whisper(8장), HTDemucs(9장), 두 모델 나란히(10장). 이슈 #21, `docs/발표_대본_20261112.md`.
 
 왜 직접 그리나: ChatGPT가 보여 준 그림(`experiments/model anatomy/*chatgpt*`, 스크린샷)은 **다른 곳의 그림**이다. Demucs 그림은 MDX 대회 논문의 **Danna-Sep(U-Net·X-UMX·Demucs를 합친 앙상블)** 이라 HTDemucs의 구조가 아니고,
 Whisper 그림은 입력 예시일 뿐 구조가 아니며 출처·사용 허락도 확인하지 못했다. 그래서 **이 저장소의 노트북에서 확인한 숫자(모양·층 수·토큰 수)** 로만 다시 그렸다.
@@ -187,9 +187,240 @@ def fig_compare():
     return fig
 
 
+def fig_overview():
+    """장표 3: 프로그램 전체 구조(사용자의 손그림 `drafts/slide_3_프로그램 전체 구조 도식화*.jpeg`을 옮긴 것).
+
+    입력(텍스트 또는 원곡 소리) → **언어 확인(한 상자가 두 입력 앞에 걸침)** → OpenAI(TTS·한국어 뜻 설명)·STT·보컬 추출 → 사용자 청취·확인 → 따라읽기/받아쓰기 → 평가 → 학습 기록.
+    상자 색: 진한 초록 = AI 모델·외부 서비스, 연한 초록 = 데이터·결과, 흰색 = 사용자가 하는 일. 점선 = 정답 문장이 오는 길.
+    언어 확인: 텍스트는 문자 체계로, 소리는 Whisper 언어 감지(앞 30초)로 제안하고 사용자가 확인한다(app/views/lyrics.py·song.py).
+    """
+    fig, ax = canvas()
+    ax.text(5, 84, "프로그램 전체 구조: 듣고, 따라읽거나 받아쓰고, 확인한다", fontsize=30, fontweight="bold", color=theme.FOREST, va="center")
+    M = dict(fc=theme.BUTTON_GREEN, ec=theme.BUTTON_GREEN, color="white")          # AI 모델·외부 서비스
+    U = dict(fc="white", ec=theme.BUTTON_GREEN, color=theme.FOREST)                # 사용자가 하는 일
+    S = 13.5
+    # ── 입력 ──
+    ax.text(2, 67, "외국어\n노래 문장", fontsize=15, fontweight="bold", color=theme.FOREST, va="center", linespacing=1.4)
+    ax.text(13.8, 66.5, "{", fontsize=84, color=theme.INK_SECONDARY, va="center", ha="center")
+    box(ax, 18, 70.75, 16, 5, "텍스트", size=S)
+    box(ax, 18, 58.5, 16, 5, "소리 (원곡)", size=S)
+    # ── 언어 확인: 두 입력 앞에 걸친 상자 하나 ──
+    box(ax, 41, 59, 17, 17.5, "언어 확인\n\nen · ja · fr\nes · zh 등\n총 11개", size=12.5, **U)
+    arrow(ax, 34.6, 73.25, 40.6, 73.25)                                # 텍스트 → 언어 확인
+    arrow(ax, 34.6, 61, 40.6, 61)                                      # 소리 → 언어 확인
+    box(ax, 62, 58.5, 16, 5, "STT (Whisper)", size=S, **M)
+    # ── OpenAI: 1열 2행 (위 TTS, 아래 한국어 뜻 설명) ──
+    ax.add_patch(FancyBboxPatch((84, 60), 42, 17, boxstyle="round,pad=0.3,rounding_size=1.2", fc=theme.MINT, ec=theme.BUTTON_GREEN, lw=2.5))
+    box(ax, 85.5, 70.5, 39, 5.5, "TTS (OpenAI)", size=S, **M)
+    box(ax, 85.5, 61, 39, 7, "한국어 뜻, 관련 표현 등\n설명 (OpenAI)", size=12.5, **M)
+    box(ax, 130, 70.75, 24, 5, "기준 음성 생성", size=S)
+    arrow(ax, 58.6, 73.25, 83.6, 73.25)                                # 언어 확인 → OpenAI(텍스트)
+    arrow(ax, 58.6, 61, 61.6, 61)                                      # 언어 확인 → STT(소리)
+    arrow(ax, 78.6, 61.4, 83.6, 64.5, rad=-0.1)                        # STT → OpenAI(인식한 가사)
+    arrow(ax, 126.6, 73.25, 129.6, 73.25)                              # TTS → 기준 음성
+    # ── 보컬 추출 ──
+    box(ax, 100, 45, 16, 5, "Demucs", size=S, **M)
+    box(ax, 122, 45, 20, 5, "보컬 추출", size=S)
+    arrow(ax, 26, 58.2, 99.6, 47.8, rad=0.1)                           # 소리 → Demucs
+    arrow(ax, 116.6, 47.5, 121.6, 47.5)
+    # ── 사용자 청취·확인 (들어오는 화살표 4개) ──
+    box(ax, 70, 33, 34, 5, "사용자 청취·확인", size=S + 1, **U)
+    arrow(ax, 22, 58.2, 69.6, 35.5, rad=0.3)                           # 원곡 → 청취
+    arrow(ax, 92, 60.7, 92, 38.4)                                      # 설명 → 청취
+    arrow(ax, 128, 44.6, 100, 38.6, rad=0.15)                          # 보컬 → 청취
+    ax.plot([147, 147], [70.4, 35.5], color=theme.INK_SECONDARY, lw=2.4, solid_capstyle="butt")    # 기준 음성 → 청취(오른쪽 끝을 돌아 내려옴)
+    arrow(ax, 147, 35.5, 104.6, 35.5)
+    # ── 따라읽기 / 받아쓰기 ──
+    box(ax, 14, 24, 22, 5, "따라읽기", size=S, **U)
+    box(ax, 110, 24, 22, 5, "받아쓰기", size=S, **U)
+    arrow(ax, 74, 32.6, 30, 29.6, rad=-0.15)
+    arrow(ax, 100, 32.6, 118, 29.6, rad=0.15)
+    box(ax, 6, 14, 12, 5, "녹음", size=S, **U)
+    box(ax, 24, 13, 30, 7, "STT (Whisper)\n텍스트 생성", size=12.5, **M)
+    box(ax, 112, 14, 22, 5, "텍스트 입력", size=S, **U)
+    arrow(ax, 20, 23.8, 13, 19.4)
+    arrow(ax, 18.6, 16.5, 23.6, 16.5)
+    arrow(ax, 123, 23.8, 123, 19.4)
+    # ── 평가와 기록 ──
+    box(ax, 62, 14, 44, 5, "정답 문장 대비 오류율 평가", size=S)
+    box(ax, 6, 2, 48, 7, "파형(틀린 구간 표시)·주파수(F0) 분석,\nAzure 발음 평가", size=12, **M)
+    box(ax, 112, 2.5, 34, 6.5, "학습 기록\n(로그인 사용자)", size=12.5, fc=theme.LIME, ec=theme.BUTTON_GREEN, color=theme.FOREST)
+    arrow(ax, 54.6, 16.5, 61.6, 16.5)                                  # STT 텍스트 → 오류율
+    arrow(ax, 111.6, 16.5, 106.6, 16.5)                                # 텍스트 입력 → 오류율
+    arrow(ax, 12, 13.6, 12, 9.4)                                       # 녹음 → 파형·Azure
+    arrow(ax, 54.6, 5.5, 111.6, 5.7)                                   # 분석 → 기록
+    arrow(ax, 96, 13.6, 122, 9.4, rad=-0.1)                            # 오류율 → 기록
+    # ── 점선: 정답 문장이 오는 길(텍스트, 그리고 원곡을 인식한 STT) → 오류율 평가 ──
+    dash = dict(color=theme.INK_SECONDARY, lw=2.0, ls=(0, (5, 4)))
+    ax.plot([37.6, 37.6], [73.25, 22], **dash)                         # 텍스트에서 아래로
+    ax.plot([64, 64], [58.4, 22], **dash)                              # STT에서 아래로
+    ax.plot([37.6, 84], [22, 22], **dash)
+    ax.plot([84, 84], [22, 19.8], **dash)
+    arrow(ax, 84, 20.3, 84, 19.2)
+    ax.text(44, 23.6, "정답 문장", fontsize=11, color=theme.INK_SECONDARY, va="center")
+    return fig
+
+
+def _card(ax, x, y, w, h, fc="white", ec=None, lw=2.0):
+    """둥근 모서리 카드(글은 따로 얹는다). (x, y)는 왼쪽 아래."""
+    ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.3,rounding_size=1.2", fc=fc, ec=ec or theme.BUTTON_GREEN, lw=lw))
+
+
+def _code_box(ax, x, y, w, h, lines, size=12.5):
+    """회색 바탕의 코드 발췌 상자. lines는 (글, 굵게) 목록이 아니라 그냥 글 목록이다. 글꼴은 한글 주석이 깨지지 않게 그림 기본 글꼴을 쓴다."""
+    ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.2,rounding_size=0.8", fc="#f0efeb", ec=theme.GRID, lw=1.5))
+    n = len(lines)
+    for i, s in enumerate(lines):
+        ax.text(x + 1.2, y + h - (i + 0.65) * (h / max(n, 1)), s, fontsize=size, color=theme.FOREST, va="center", ha="left")
+
+
+def fig_dp():
+    """장표 5의 보조: 편집 거리(동적 계획법)로 WER을 구하는 과정. 표는 `scoring.edit_matrix`가 만든 값 그대로이고, 되짚은 길을 색으로 표시한다.
+
+    예시 문장은 직접 쓴 `we sing together until`(정답)과 인식 결과 `we seeing together`(바뀜 1 + 빠짐 1 → 편집 거리 2, WER 0.50).
+    """
+    import scoring
+    ref, hyp = ["we", "sing", "together", "until"], ["we", "seeing", "together"]
+    d = scoring.edit_matrix(ref, hyp)
+    fig, ax = canvas()
+    ax.text(5, 84, "채점의 핵심: 편집 거리를 표로 한 칸씩 채운다 (동적 계획법)", fontsize=30, fontweight="bold", color=theme.FOREST, va="center")
+    ax.text(5, 78.5, "정답과 인식 결과가 얼마나 다른지를, 작은 문제의 답을 표에 적어 가며 큰 문제의 답을 구한다", fontsize=15.5, color=theme.INK_SECONDARY, va="center")
+    # ── 표 (왼쪽) ──
+    x0, y0, cw, ch = 17, 66, 10.5, 6.6
+    ax.text(8.5, y0 + ch / 2 + 0.2, "인식 결과\n(hyp) →", fontsize=13.5, color=theme.INK_SECONDARY, ha="center", va="center")
+    for j, w in enumerate([""] + hyp):
+        ax.text(x0 + (j + 0.5) * cw, y0 + ch / 2 + 0.2, w if w else "∅", fontsize=14, fontweight="bold", color=theme.FOREST, ha="center", va="center")
+    ax.text(4, y0 - 2 * ch + 0.5, "정답\n(ref)", fontsize=13.5, color=theme.INK_SECONDARY, ha="center", va="center")
+    # 되짚기: 오른쪽 아래 → 왼쪽 위(같은 값이면 대각선을 먼저)
+    i, j, path = len(ref), len(hyp), []
+    while i > 0 or j > 0:
+        path.append((i, j))
+        if i > 0 and j > 0 and d[i][j] == d[i - 1][j - 1] + (0 if ref[i - 1] == hyp[j - 1] else 1):
+            i, j = i - 1, j - 1
+        elif i > 0 and d[i][j] == d[i - 1][j] + 1:
+            i -= 1
+        else:
+            j -= 1
+    path.append((0, 0))
+    on = set(path)
+    for r in range(len(ref) + 1):
+        ax.text(x0 - 1.2, y0 - (r + 0.5) * ch + 0.2, ref[r - 1] if r else "∅", fontsize=14, fontweight="bold", color=theme.FOREST, ha="right", va="center")
+        for c in range(len(hyp) + 1):
+            hit = (r, c) in on
+            ax.add_patch(FancyBboxPatch((x0 + c * cw + 0.4, y0 - (r + 1) * ch + 0.4), cw - 0.8, ch - 0.8, boxstyle="round,pad=0.1,rounding_size=0.6",
+                                        fc=theme.MINT if hit else "white", ec=theme.BUTTON_GREEN if hit else theme.GRID, lw=2.4 if hit else 1.4))
+            ax.text(x0 + (c + 0.5) * cw, y0 - (r + 0.5) * ch + 0.2, str(d[r][c]), fontsize=16, fontweight="bold" if hit else "normal",
+                    color=theme.FOREST if hit else theme.INK_SECONDARY, ha="center", va="center")
+    # 되짚은 길의 뜻(위에서 아래로 읽는 순서)
+    ops = [("we = we", "일치", theme.BUTTON_GREEN), ("sing → seeing", "바뀜(S)", theme.PURPLE), ("together = together", "일치", theme.BUTTON_GREEN), ("until → (없음)", "빠짐(D)", theme.PURPLE)]
+    ax.text(x0, y0 - 5 * ch - 3.2, "되짚은 길 (초록 칸):", fontsize=13.5, fontweight="bold", color=theme.FOREST, va="center")
+    for k, (a, b, col) in enumerate(ops):
+        ax.text(x0, y0 - 5 * ch - 7.2 - k * 3.6, f"{a}", fontsize=13, color=theme.INK, va="center")
+        ax.text(x0 + 30, y0 - 5 * ch - 7.2 - k * 3.6, b, fontsize=13, fontweight="bold", color=col, va="center")
+    # ── 오른쪽 설명 ──
+    _card(ax, 74, 52, 80, 22, fc="white")
+    ax.text(77, 71, "한 칸을 채우는 규칙 (점화식)", fontsize=15, fontweight="bold", color=theme.FOREST, va="center")
+    for k, s in enumerate(["d[i][j] = 세 값 중 가장 작은 것", "· 위 칸 + 1   : 삭제 (정답 단어를 지움)", "· 왼쪽 칸 + 1 : 삽입 (인식에만 있는 단어)", "· 대각선 칸 + (같으면 0, 다르면 1) : 일치 · 바뀜"]):
+        ax.text(77, 66.6 - k * 3.6, s, fontsize=13.5, color=theme.INK, va="center")
+    _card(ax, 74, 36, 80, 13, fc=theme.MINT)
+    ax.text(77, 45.6, "표의 오른쪽 아래 칸 = 최소 수정 횟수 = 2", fontsize=14.5, fontweight="bold", color=theme.FOREST, va="center")
+    ax.text(77, 41.2, "WER = (바뀜 S + 빠짐 D + 더해짐 I) ÷ 정답 단어 수 N = (1 + 1 + 0) ÷ 4 = 0.50", fontsize=14, color=theme.FOREST, va="center")
+    _code_box(ax, 74, 14, 80, 18.5, ["# scoring.edit_matrix 의 핵심 (내 코드)", "cost = 0 if ref[i-1] == hyp[j-1] else 1     # 같으면 0, 다르면 1",
+                                      "d[i][j] = min(d[i-1][j] + 1,                  # 삭제", "              d[i][j-1] + 1,                  # 삽입",
+                                      "              d[i-1][j-1] + cost)             # 일치 또는 바뀜"], size=12.3)
+    ax.text(74, 9.2, "이해한 방법: 점화식 → 표를 한 칸씩 넘기는 도구(DP_편집거리_이해하기.html)", fontsize=12.5, color=theme.INK_SECONDARY, va="center")
+    ax.text(74, 5.6, "동률일 때 비슷한 단어끼리 짝짓는 규칙은 이 프로젝트에서 덧붙인 부분(수업에 없음)", fontsize=12.5, color=theme.INK_SECONDARY, va="center")
+    return fig
+
+
+def fig_class_code():
+    """장표 9의 보조: 수업(017_sound)에서 배운 것이 내 코드의 어디에 들어갔는지 — 수업 주제, 코드 발췌(한 줄 주석), 같음/응용.
+
+    발췌는 `audio.py`·`visualisation.py`·`stt.py`에서 줄여 옮겼고 근거는 검토 문서 16.12의 대응표다.
+    """
+    fig, ax = canvas()
+    ax.text(5, 84, "수업에서 배운 것 → 내 코드에 들어간 자리", fontsize=30, fontweight="bold", color=theme.FOREST, va="center")
+    ax.text(5, 78.5, "017_sound 수업의 코드 흐름을 그대로 따르고, 실제 소리·노래에 맞게 응용한 곳만 덧붙였다", fontsize=15.5, color=theme.INK_SECONDARY, va="center")
+    rows = [
+        ("02 리샘플링", "audio.to_16k_mono", ["g = gcd(sr, orig_sr)                            # 44100→16000이면 (160, 441)",
+                                              "x = resample_poly(x, sr // g, orig_sr // g)     # 16 kHz 모노로 맞춤"], "수업과 같음"),
+        ("03·lesson04 STFT", "visualisation.stft_power", ["hz, t, spec = stft(sound, fs=sr, window=\"hann\", nperseg=512, noverlap=512-128)",
+                                                          "power = abs(spec) ** 2                  # 창 512, 이동 128, 파워 = |X|²"], "수업과 같음 (인자를 한 줄씩 대조)"),
+        ("lesson04 Log-Mel", "visualisation.logmel", ["mel_power, _ = apply_mel_filters(hz, power, sr, 40)   # Mel 필터 40개로 묶기",
+                                                      "log_mel = to_db(mel_power)                       # 로그(dB)로 바꿈"], "수업과 같음 + 두 소리를 같은 색 범위로 비교"),
+        ("07 Whisper 최소 예제", "stt.load_model", ["WhisperModel(size, device=\"cpu\", compute_type=\"int8\")   # 7강과 같은 설정",
+                                                    "segments, _ = model.transcribe(audio, beam_size=1)      # 후보 하나만 탐색"], "수업과 같음 + 모델 크기·VAD·온도 옵션"),
+        ("05 WAV와 정답 연결", "sentences.csv ↔ 녹음", ["sentences.csv 의 id=1  ↔  data/recordings/s01_take1.wav",
+                                                       "녹음 파일 번호로 정답 문장을 찾아 인식 결과와 비교"], "같은 발상 [추정]\n(5강 manifest의 id·file·reference)"),
+    ]
+    y = 71
+    rh = 11.6
+    for k, (topic, where, code, note) in enumerate(rows):
+        yy = y - k * (rh + 0.9)
+        box(ax, 5, yy - rh + 1.5, 28, rh - 1.5, f"{topic}\n→ {where}", size=13, fc=theme.MINT)
+        _code_box(ax, 36, yy - rh + 1.5, 83, rh - 1.5, code, size=12)
+        ax.text(122, yy - rh / 2 + 0.7, note, linespacing=1.4, fontsize=12.5, color=theme.INK_SECONDARY, va="center")
+    ax.text(5, 4.5, "STFT 창 512·이동 128은 수업 설정을 그대로 썼다. 앱에 덜 응용된 것: 창 길이·Mel 개수를 바꿔 보는 실험(노트북·이슈 #35에서만).", fontsize=12.5, color=theme.INK_SECONDARY, va="center")
+    return fig
+
+
+def fig_vad():
+    """장표 8의 보조: 노래 구간 인식 실험(설정 A → B → C)에서 가설이 어떻게 바뀌었나.
+
+    숫자는 `experiments/song vocals/노래_구간_비교_실험_절차.md`의 표(구간 c01~c08, 정답 231단어, micro WER)를 그대로 옮겼다. 가사는 없고 곡 번호와 숫자만 쓴다.
+    """
+    fig, ax = canvas()
+    ax.text(5, 84, "노래 구간 인식 실험: 가설이 두 번 바뀌었다", fontsize=30, fontweight="bold", color=theme.FOREST, va="center")
+    ax.text(5, 78.5, "VAD = 말소리 없는 구간을 지우는 전처리 · 폴백 = 인식이 나쁘면 온도를 올려 다시 인식(기본 동작) · 값은 정답 대비 단어 오류율(낮을수록 좋음)", fontsize=14, color=theme.INK_SECONDARY, va="center")
+    cols = [
+        (4, "① 설정 A — 폴백 끔", "tiny·base·small × VAD 끔/켬 × 원곡/보컬, 1회",
+         ["반복 루프가 많아 WER이 1을 넘는 조건이 다수", "예) c05 base 보컬: 정답 32단어에 인식 222단어", "→ 당시 해석: \"분리가 VAD를 쓸 수 있게 한다\""]),
+        (56, "② 설정 B — 기본 설정(폴백 켬)", "tiny·base × VAD × 소리, 3회 반복",
+         ["루프가 거의 사라짐 (삽입 40개 이상 3/64 → 1/96)", "VAD 켬 + 원곡: 8구간 중 5구간이 통째로 비었음", "→ A의 해석 철회, 최고는 base + VAD 끔 + 보컬"]),
+        (108, "③ 설정 C — 모델 크기 확대", "small·medium 추가, 기본 설정, VAD 끔",
+         ["medium은 원곡이 보컬보다 낫고 base는 반대", "→ 결정: medium + 원곡 + VAD 끔 + 기본 설정", "분리는 학습용 기준 음성·보컬만 듣기용 선택 기능"]),
+    ]
+    for x, head, cond, notes in cols:
+        _card(ax, x, 46, 48, 28, fc="white")
+        ax.text(x + 1.8, 71, head, fontsize=15, fontweight="bold", color=theme.FOREST, va="center")
+        ax.text(x + 1.8, 67.2, cond, fontsize=11.5, color=theme.INK_SECONDARY, va="center")
+        for k, s in enumerate(notes):
+            ax.text(x + 1.8, 62.2 - k * 4.8, s, fontsize=12.3, color=theme.INK if k < 2 else theme.PURPLE, va="center", fontweight="normal" if k < 2 else "bold")
+    GREEN, BLUE, GRAY = theme.GREEN, theme.SERIES[1], theme.MUTED
+
+    def chart(x, y, w, h, groups, series, ylim, title, annot=None, legend="upper right"):
+        a = fig.add_axes([x / W, y / H, w / W, h / H])
+        a.set_title(title, fontsize=12.5, color=theme.INK_SECONDARY, loc="left", pad=8)
+        n = len(series)
+        bw = 0.8 / n
+        for s, (name, vals, col) in enumerate(series):
+            xs = np.arange(len(groups)) + (s - (n - 1) / 2) * bw
+            bars = a.bar(xs, vals, bw * 0.92, color=col, label=name)
+            for b_, v in zip(bars, vals):
+                a.text(b_.get_x() + b_.get_width() / 2, v + ylim * 0.015, f"{v:.2f}", ha="center", va="bottom", fontsize=10.5, color=theme.FOREST)
+        a.set_xticks(np.arange(len(groups))); a.set_xticklabels(groups, fontsize=10.5, color=theme.FOREST)
+        a.set_ylim(0, ylim); a.tick_params(axis="y", labelsize=10, colors=theme.INK_SECONDARY)
+        for sp in ("top", "right"):
+            a.spines[sp].set_visible(False)
+        a.legend(fontsize=10, frameon=False, loc=legend)
+        if annot:
+            a.text(annot[1], annot[2], annot[0], fontsize=10.5, color=theme.PURPLE, ha="center", va="bottom", fontweight="bold")
+        return a
+    # ① 폴백 끔 → 켬 (VAD 끔)
+    chart(6, 14, 44, 28, ["tiny\n원곡", "tiny\n보컬", "base\n원곡", "base\n보컬"],
+          [("폴백 끔 (A)", [1.026, 0.983, 0.584, 1.221], GRAY), ("폴백 켬 (B)", [0.556, 0.586, 0.509, 0.382], GREEN)], 1.7, "VAD 끔, 소리·크기별 WER", legend="upper left")
+    # ② VAD 끔/켬 (base, 설정 B)
+    chart(58, 14, 44, 28, ["VAD 끔", "VAD 켬"], [("원곡", [0.509, 0.740], GREEN), ("보컬", [0.382, 0.499], BLUE)], 1.0, "base, 기본 설정 3회 평균 WER",
+          annot=("원곡은 8구간 중\n5구간이 비어 있음", 0.8, 0.84))
+    # ③ 모델 크기 (VAD 끔, 기본 설정)
+    chart(110, 14, 44, 28, ["base", "medium"], [("원곡", [0.509, 0.177], GREEN), ("보컬", [0.382, 0.257], BLUE)], 0.75, "VAD 끔, 기본 설정 WER")
+    ax.text(5, 4.0, "구간 c01~c08(10~20초), 정답 231단어, 영어, CPU·int8. 곡 번호와 숫자만 기록(가사 없음). 이 조건에서의 결과이고 일반화하지 않는다.", fontsize=12, color=theme.INK_SECONDARY, va="center")
+    return fig
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
-    for name, fn in (("slide_6_whisper", fig_whisper), ("slide_7_demucs", fig_demucs), ("slide_7-2_compare", fig_compare)):
+    for name, fn in (("slide_6_whisper", fig_whisper), ("slide_7_demucs", fig_demucs), ("slide_7-2_compare", fig_compare), ("slide_3_overview", fig_overview), ("slide_dp", fig_dp), ("slide_class_code", fig_class_code), ("slide_vad_experiment", fig_vad)):
         fig = fn()
         path = OUT / f"{name}.png"
         fig.savefig(path, dpi=120)
