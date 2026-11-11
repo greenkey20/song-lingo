@@ -281,6 +281,8 @@ sequenceDiagram
 
 `사용자 입력 문자열 → practice.dictation() → scoring.evaluate() → 결과 표시 및 persist.save_practice 저장`
 
+**언어 알아보기는 입력에 따라 방식이 다르다**(11-12 정리, 검토 문서 16.14-보충): 텍스트(내 문장)는 `languages.suggest_line_language`의 **파이썬 규칙**(글자 종류 세기 + 라틴 문자는 낱말·특징 글자 점수, 모델 호출 없음, 한자만 있으면 제안 불가), 소리(내 노래)는 `stt.detect_language`의 **Whisper 언어 감지**(앞 30초, **STT보다 먼저**, 지원 11개 안에서 재순위). 둘 다 제안일 뿐이고 사용자 확인이 `languages.stt_options`·TTS·채점·Azure 로캘을 정한다.
+
 **일본어·중국어**는 공백이 없어 단어(WER) 대신 글자(CER)를 주 지표로 보고, 일본어는 `japanese.py`(pykakasi)가 한자·가타카나를 히라가나 읽기와 로마자로 바꿔 기준·인식을 읽기로 채점한다(`web_practice.apply_japanese_reading`).
 
 ---
