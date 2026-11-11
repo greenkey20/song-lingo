@@ -206,6 +206,24 @@ section("3 전체 그림");
   s.addNotes(noteOf("3", 0, 7));
 }
 {
+  const s = content("언어 알아보기: 텍스트는 규칙, 소리는 모델", "③ 전체 그림", noteOf("3", 8, 9), "3 전체 그림");
+  const cols = [
+    ["텍스트 (내 문장)", "직접 만든 파이썬 규칙 — AI 모델 아님", "DFF3E4", "08833C", "52514E", "0B0B0B",
+      ["글자 종류(가나·한글·한자·키릴·라틴)를 세어 줄마다 제안", "라틴 문자 줄은 자주 쓰는 낱말·특징 글자 점수로 영어·프랑스어 등을 구분", "즉시 · 모델 호출·과금 없음", "한계: 짧은 줄은 틀릴 수 있고, 한자만 있으면 일본어·중국어를 구분하지 못해 직접 선택 (중국어는 자동 제안 안 됨)"]],
+    ["소리 (내 노래)", "Whisper 모델의 언어 감지", "112D18", "C6F24E", "DFF3E4", "FFFFFF",
+      ["구간 앞 30초의 소리를 듣고 언어별 확률 계산 (글로 받아 적지 않음)", "STT보다 먼저 · 원곡 구간 · 앱이 지원하는 11개 안에서 다시 순위", "처음 한 번은 모델을 읽느라 몇십 초", "한계: 반주가 섞인 소리·섞인 언어 가사에서 흔들릴 수 있음 (추정)"]],
+  ];
+  cols.forEach(([t, sub, fill, head, subc, bodyc, items], i) => {
+    const x = MX + i * 6.2;
+    card(s, x, 2.0, 5.93, 3.95, { fill });
+    s.addText(t, { ...T, x: x + 0.3, y: 2.12, w: 5.3, h: 0.55, fontSize: 21, bold: true, color: head, valign: "middle" });
+    s.addText(sub, { ...T, x: x + 0.3, y: 2.68, w: 5.3, h: 0.4, fontSize: 15, color: subc, valign: "middle" });
+    bullets(s, items, { x: x + 0.3, y: 3.2, w: 5.35, h: 2.65, size: 15, color: bodyc, gap: 8 });
+  });
+  card(s, MX, 6.15, W - 2 * MX, 0.65, { fill: "C6F24E", shadow: false });
+  s.addText("둘 다 제안일 뿐 → 사용자가 네 / 아니오 / 모르겠어요로 확인 → 인식(STT) · 기준 음성(TTS) · 채점 · Azure 로캘에 사용", { ...T, x: MX + 0.3, y: 6.15, w: W - 2 * MX - 0.6, h: 0.65, fontSize: 15, bold: true, color: "112D18", valign: "middle" });
+}
+{
   const s = content("무엇이 어디서 돌고 있나", "③ 전체 그림", "", "3 전체 그림");
   const hdr = (t) => ({ text: t, options: { bold: true, color: "FFFFFF", fill: { color: "112D18" }, fontSize: 14, valign: "middle" } });
   const cell = (t, o = {}) => ({ text: t, options: { fontSize: 14, color: "0B0B0B", valign: "middle", ...o } });
