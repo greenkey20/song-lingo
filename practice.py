@@ -13,7 +13,7 @@
 
 흐름
     prep = prepare(문장)                    # 문장 확인 + 기준 음성 준비 (읽기·받아쓰기 공통)
-    res  = read(prep, 녹음 경로)            # 따라 읽기: 점검 → 인식 → 채점
+    res  = read(prep, 녹음 경로)            # 따라읽기: 점검 → 인식 → 채점
     res  = dictation(prep, 내가 적은 글)    # 받아쓰기: 채점
     loc  = locate_errors(prep, res)         # (선택) 틀린 부분의 시간 구간과 그림용 파형
 
@@ -54,7 +54,7 @@ def prepare(target, sentences=None):
 
 
 def read(prep, recording=None, take=1):
-    """따라 읽기: 녹음 상태 점검 → 인식 → 채점. 돌려주는 dict:
+    """따라읽기: 녹음 상태 점검 → 인식 → 채점. 돌려주는 dict:
     {"mode", "error", "recording", "quality", "hyp", "seconds", "score"}
 
     recording: 녹음 파일 경로, 또는 bytes·파일 객체(웹 화면의 업로드·브라우저 녹음, 이슈 #37). 안 주면 문장 번호로
@@ -71,7 +71,7 @@ def read(prep, recording=None, take=1):
     rec = recording if recording is not None else (stt.find_recording(prep["id"], take) if prep["id"].isdigit() else None)
     is_path = isinstance(rec, (str, os.PathLike))
     if rec is None or (is_path and not Path(rec).exists()):
-        res["error"] = ('따라 읽은 녹음이 없습니다. recording="파일 경로"로 지정하거나 '
+        res["error"] = ('따라읽은 녹음이 없습니다. recording="파일 경로"로 지정하거나 '
                         'data/recordings/sNN_take1.wav로 두세요.')
         return res
     res["recording"] = rec
@@ -101,7 +101,7 @@ def dictation(prep, answer):
 
 
 def locate_errors(prep, res, sr=audio.TARGET_SR):
-    """따라 읽기 결과(res)의 틀린 덩어리를 TTS와 내 녹음의 시간 구간으로 바꾸고, 그림에 넣을 파형을 준비한다.
+    """따라읽기 결과(res)의 틀린 덩어리를 TTS와 내 녹음의 시간 구간으로 바꾸고, 그림에 넣을 파형을 준비한다.
 
     인식을 단어별 시간(stt.recognize_words)으로 두 번(내 녹음, TTS) 다시 돌리므로 몇 초 걸린다.
     돌려주는 dict: {"loc"(align.locate_errors의 결과), "sounds"(visualisation.plot_error_spans에 넘길 목록)}
