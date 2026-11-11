@@ -73,7 +73,7 @@ def analyze(raw, orig_sr, sr=audio.TARGET_SR):
     """원본 샘플(audio.load_raw의 결과)로 상태를 점검한다. 돌려주는 값: {"ok", "metrics", "warnings", "info"}.
 
     raw: (샘플, 채널) float 배열. 클리핑은 원본 샘플로, 나머지는 16 kHz 모노로 바꾼 파형으로 계산한다
-    (리샘플링 울림이 없던 클리핑을 만들어 내지 않게 하려는 것이다).
+    (리샘플링 울림이 없던 클리핑을 만들 가능성을 피하는 안전장치다. 합성 사각파에서만 크게 나타났다: 검토 문서 14.3-보충).
     """
     raw = np.asarray(raw, dtype=np.float32)
     if raw.ndim == 1:
@@ -88,7 +88,7 @@ def analyze(raw, orig_sr, sr=audio.TARGET_SR):
     if raw.size == 0:
         return {"ok": False, "metrics": metrics, "warnings": warnings, "info": {}}
 
-    # 클리핑과 최대 진폭은 원본 샘플로 잰다. 16 kHz로 바꾼 파형은 가장자리 울림 때문에 최대값이 1을 살짝 넘을 수 있다.
+    # 클리핑과 최대 진폭은 원본 샘플로 잰다. 16 kHz로 바꾼 파형은 가장자리 울림 때문에 최대값이 1을 살짝 넘을 수 있다(합성 사각파에서는 크게, 실제 말소리 녹음 30개에서는 최대 0.0054만 커짐: 검토 문서 14.3-보충).
     metrics["clip_ratio"] = float(np.mean(np.abs(raw) >= CLIP_LEVEL))   # 모든 채널의 샘플 중 한계에 닿은 비율
     metrics["peak"] = float(np.abs(raw).max())
 

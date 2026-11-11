@@ -397,7 +397,7 @@ elif sug and sug["top"]:
         chosen = st.multiselect("실제 언어 (여러 개 가능, 첫 번째가 주 언어예요)", list(languages.COMMON), format_func=languages.name, key=f"lang_pick_{g}")
         if len(chosen) > 1:
             st.caption(f"섞인 가사는 첫 번째 언어({languages.name(chosen[0])})를 주 언어로 인식해요. "
-                       "(Whisper의 구간별 재감지는 30초 단위라 10~20초 구간에서는 효과가 없어요.)")
+                       "(Whisper의 구간별 재감지는 30초 단위인데 고를 수 있는 구간은 최대 30초라서 효과가 없어요.)")
     else:
         st.caption("자동으로 인식하고, 인식된 가사를 보고 고칠 수 있어요.")
 elif sug:
