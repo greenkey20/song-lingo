@@ -70,6 +70,9 @@ def lines_section(ws, doc, clip_seconds, mix_path, voc_path, has_audio):
     # ---------- 4. 줄 확인·수정 (선택) ----------
     lines = doc["lines"]
     gen = st.session_state["gen"]
+    if not lines:       # 인식된 줄이 하나도 없는 구간(무음·반주만 있는 구간 등): 아래 코드는 lines[0]을 쓰므로 안내하고 멈춘다
+        st.warning("이 구간에서는 인식된 가사가 없어요. 구간을 바꾸거나 길이를 늘려서 '다시 인식하기'를 눌러 보세요.")
+        return
     st.subheader("줄 확인·수정 (선택)")
     st.caption("인식된 가사가 맞으면 **그대로 연습해도 돼요.** 틀린 곳이 보이거나 점수가 이상하면 고쳐서 저장하세요. "
                "인식이 틀리면 기준 문장도 틀려서 점수가 틀린 기준으로 매겨질 수 있어요.")
