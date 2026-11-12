@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" role="img" aria-labelledby="title desc">
+<title id="title">언어 알아보기 — 왜 11개 언어인가?</title>
+<desc id="desc">Song Lingo의 11개 언어 구성과 Whisper 언어 감지 후보 제한 실험. 문자 체계 기반 세 언어, 라틴 문자 기반 일곱 언어, 텍스트 직접 선택 한 언어로 구성된다.</desc>
+<defs>
+  <style>
+    text { font-family: "Noto Sans KR", "Malgun Gothic", sans-serif; }
+    .ink { fill:#0b0b0b; } .dark { fill:#0d3b22; } .green { fill:#1a9f4c; }
+    .muted { fill:#5f6b63; } .pale { fill:#e8f6ec; } .line { stroke:#e3e8e4; stroke-width:2; }
+    .h1 { font-size:54px; font-weight:700; } .h2 { font-size:30px; font-weight:700; }
+    .body { font-size:22px; } .small { font-size:17px; } .tiny { font-size:14px; }
+    .bold { font-weight:700; }
+  </style>
+</defs>
+<rect width="1920" height="1080" fill="#fcfcfb"/>
+<rect x="82" y="53" width="210" height="46" rx="14" fill="#e8f6ec"/>
+<text x="187" y="83" class="small bold" text-anchor="middle" fill="#0b7c3a">구현 범위 · 실험 근거</text>
+<text x="82" y="166" class="h1 dark">언어 알아보기 — 왜 11개 언어인가?</text>
+<text x="84" y="216" class="body muted">입력 유형에 맞는 판별 규칙을 적용하고, 자동 감지는 후보를 좁혀 제안한 뒤 사용자가 최종 확인한다.</text>
+
+<text x="84" y="289" class="h2 dark">11개 언어의 구성</text>
+<text x="1292" y="289" class="h2 dark">Whisper 후보 제한 실험</text>
+
+<!-- card 1 -->
+<rect x="84" y="345" width="360" height="354" rx="28" fill="#fff" stroke="#e3e8e4" stroke-width="2"/>
+<rect x="112" y="370" width="76" height="66" rx="14" fill="#1a9f4c"/>
+<text x="150" y="414" font-size="32" class="bold" fill="#fff" text-anchor="middle">03</text>
+<text x="211" y="412" font-size="24" class="bold dark">문자 체계로 제안</text>
+<rect x="112" y="472" width="304" height="54" rx="13" fill="#e8f6ec"/>
+<text x="264" y="507" font-size="23" class="bold" fill="#0b7c3a" text-anchor="middle">ja  일본어</text>
+<rect x="112" y="538" width="304" height="54" rx="13" fill="#e8f6ec"/>
+<text x="264" y="573" font-size="23" class="bold" fill="#0b7c3a" text-anchor="middle">ko  한국어</text>
+<rect x="112" y="604" width="304" height="54" rx="13" fill="#e8f6ec"/>
+<text x="264" y="639" font-size="23" class="bold" fill="#0b7c3a" text-anchor="middle">ru  러시아어</text>
+<text x="264" y="680" class="small muted" text-anchor="middle">가나 · 한글 · 키릴 문자</text>
+
+<!-- card 2 -->
+<rect x="465" y="345" width="360" height="354" rx="28" fill="#fff" stroke="#e3e8e4" stroke-width="2"/>
+<rect x="493" y="370" width="76" height="66" rx="14" fill="#1a9f4c"/>
+<text x="531" y="414" font-size="32" class="bold" fill="#fff" text-anchor="middle">07</text>
+<text x="592" y="412" font-size="24" class="bold dark">라틴 문자 규칙</text>
+<rect x="493" y="472" width="304" height="54" rx="13" fill="#e8f6ec"/>
+<text x="645" y="507" font-size="23" class="bold" fill="#0b7c3a" text-anchor="middle">en · fr · es</text>
+<rect x="493" y="538" width="304" height="54" rx="13" fill="#e8f6ec"/>
+<text x="645" y="573" font-size="23" class="bold" fill="#0b7c3a" text-anchor="middle">de · it · pt · sv</text>
+<text x="645" y="680" class="small muted" text-anchor="middle">빈출 낱말 + 언어별 특징 문자</text>
+
+<!-- card 3 -->
+<rect x="846" y="345" width="360" height="354" rx="28" fill="#fff" stroke="#e3e8e4" stroke-width="2"/>
+<rect x="874" y="370" width="76" height="66" rx="14" fill="#1a9f4c"/>
+<text x="912" y="414" font-size="32" class="bold" fill="#fff" text-anchor="middle">01</text>
+<text x="973" y="412" font-size="24" class="bold dark">텍스트 직접 선택</text>
+<rect x="874" y="472" width="304" height="54" rx="13" fill="#e8f6ec"/>
+<text x="1026" y="507" font-size="23" class="bold" fill="#0b7c3a" text-anchor="middle">zh  중국어</text>
+<text x="1026" y="680" class="small muted" text-anchor="middle">한자만으로 일·중 구분이 어려움</text>
+
+<!-- common source block -->
+<rect x="84" y="730" width="1122" height="132" rx="24" fill="#f2f8f3" stroke="#e3e8e4" stroke-width="2"/>
+<text x="116" y="770" class="small bold muted">공통 목록 관리</text>
+<rect x="300" y="751" width="178" height="54" rx="14" fill="#1a9f4c"/>
+<text x="389" y="786" font-size="21" class="bold" fill="#fff" text-anchor="middle">LANGS</text>
+<text x="495" y="789" font-size="33" class="bold" fill="#0b7c3a">→</text>
+<rect x="554" y="751" width="178" height="54" rx="14" fill="#1a9f4c"/>
+<text x="643" y="786" font-size="21" class="bold" fill="#fff" text-anchor="middle">COMMON</text>
+<text x="760" y="785" font-size="21" class="bold dark">화면 선택 목록  +  Whisper 후보 재정렬</text>
+<text x="116" y="832" class="tiny muted">languages.py 한 곳에서 이름 · 언어 코드 · Azure 로캘을 함께 관리</text>
+
+<!-- experiment panel -->
+<rect x="1292" y="345" width="544" height="517" rx="28" fill="#fff" stroke="#e3e8e4" stroke-width="2"/>
+<rect x="1327" y="380" width="205" height="47" rx="13" fill="#fbf4e8"/>
+<text x="1429" y="411" class="small bold" fill="#b57318" text-anchor="middle">14곡 실험</text>
+<text x="1800" y="411" class="tiny muted" text-anchor="end">영어 6 · 프랑스어 2 · 일본어 6</text>
+<text x="1330" y="476" class="body bold dark">감지 후보를 en / ja / fr 로 제한</text>
+<rect x="1327" y="508" width="474" height="52" rx="12" fill="#f2f8f3"/>
+<text x="1352" y="542" class="small bold muted">모델</text>
+<text x="1550" y="542" class="small bold muted" text-anchor="middle">제한 전</text>
+<text x="1730" y="542" class="small bold muted" text-anchor="middle">제한 후</text>
+<text x="1352" y="608" class="body bold dark">tiny</text>
+<text x="1550" y="608" class="body muted" text-anchor="middle">12 / 14</text>
+<text x="1730" y="608" class="body bold muted" text-anchor="middle">12 / 14</text>
+<line x1="1335" y1="628" x2="1790" y2="628" class="line"/>
+<text x="1352" y="674" class="body bold dark">base</text>
+<text x="1550" y="674" class="body muted" text-anchor="middle">11 / 14</text>
+<text x="1730" y="674" class="body bold" fill="#0b7c3a" text-anchor="middle">13 / 14</text>
+<line x1="1335" y1="694" x2="1790" y2="694" class="line"/>
+<text x="1352" y="740" class="body bold dark">medium</text>
+<text x="1550" y="740" class="body muted" text-anchor="middle">11 / 14</text>
+<text x="1730" y="740" class="body bold" fill="#0b7c3a" text-anchor="middle">13 / 14</text>
+<rect x="1327" y="782" width="474" height="50" rx="12" fill="#e8f6ec"/>
+<text x="1564" y="815" class="body bold" fill="#0b7c3a" text-anchor="middle">base · medium  11/14 → 13/14</text>
+
+<!-- caveat -->
+<line x1="84" y1="917" x2="1836" y2="917" class="line"/>
+<text x="84" y="963" class="small muted">해석 주의 · 감지 실험은 영어·일본어·프랑스어 3개 언어의 14곡 표본이다. 11개 전체 언어의 인식 성능을 검증한 결과는 아니다.</text>
+<text x="84" y="1018" class="tiny muted">근거: languages.py (LANGS / COMMON / suggest_from_probs) · 프로젝트 검토 문서 16.12 · 16.14</text>
+</svg>
